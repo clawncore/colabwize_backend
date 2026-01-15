@@ -78,6 +78,34 @@ secrets/
 credentials.json
 serviceAccountKey.json
 
+# API Keys and sensitive tokens
+*.key
+*.pem
+*.crt
+*.cert
+*.secret
+*.token
+api-keys.json
+keys.json
+private.key
+public.key
+*.private
+*.public
+SECRET_KEY
+API_KEY
+PRIVATE_KEY
+PUBLIC_KEY
+OPENAI_API_KEY
+ANTHROPIC_API_KEY
+GOOGLE_API_KEY
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+DATABASE_URL
+NEXTAUTH_SECRET
+NEXT_PUBLIC_*_KEY
+VITE_*_KEY
+REACT_APP_*_KEY
+
 # Local configuration
 config/local.json
 .env.local
