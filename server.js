@@ -26,20 +26,36 @@ app.get('/', (req, res) => {
 // Documents endpoint
 app.get('/api/documents', async (req, res) => {
     try {
+        console.log('Documents endpoint called');
+        console.log('Request headers:', req.headers);
+
         // Get authorization header
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: 'Unauthorized' });
+            console.log('No authorization header or invalid format');
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'No authorization token provided'
+            });
         }
 
         const token = authHeader.substring(7);
+        console.log('Token received, attempting to get user...');
 
         // Get user from token
         const { data: { user }, error: userError } = await supabase.auth.getUser(token);
 
         if (userError) {
-            return res.status(401).json({ error: 'Invalid token' });
+            console.error('User error:', userError);
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token',
+                message: userError.message
+            });
         }
+
+        console.log('User identified:', user.id);
 
         // Fetch documents from Supabase
         const { data, error } = await supabase
@@ -53,9 +69,12 @@ app.get('/api/documents', async (req, res) => {
             // Return empty array if table doesn't exist yet
             return res.status(200).json({
                 success: true,
-                data: []
+                data: [],
+                message: 'No documents found'
             });
         }
+
+        console.log('Documents fetched:', data?.length || 0, 'documents');
 
         res.status(200).json({
             success: true,
@@ -65,7 +84,8 @@ app.get('/api/documents', async (req, res) => {
         console.error('Documents error:', error);
         res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: error.message
         });
     }
 });
@@ -73,20 +93,36 @@ app.get('/api/documents', async (req, res) => {
 // Subscription endpoint
 app.get('/api/subscription/current', async (req, res) => {
     try {
+        console.log('Subscription endpoint called');
+        console.log('Request headers:', req.headers);
+
         // Get authorization header
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: 'Unauthorized' });
+            console.log('No authorization header for subscription');
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'No authorization token provided'
+            });
         }
 
         const token = authHeader.substring(7);
+        console.log('Token received for subscription, attempting to get user...');
 
         // Get user from token
         const { data: { user }, error: userError } = await supabase.auth.getUser(token);
 
         if (userError) {
-            return res.status(401).json({ error: 'Invalid token' });
+            console.error('User error in subscription:', userError);
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token',
+                message: userError.message
+            });
         }
+
+        console.log('User identified for subscription:', user.id);
 
         // Fetch subscription data from Supabase
         const { data: subscription, error: subError } = await supabase
@@ -118,6 +154,8 @@ app.get('/api/subscription/current', async (req, res) => {
 
         const usageData = usage || { scan: 0 };
 
+        console.log('Subscription data fetched for user:', user.id);
+
         res.status(200).json({
             success: true,
             subscription: subscriptionData,
@@ -128,7 +166,8 @@ app.get('/api/subscription/current', async (req, res) => {
         console.error('Subscription error:', error);
         res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: error.message
         });
     }
 });
@@ -136,20 +175,36 @@ app.get('/api/subscription/current', async (req, res) => {
 // Onboarding endpoint
 app.get('/api/onboarding/status', async (req, res) => {
     try {
+        console.log('Onboarding endpoint called');
+        console.log('Request headers:', req.headers);
+
         // Get authorization header
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: 'Unauthorized' });
+            console.log('No authorization header for onboarding');
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'No authorization token provided'
+            });
         }
 
         const token = authHeader.substring(7);
+        console.log('Token received for onboarding, attempting to get user...');
 
         // Get user from token
         const { data: { user }, error: userError } = await supabase.auth.getUser(token);
 
         if (userError) {
-            return res.status(401).json({ error: 'Invalid token' });
+            console.error('User error in onboarding:', userError);
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token',
+                message: userError.message
+            });
         }
+
+        console.log('User identified for onboarding:', user.id);
 
         // Fetch onboarding status from Supabase
         const { data, error } = await supabase
@@ -166,6 +221,8 @@ app.get('/api/onboarding/status', async (req, res) => {
             shouldShowTour: true
         };
 
+        console.log('Onboarding data fetched for user:', user.id);
+
         res.status(200).json({
             success: true,
             data: onboardingData
@@ -174,7 +231,8 @@ app.get('/api/onboarding/status', async (req, res) => {
         console.error('Onboarding error:', error);
         res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: error.message
         });
     }
 });
@@ -182,24 +240,123 @@ app.get('/api/onboarding/status', async (req, res) => {
 // Analytics endpoints
 app.get('/api/analytics/trends', async (req, res) => {
     try {
+        console.log('Analytics trends endpoint called');
+        console.log('Request headers:', req.headers);
+
+        // Get authorization header
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            console.log('No authorization header for analytics');
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'No authorization token provided'
+            });
+        }
+
+        const token = authHeader.substring(7);
+        console.log('Token received for analytics trends, attempting to get user...');
+
+        // Get user from token
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+
+        if (userError) {
+            console.error('User error in analytics:', userError);
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token',
+                message: userError.message
+            });
+        }
+
+        console.log('User identified for analytics trends:', user.id);
+
+        // Fetch analytics data from Supabase
+        const { data, error } = await supabase
+            .from('user_analytics')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Analytics trends error:', error);
+            // Return empty array if table doesn't exist yet
+            return res.status(200).json({
+                success: true,
+                data: []
+            });
+        }
+
         res.status(200).json({
             success: true,
-            data: []
+            data: data || []
         });
     } catch (error) {
         console.error('Analytics trends error:', error);
         res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: error.message
         });
     }
 });
 
 app.get('/api/analytics/summary', async (req, res) => {
     try {
+        console.log('Analytics summary endpoint called');
+        console.log('Request headers:', req.headers);
+
+        // Get authorization header
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            console.log('No authorization header for analytics summary');
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'No authorization token provided'
+            });
+        }
+
+        const token = authHeader.substring(7);
+        console.log('Token received for analytics summary, attempting to get user...');
+
+        // Get user from token
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+
+        if (userError) {
+            console.error('User error in analytics summary:', userError);
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token',
+                message: userError.message
+            });
+        }
+
+        console.log('User identified for analytics summary:', user.id);
+
+        // Fetch analytics summary from Supabase
+        const { data, error } = await supabase
+            .from('user_analytics_summary')
+            .select('*')
+            .eq('user_id', user.id)
+            .single();
+
+        if (error) {
+            console.error('Analytics summary error:', error);
+            // Return default values if table doesn't exist yet
+            return res.status(200).json({
+                success: true,
+                data: {
+                    totalDocuments: 0,
+                    totalCollaborators: 0,
+                    totalProjects: 0
+                }
+            });
+        }
+
         res.status(200).json({
             success: true,
-            data: {
+            data: data || {
                 totalDocuments: 0,
                 totalCollaborators: 0,
                 totalProjects: 0
@@ -209,18 +366,76 @@ app.get('/api/analytics/summary', async (req, res) => {
         console.error('Analytics summary error:', error);
         res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: error.message
         });
     }
 });
 
 app.get('/api/analytics/dashboard', async (req, res) => {
     try {
+        console.log('Dashboard analytics endpoint called');
+        console.log('Request headers:', req.headers);
+
+        // Get authorization header
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            console.log('No authorization header for dashboard analytics');
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'No authorization token provided'
+            });
+        }
+
+        const token = authHeader.substring(7);
+        console.log('Token received for dashboard analytics, attempting to get user...');
+
+        // Get user from token
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+
+        if (userError) {
+            console.error('User error in dashboard analytics:', userError);
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token',
+                message: userError.message
+            });
+        }
+
+        console.log('User identified for dashboard analytics:', user.id);
+
+        // Fetch dashboard analytics from Supabase
+        const { data: activityData, error: activityError } = await supabase
+            .from('user_recent_activity')
+            .select('*')
+            .eq('user_id', user.id)
+            .limit(10)
+            .order('created_at', { ascending: false });
+
+        const { data: docTypeData, error: docTypeError } = await supabase
+            .from('user_document_types')
+            .select('*')
+            .eq('user_id', user.id);
+
+        if (activityError || docTypeError) {
+            console.error('Dashboard analytics error:', activityError || docTypeError);
+            // Return default values if tables don't exist yet
+            return res.status(200).json({
+                success: true,
+                data: {
+                    recentActivity: [],
+                    documentTypes: [],
+                    collaborationMetrics: {}
+                }
+            });
+        }
+
         res.status(200).json({
             success: true,
             data: {
-                recentActivity: [],
-                documentTypes: [],
+                recentActivity: activityData || [],
+                documentTypes: docTypeData || [],
                 collaborationMetrics: {}
             }
         });
@@ -228,7 +443,8 @@ app.get('/api/analytics/dashboard', async (req, res) => {
         console.error('Dashboard analytics error:', error);
         res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: error.message
         });
     }
 });
@@ -236,24 +452,124 @@ app.get('/api/analytics/dashboard', async (req, res) => {
 // Authorship endpoints
 app.get('/api/authorship/certificates', async (req, res) => {
     try {
+        console.log('Authorship certificates endpoint called');
+        console.log('Request headers:', req.headers);
+
+        // Get authorization header
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            console.log('No authorization header for authorship');
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'No authorization token provided'
+            });
+        }
+
+        const token = authHeader.substring(7);
+        console.log('Token received for authorship certificates, attempting to get user...');
+
+        // Get user from token
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+
+        if (userError) {
+            console.error('User error in authorship:', userError);
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token',
+                message: userError.message
+            });
+        }
+
+        console.log('User identified for authorship certificates:', user.id);
+
+        // Fetch certificates from Supabase
+        const { data, error } = await supabase
+            .from('authorship_certificates')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Authorship certificates error:', error);
+            // Return empty array if table doesn't exist yet
+            return res.status(200).json({
+                success: true,
+                data: []
+            });
+        }
+
         res.status(200).json({
             success: true,
-            data: []
+            data: data || []
         });
     } catch (error) {
         console.error('Authorship certificates error:', error);
         res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: error.message
         });
     }
 });
 
 app.get('/api/authorship/verification-time', async (req, res) => {
     try {
+        console.log('Authorship verification time endpoint called');
+        console.log('Request headers:', req.headers);
+
+        // Get authorization header
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            console.log('No authorization header for authorship verification');
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'No authorization token provided'
+            });
+        }
+
+        const token = authHeader.substring(7);
+        console.log('Token received for authorship verification, attempting to get user...');
+
+        // Get user from token
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+
+        if (userError) {
+            console.error('User error in authorship verification:', userError);
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token',
+                message: userError.message
+            });
+        }
+
+        console.log('User identified for authorship verification:', user.id);
+
+        // Fetch verification time data from Supabase
+        const { data, error } = await supabase
+            .from('authorship_verification_stats')
+            .select('*')
+            .eq('user_id', user.id)
+            .single();
+
+        if (error) {
+            console.error('Authorship verification time error:', error);
+            // Return default values if table doesn't exist yet
+            return res.status(200).json({
+                success: true,
+                data: {
+                    averageVerificationTime: '24 hours',
+                    fastestTime: '2 hours',
+                    slowestTime: '72 hours',
+                    currentQueueSize: 0
+                }
+            });
+        }
+
         res.status(200).json({
             success: true,
-            data: {
+            data: data || {
                 averageVerificationTime: '24 hours',
                 fastestTime: '2 hours',
                 slowestTime: '72 hours',
@@ -264,7 +580,8 @@ app.get('/api/authorship/verification-time', async (req, res) => {
         console.error('Authorship verification time error:', error);
         res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: error.message
         });
     }
 });
@@ -272,19 +589,75 @@ app.get('/api/authorship/verification-time', async (req, res) => {
 // Citations endpoint
 app.get('/api/citations/summary', async (req, res) => {
     try {
+        console.log('Citations summary endpoint called');
+        console.log('Request headers:', req.headers);
+
+        // Get authorization header
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            console.log('No authorization header for citations');
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'No authorization token provided'
+            });
+        }
+
+        const token = authHeader.substring(7);
+        console.log('Token received for citations summary, attempting to get user...');
+
+        // Get user from token
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+
+        if (userError) {
+            console.error('User error in citations:', userError);
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token',
+                message: userError.message
+            });
+        }
+
+        console.log('User identified for citations summary:', user.id);
+
+        // Fetch citations summary from Supabase
+        const { data, error } = await supabase
+            .from('citations')
+            .select('*')
+            .eq('user_id', user.id);
+
+        if (error) {
+            console.error('Citations summary error:', error);
+            // Return default values if table doesn't exist yet
+            return res.status(200).json({
+                success: true,
+                data: {
+                    totalCitations: 0,
+                    pendingCitations: 0,
+                    verifiedCitations: 0
+                }
+            });
+        }
+
+        // Calculate summary stats
+        const totalCitations = data.length;
+        const pendingCitations = data.filter(citation => citation.status === 'pending').length;
+        const verifiedCitations = data.filter(citation => citation.status === 'verified').length;
+
         res.status(200).json({
             success: true,
             data: {
-                totalCitations: 0,
-                pendingCitations: 0,
-                verifiedCitations: 0
+                totalCitations,
+                pendingCitations,
+                verifiedCitations
             }
         });
     } catch (error) {
         console.error('Citations summary error:', error);
         res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: error.message
         });
     }
 });
