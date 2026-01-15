@@ -1,0 +1,649 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                    String               @id @default(uuid())
+  email                 String               @unique
+  full_name             String?
+  phone_number          String?
+  user_type             String?
+  field_of_study        String?
+  otp_method            String?
+  email_verified        Boolean              @default(false)
+  survey_completed      Boolean              @default(false)
+  storage_used          Float                @default(0)
+  created_at            DateTime             @default(now())
+  updated_at            DateTime             @updatedAt
+  avatar_url            String?
+  two_factor_enabled    Boolean              @default(false)
+  bio                   String?
+  institution           String?
+  location              String?
+  retention_period      Int?
+  first_upload_at       DateTime?
+  onboarding_completed  Boolean              @default(false)
+  onboarding_skipped    Boolean              @default(false)
+  ai_usage              AIUsage[]
+  analytics_events      AnalyticsEvent[]
+  authorship_activities AuthorshipActivity[]
+  certificates          Certificate[]
+  chat_sessions         ChatSession[]
+  citations             Citation[]
+  exports               Export[]
+  feature_requests      FeatureRequest[]
+  feature_votes         FeatureVote[]
+  feedback_comments     FeedbackComment[]
+  files                 File[]
+  originality_scans     OriginalityScan[]
+  otp_verifications     OTPVerification[]
+  payment_history       PaymentHistory[]
+  payment_methods       PaymentMethod[]
+  projects              Project[]
+  real_time_activities  RealTimeActivity[]
+  recycled_items        RecycledItem[]
+  subscription          Subscription?
+  support_tickets       SupportTicket[]
+  usage_tracking        UsageTracking[]
+  feedback              UserFeedback[]
+  user_metrics          UserMetrics?
+  user_sessions         UserSession[]
+  survey                UserSurvey?
+
+  @@index([email])
+  @@map("users")
+}
+
+model RecycledItem {
+  id          String    @id @default(uuid())
+  user_id     String
+  item_type   String
+  item_data   Json
+  deleted_at  DateTime  @default(now())
+  expires_at  DateTime
+  restored_at DateTime?
+  user        User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([item_type])
+  @@index([deleted_at])
+  @@index([expires_at])
+  @@index([restored_at])
+  @@map("recycled_items")
+}
+
+model OTPVerification {
+  id         String   @id @default(uuid())
+  user_id    String
+  email      String
+  otp_code   String
+  expires_at DateTime
+  verified   Boolean  @default(false)
+  created_at DateTime @default(now())
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([email])
+  @@index([otp_code])
+  @@map("otp_verifications")
+}
+
+model UserSurvey {
+  id                   String   @id @default(uuid())
+  user_id              String   @unique
+  role                 String?
+  institution          String?
+  field_of_study       String?
+  primary_use_case     String?
+  created_at           DateTime @default(now())
+  heard_about_platform String?
+  main_job             String?
+  user_goal            String?
+  user                 User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("user_surveys")
+}
+
+model OriginalityScan {
+  id             String               @id @default(uuid())
+  project_id     String
+  user_id        String
+  content_hash   String
+  overall_score  Float
+  classification String
+  scan_status    String               @default("pending")
+  scanned_at     DateTime             @default(now())
+  created_at     DateTime             @default(now())
+  updated_at     DateTime             @updatedAt
+  project        Project              @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user           User                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  suggestions    RephraseSuggestion[]
+  matches        SimilarityMatch[]
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([content_hash])
+  @@map("originality_scans")
+}
+
+model SimilarityMatch {
+  id               String          @id @default(uuid())
+  scan_id          String
+  sentence_text    String
+  matched_source   String
+  source_url       String?
+  similarity_score Float
+  position_start   Int
+  position_end     Int
+  classification   String
+  created_at       DateTime        @default(now())
+  scan             OriginalityScan @relation(fields: [scan_id], references: [id], onDelete: Cascade)
+
+  @@index([scan_id])
+  @@map("similarity_matches")
+}
+
+model RephraseSuggestion {
+  id             String          @id @default(uuid())
+  scan_id        String
+  match_id       String?
+  original_text  String
+  suggested_text String
+  created_at     DateTime        @default(now())
+  scan           OriginalityScan @relation(fields: [scan_id], references: [id], onDelete: Cascade)
+
+  @@index([scan_id])
+  @@map("rephrase_suggestions")
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(uuid())
+  user_id    String
+  project_id String
+  event_type String
+  event_name String
+  event_data Json?
+  session_id String?
+  timestamp  DateTime @default(now())
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([project_id])
+  @@index([event_type])
+  @@index([timestamp])
+  @@map("analytics_events")
+}
+
+model UserMetrics {
+  id                            String    @id @default(uuid())
+  user_id                       String    @unique
+  originality_scans_count       Int       @default(0)
+  citation_checks_count         Int       @default(0)
+  certificates_downloaded_count Int       @default(0)
+  total_documents_uploaded      Int       @default(0)
+  total_time_spent_minutes      Int       @default(0)
+  last_active_at                DateTime?
+  first_seen_at                 DateTime  @default(now())
+  features_used                 Json      @default("[]")
+  is_paid_user                  Boolean   @default(false)
+  converted_at                  DateTime?
+  updated_at                    DateTime  @updatedAt
+  user                          User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([last_active_at])
+  @@map("user_metrics")
+}
+
+model UserSession {
+  id               String    @id @default(uuid())
+  user_id          String
+  session_id       String    @unique
+  started_at       DateTime  @default(now())
+  ended_at         DateTime?
+  duration_seconds Int?
+  events_count     Int       @default(0)
+  user             User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([session_id])
+  @@map("user_sessions")
+}
+
+model Project {
+  id                    String               @id @default(uuid())
+  user_id               String
+  title                 String
+  description           String?
+  content               Json?
+  word_count            Int                  @default(0)
+  file_path             String?
+  file_type             String?
+  created_at            DateTime             @default(now())
+  updated_at            DateTime             @updatedAt
+  analytics_events      AnalyticsEvent[]
+  authorship_activities AuthorshipActivity[]
+  certificates          Certificate[]
+  chat_messages         ChatMessage[]
+  chat_sessions         ChatSession[]
+  citations             Citation[]
+  exports               Export[]
+  files                 File[]
+  originality_scans     OriginalityScan[]
+  user                  User                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  real_time_activities  RealTimeActivity[]
+
+  @@index([user_id])
+  @@index([created_at])
+  @@map("projects")
+}
+
+model Citation {
+  id             String   @id @default(uuid())
+  project_id     String
+  user_id        String
+  title          String
+  author         String
+  year           Int
+  type           String
+  doi            String?
+  url            String?
+  volume         String?
+  issue          String?
+  pages          String?
+  publisher      String?
+  journal        String?
+  citation_count Int?
+  source         String?
+  is_reliable    Boolean  @default(true)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  project        Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([year])
+  @@index([doi])
+  @@map("citations")
+}
+
+model Subscription {
+  id                           String    @id @default(uuid())
+  user_id                      String    @unique
+  lemonsqueezy_customer_id     String?   @unique
+  lemonsqueezy_subscription_id String?   @unique
+  plan                         String
+  status                       String
+  variant_id                   String?
+  current_period_start         DateTime?
+  current_period_end           DateTime?
+  renews_at                    DateTime?
+  ends_at                      DateTime?
+  trial_ends_at                DateTime?
+  cancel_at_period_end         Boolean   @default(false)
+  created_at                   DateTime  @default(now())
+  updated_at                   DateTime  @updatedAt
+  user                         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([lemonsqueezy_customer_id])
+  @@index([lemonsqueezy_subscription_id])
+  @@map("subscriptions")
+}
+
+model UsageTracking {
+  id           String   @id @default(uuid())
+  user_id      String
+  feature      String
+  count        Int      @default(0)
+  period_start DateTime
+  period_end   DateTime
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, feature, period_start])
+  @@index([user_id])
+  @@index([period_start])
+  @@map("usage_tracking")
+}
+
+model PaymentHistory {
+  id                    String   @id @default(uuid())
+  user_id               String
+  lemonsqueezy_order_id String   @unique
+  amount                Int
+  currency              String   @default("usd")
+  status                String
+  receipt_url           String?
+  description           String?
+  created_at            DateTime @default(now())
+  user                  User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([created_at])
+  @@map("payment_history")
+}
+
+model PaymentMethod {
+  id           String   @id @default(uuid())
+  user_id      String
+  type         String
+  provider_id  String?
+  last_four    String?
+  expiry_month Int?
+  expiry_year  Int?
+  brand        String?
+  is_default   Boolean  @default(false)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([provider_id])
+  @@map("payment_methods")
+}
+
+model File {
+  id          String   @id @default(uuid())
+  user_id     String
+  project_id  String?
+  file_name   String
+  file_path   String   @unique
+  file_type   String
+  file_size   Int
+  metadata    Json?
+  uploaded_at DateTime @default(now())
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  project     Project? @relation(fields: [project_id], references: [id])
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([project_id])
+  @@index([uploaded_at])
+  @@map("files")
+}
+
+model Export {
+  id           String   @id @default(uuid())
+  user_id      String
+  project_id   String
+  file_name    String
+  file_size    Int
+  file_type    String
+  download_url String
+  status       String
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  project      Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([project_id])
+  @@index([status])
+  @@map("exports")
+}
+
+model AIUsage {
+  id            String   @id @default(uuid())
+  user_id       String
+  year          Int
+  month         Int
+  request_count Int      @default(0)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, year, month])
+  @@index([user_id])
+  @@map("ai_usage")
+}
+
+model ChatSession {
+  id         String        @id @default(uuid())
+  user_id    String
+  project_id String?
+  title      String?       @default("New Chat")
+  created_at DateTime      @default(now())
+  updated_at DateTime      @updatedAt
+  messages   ChatMessage[]
+  project    Project?      @relation(fields: [project_id], references: [id])
+  user       User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([project_id])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id         String      @id @default(uuid())
+  session_id String
+  project_id String?
+  role       String
+  content    String
+  created_at DateTime    @default(now())
+  project    Project?    @relation(fields: [project_id], references: [id])
+  session    ChatSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  @@index([session_id])
+  @@index([project_id])
+  @@map("chat_messages")
+}
+
+model Certificate {
+  id               String   @id @default(uuid())
+  user_id          String
+  project_id       String?
+  title            String
+  file_name        String
+  file_path        String
+  file_size        Int
+  status           String
+  certificate_type String
+  metadata         Json?
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+  project          Project? @relation(fields: [project_id], references: [id])
+  user             User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([project_id])
+  @@index([created_at])
+  @@map("certificates")
+}
+
+model UserFeedback {
+  id              String            @id @default(uuid())
+  user_id         String?
+  type            String
+  category        String?
+  priority        String
+  title           String
+  description     String
+  status          String
+  attachment_urls String[]          @default([])
+  browser_info    String?
+  os_info         String?
+  screen_size     String?
+  user_plan       String?
+  admin_notes     String?
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+  resolved_at     DateTime?
+  comments        FeedbackComment[]
+  user            User?             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([type])
+  @@index([status])
+  @@index([priority])
+  @@index([created_at])
+  @@map("user_feedback")
+}
+
+model FeedbackComment {
+  id          String       @id @default(uuid())
+  feedback_id String
+  user_id     String?
+  content     String
+  is_internal Boolean      @default(false)
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+  feedback    UserFeedback @relation(fields: [feedback_id], references: [id], onDelete: Cascade)
+  user        User?        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([feedback_id])
+  @@index([user_id])
+  @@index([is_internal])
+  @@index([created_at])
+  @@map("feedback_comments")
+}
+
+model SupportTicket {
+  id             String    @id @default(uuid())
+  user_id        String?
+  subject        String
+  message        String
+  priority       String
+  status         String
+  attachment_url String?
+  browser_info   String?
+  os_info        String?
+  screen_size    String?
+  user_plan      String?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  resolved_at    DateTime?
+  user           User?     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([status])
+  @@index([priority])
+  @@index([created_at])
+  @@map("support_tickets")
+}
+
+model FeatureRequest {
+  id             String        @id @default(uuid())
+  user_id        String?
+  title          String
+  description    String
+  category       String
+  priority       String
+  status         String
+  votes          Int           @default(0)
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
+  implemented_at DateTime?
+  user           User?         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  feature_votes  FeatureVote[]
+
+  @@index([user_id])
+  @@index([status])
+  @@index([category])
+  @@index([votes])
+  @@index([created_at])
+  @@map("feature_requests")
+}
+
+model FeatureVote {
+  id         String         @id @default(uuid())
+  user_id    String?
+  feature_id String
+  created_at DateTime       @default(now())
+  feature    FeatureRequest @relation(fields: [feature_id], references: [id], onDelete: Cascade)
+  user       User?          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, feature_id])
+  @@index([user_id])
+  @@index([feature_id])
+  @@map("feature_votes")
+}
+
+model AuthorshipActivity {
+  id                    String   @id @default(uuid())
+  project_id            String
+  user_id               String
+  time_spent            Int
+  edit_count            Int      @default(0)
+  keystrokes            Int      @default(0)
+  word_count            Int      @default(0)
+  session_start         DateTime @default(now())
+  session_end           DateTime @updatedAt
+  created_at            DateTime @default(now())
+  active_time           Int      @default(0)
+  ai_assisted_edits     Int      @default(0)
+  cognitive_load        Float    @default(0)
+  idle_time             Int      @default(0)
+  manual_edits          Int      @default(0)
+  session_type          String   @default("writing")
+  writing_pattern_score Float    @default(0)
+  project               Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user                  User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([session_start])
+  @@map("authorship_activities")
+}
+
+model RealTimeActivity {
+  id               String   @id @default(uuid())
+  project_id       String
+  user_id          String
+  event_type       String   // 'keystroke' | 'edit' | 'paste' | 'copy' | 'selection-change' | 'session-start' | 'session-end' | 'backspace' | 'delete' | 'format' | 'insert'
+  timestamp        DateTime @default(now())
+  content_before   String?  // Content before change
+  content_after    String?  // Content after change
+  cursor_position  Int?     // Cursor position in the document
+  keystrokes       Int?     @default(0)
+  ai_assisted      Boolean  @default(false)
+  ai_model_used    String?  // Which AI model was used (if any)
+  session_type     String   @default("writing") // 'writing' | 'editing' | 'reviewing' | 'ai-assisted'
+  idle_time        Int?     @default(0)  // Time spent without activity in seconds
+  active_time      Int?     @default(0)  // Actual productive time in seconds
+  word_count       Int?     @default(0)
+  selection_length Int?     @default(0)  // Length of selected text (for copy/paste operations)
+  edit_type        String?  // 'insertion' | 'deletion' | 'modification' | 'formatting' | 'replacement'
+  operation_size   Int?     @default(0) // Size of the operation in characters
+  session_id       String?  // To group activities into sessions
+  created_at       DateTime @default(now())
+  
+  // Relations
+  project Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([project_id])
+  @@index([user_id])
+  @@index([timestamp])
+  @@index([event_type])
+  @@index([session_id])
+  @@map("real_time_activities")
+}
+
+model ContactRequest {
+  id          String    @id @default(uuid())
+  name        String
+  email       String
+  subject     String
+  message     String
+  status      String    @default("new")
+  replied_at  DateTime?
+  ip_address  String?
+  user_agent  String?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  @@index([email])
+  @@index([status])
+  @@index([created_at])
+  @@map("contact_requests")
+}
