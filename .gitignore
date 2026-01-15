@@ -32,9 +32,13 @@ build/Release
 # Typescript v1 declaration files
 typings/
 
-# dotenv environment variables file
+# Environment files
 .env
-.env.test
+.env*
+.env.backup*
+.env.*.backup
+*.env
+*.env.backup
 
 # Temporary folders
 tmp/
