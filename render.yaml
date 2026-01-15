@@ -2,7 +2,7 @@ services:
   - type: web
     name: colabwize-backend
     env: node
-    buildCommand: "npm ci --production=true"
+    buildCommand: "npm install && npm list express"
     startCommand: "npm start"
     envVars:
       - key: NODE_ENV
