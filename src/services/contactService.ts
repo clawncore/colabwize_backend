@@ -1,6 +1,6 @@
 import { EmailService } from "./emailService";
 import { prisma } from "../lib/prisma";
-import fetch from "node-fetch";
+
 import { SecretsService } from "./secrets-service";
 
 export class ContactService {

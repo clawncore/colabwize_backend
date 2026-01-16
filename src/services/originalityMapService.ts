@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { compareTwoStrings } from "string-similarity";
-import { removeStopwords } from "stopword";
+
 import axios from "axios";
 import crypto from "crypto";
 import { EmailService } from "./emailService";
@@ -499,8 +499,8 @@ export class OriginalityMapService {
     try {
       // 1. Calculate String Similarity (Dice Coefficient)
       // Normalize texts
-      const normalized1 = this.normalizeText(text1);
-      const normalized2 = this.normalizeText(text2);
+      const normalized1 = await this.normalizeText(text1);
+      const normalized2 = await this.normalizeText(text2);
 
       const stringScore = compareTwoStrings(normalized1, normalized2);
 
@@ -575,7 +575,7 @@ export class OriginalityMapService {
   /**
    * Normalize text for comparison
    */
-  private static normalizeText(text: string): string {
+  private static async normalizeText(text: string): Promise<string> {
     // Convert to lowercase
     let normalized = text.toLowerCase();
 
@@ -587,6 +587,7 @@ export class OriginalityMapService {
 
     // Remove stopwords
     const words = normalized.split(" ");
+    const { removeStopwords } = await import("stopword");
     const filtered = removeStopwords(words);
 
     return filtered.join(" ");
