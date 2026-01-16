@@ -82,8 +82,43 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 
 // Debug middleware
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url}`);
+// Request Instrumentation Middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // Attach start time to request
+  (req as any).startTime = Date.now();
+  (req as any).authTime = 0; // Will be populated by auth middleware
+
+  // Log request start
+  // console.log(`[REQ] ${req.method} ${req.url}`);
+
+  // Log response time on finish
+  res.on("finish", () => {
+    const duration = Date.now() - (req as any).startTime;
+    const authTime = (req as any).authTime || 0;
+    const dbTime = (req as any).dbTime || 0; // Placeholder if we implement ALS later
+    const processingTime = duration - authTime - dbTime;
+
+    const logLevel = duration > 500 ? "warn" : "info";
+
+    // Structured performance log
+    logger.log(logLevel, "Request Performance", {
+      method: req.method,
+      url: req.url,
+      status: res.statusCode,
+      total_ms: duration,
+      auth_ms: authTime,
+      processing_ms: processingTime,
+      is_slow: duration > 500
+    });
+
+    // Console output for immediate visibility
+    if (duration > 300) {
+      console.log(`[PERF][SLOW] ${req.method} ${req.url} ${res.statusCode} - ${duration}ms (Auth: ${authTime}ms)`);
+    } else {
+      console.log(`[PERF] ${req.method} ${req.url} ${res.statusCode} - ${duration}ms (Auth: ${authTime}ms)`);
+    }
+  });
+
   next();
 });
 
@@ -105,10 +140,24 @@ app.use(async (err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 // Health check endpoint
+// Health check endpoint
 app.get("/health", async (req, res) => {
   try {
-    const prisma = await initializePrisma();
-    await prisma.$queryRaw`SELECT 1`;
+    // Timeout promise (200ms) to ensure strict response time
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("DB_TIMEOUT")), 200)
+    );
+
+    // Database check promise
+    const dbCheck = async () => {
+      // If we are still initializing, this might block, hence the timeout wrapper
+      const prisma = await initializePrisma();
+      await prisma.$queryRaw`SELECT 1`;
+      return true;
+    };
+
+    // Race them
+    await Promise.race([dbCheck(), timeout]);
 
     res.json({
       status: "OK",
@@ -119,14 +168,20 @@ app.get("/health", async (req, res) => {
       },
     });
   } catch (error: any) {
-    logger.error("Health check - DB Connection Failed", { error: error.message });
+    const isTimeout = error.message === "DB_TIMEOUT";
+    const status = isTimeout ? "WARN" : "DEGRADED";
+
+    // Only log actual errors, not timeouts (to avoid spam if DB is slow but working)
+    if (!isTimeout) {
+      logger.error("Health check - DB Connection Failed", { error: error.message });
+    }
+
     // Return 200 OK so Render doesn't kill the container during startup/transient issues
-    // The application can still serve other requests (e.g. static files, or webhooks)
     res.status(200).json({
-      status: "DEGRADED",
+      status,
       timestamp: new Date().toISOString(),
       services: {
-        database: "Disconnected",
+        database: isTimeout ? "Slow/Initializing" : "Disconnected",
         error: error.message
       }
     });

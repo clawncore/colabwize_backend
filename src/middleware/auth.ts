@@ -5,6 +5,15 @@ import {
   NextFunction,
 } from "express";
 import { sendErrorResponse } from "../lib/api-response";
+import { LocalAuthService } from "../services/LocalAuthService";
+
+// Initialize Local Auth (reads env once)
+LocalAuthService.initialize();
+
+// Simple in-memory cache for auth tokens
+const AUTH_CACHE_TTL = 60 * 1000; // 60 seconds
+const MAX_CACHE_SIZE = 1000;
+const authCache = new Map<string, { user: any; session: any; timestamp: number }>();
 
 export async function authenticateRequest(
   request: Request
@@ -21,10 +30,26 @@ export async function authenticateRequest(
     }
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-    console.log("Token extracted for authentication", {
-      tokenLength: token.length,
-      tokenPreview: token.substring(0, 10) + "...",
-    });
+
+    // Check cache
+    const cached = authCache.get(token);
+    if (cached) {
+      if (Date.now() - cached.timestamp < AUTH_CACHE_TTL) {
+        // Return cached result
+        return {
+          user: cached.user,
+          session: cached.session
+        };
+      } else {
+        // Expired
+        authCache.delete(token);
+      }
+    }
+
+    // console.log("Token extracted for authentication", {
+    //   tokenLength: token.length,
+    //   tokenPreview: token.substring(0, 10) + "...",
+    // });
 
     // Verify the token with Supabase
     const supabaseClient = await getSupabaseClient();
@@ -32,21 +57,15 @@ export async function authenticateRequest(
       console.log("Authentication failed: Supabase client not initialized");
       return null;
     }
-    console.log("Verifying token with Supabase");
+    // console.log("Verifying token with Supabase");
     const { data, error } = await supabaseClient.auth.getUser(token);
 
-    // Log the raw response for debugging
-    console.log("Supabase auth response:", {
-      hasData: !!data,
-      hasUser: !!data?.user,
-      hasError: !!error,
-      error: error?.message,
-    });
+    // Arranging logs to be less verbose
+    // console.log("Supabase auth response:", { hasData: !!data, hasError: !!error });
 
     if (error || !data?.user) {
       console.log("Authentication failed: Supabase verification failed", {
         error: error?.message,
-        hasUserData: !!data?.user,
       });
       return null;
     }
@@ -56,16 +75,25 @@ export async function authenticateRequest(
       await supabaseClient.auth.getSession();
 
     if (sessionError) {
-      console.log("Authentication failed: Session retrieval failed", {
-        error: sessionError?.message,
-      });
+      console.log("Authentication failed: Session retrieval failed");
       return null;
     }
 
-    return {
+    const result = {
       user: data.user,
       session: sessionData.session,
     };
+
+    // Update cache
+    if (authCache.size >= MAX_CACHE_SIZE) {
+      // Evict oldest (iterating map gives insertion order)
+      const firstKey = authCache.keys().next().value;
+      if (firstKey) authCache.delete(firstKey);
+
+    }
+    authCache.set(token, { ...result, timestamp: Date.now() });
+
+    return result;
   } catch (error) {
     console.error("Authentication error:", error);
     return null;
@@ -79,6 +107,7 @@ export async function authenticateExpressRequest(
   next: NextFunction
 ): Promise<void> {
   try {
+    const authStart = Date.now();
     console.log("Authentication middleware called", {
       url: req.url,
       method: req.method,
@@ -137,8 +166,54 @@ export async function authenticateExpressRequest(
       tokenPreview: token.substring(0, 10) + "...",
     });
 
-    // Verify the token with Supabase
-    console.log("Verifying token with Supabase");
+    // STRATEGY 1: Stateless JWT Verification (High Performance)
+    // Only works if SUPABASE_JWT_SECRET is set
+    if (process.env.SUPABASE_JWT_SECRET) {
+      try {
+        // Verify locally - <1ms latency
+        const user = LocalAuthService.verifyToken(token);
+
+        (req as any).user = user;
+        const authEnd = Date.now();
+        (req as any).authTime = authEnd - authStart;
+
+        return next();
+      } catch (jwtError: any) {
+        // If JWT verification fails, the token is definitely invalid/expired.
+        // Do NOT fall back to remote auth.
+        console.warn(`[Auth] JWT Verification Failed: ${jwtError.message}`);
+        return sendErrorResponse(
+          res,
+          401,
+          "Invalid or expired token",
+          "Authentication failed"
+        );
+      }
+    } else {
+      // Log once per process or periodically? For now, log on request (dev) or warn.
+      // In production, this should cause an alert, but we continue with fallback as requested.
+      console.warn("[Auth] SUPABASE_JWT_SECRET missing - falling back to slow remote auth");
+    }
+
+    // STRATEGY 2: Cached Remote Auth (Fallback)
+    // Only reached if JWT Secret is missing or if local verification is not enabled.
+
+    // Check cache
+    const cached = authCache.get(token);
+    if (cached) {
+      if (Date.now() - cached.timestamp < AUTH_CACHE_TTL) {
+        (req as any).user = cached.user;
+        const authEnd = Date.now();
+        (req as any).authTime = authEnd - authStart;
+        next();
+        return;
+      } else {
+        authCache.delete(token);
+      }
+    }
+
+    // Verify the token with Supabase (Remote)
+    // console.log("Verifying token with Supabase (Remote Fallback)");
     let data, error;
     try {
       const supabaseClient = await getSupabaseClient();
@@ -149,7 +224,6 @@ export async function authenticateExpressRequest(
           "Supabase client not initialized",
           "Authentication service unavailable"
         );
-        return;
       }
       const result = await supabaseClient.auth.getUser(token);
       data = result.data;
@@ -179,13 +253,11 @@ export async function authenticateExpressRequest(
         networkError instanceof Error ? networkError.message : "Network error",
         "Authentication service unavailable"
       );
-      return;
     }
 
     if (error) {
       console.log("Authentication failed: Supabase error", {
-        error: error.message,
-        errorDetails: error,
+        error: error.message
       });
       return sendErrorResponse(
         res,
@@ -193,7 +265,6 @@ export async function authenticateExpressRequest(
         error.message,
         "Invalid or expired token"
       );
-      return;
     }
 
     if (!data?.user) {
@@ -204,12 +275,28 @@ export async function authenticateExpressRequest(
         "No user data returned",
         "Invalid or expired token"
       );
-      return;
     }
 
     // Attach user to request object
     console.log("Authentication successful for user:", data.user.id);
     (req as any).user = data.user;
+
+    // Update Cache
+    if (authCache.size >= MAX_CACHE_SIZE) {
+      const firstKey = authCache.keys().next().value;
+      if (firstKey) authCache.delete(firstKey);
+    }
+    // We don't have session object easily here without another call, but we only need user for express usually?
+    // The previous implementation didn't call getSession in express middleware, only getUser.
+    // So we cache { user, session: null } for consistency or update type?
+    // The `authenticateRequest` (edge) returns session. The express one only attaches user.
+    // We will cache just user.
+    authCache.set(token, { user: data.user, session: null, timestamp: Date.now() });
+
+    // Calculate and store auth duration
+    const authEnd = Date.now();
+    (req as any).authTime = authEnd - authStart;
+
     next();
   } catch (error) {
     console.error("Authentication error:", error);

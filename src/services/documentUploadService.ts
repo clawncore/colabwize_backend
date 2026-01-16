@@ -1,5 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { Request } from "express";
+import { Worker } from "worker_threads";
+import path from "path";
 import fs from "fs/promises";
 // import pdfParse from "pdf-parse"; // Replaced with dynamic import
 import mammoth from "mammoth";
@@ -83,13 +85,25 @@ export class DocumentUploadService {
       orderBy: {
         created_at: "desc",
       },
-      include: {
+      select: {
+        id: true,
+        user_id: true,
+        title: true,
+        description: true,
+        word_count: true,
+        file_path: true,
+        file_type: true,
+        created_at: true,
+        updated_at: true,
         originality_scans: {
           orderBy: {
             created_at: "desc",
           },
           take: 1, // Get most recent scan
         },
+        citations: {
+          take: 0 // Don't fetch citations list in dashboard
+        }
       },
     });
   }
@@ -311,20 +325,54 @@ export class DocumentUploadService {
   }
 
   /**
-   * Extracts text from PDF files
+   * Extracts text from PDF files using a Worker Thread to prevent event-loop blocking
    */
   private static async extractTextFromPDF(filePath: string): Promise<string> {
-    try {
-      // Dynamic import to avoid top-level polyfill issues in Node 20
-      const pdfParseModule = await import("pdf-parse");
-      // Handle both ESM default export and CJS module.exports
-      const pdfParse = pdfParseModule.default || pdfParseModule;
-      const data = await pdfParse(await fs.readFile(filePath));
-      return data.text;
-    } catch (error) {
-      logger.error("Error parsing PDF", { error, filePath });
-      throw error;
-    }
+    const startTime = Date.now();
+    return new Promise((resolve, reject) => {
+      // Resolve worker path dynamically to support both TS (dev) and JS (prod)
+      const ext = path.extname(__filename);
+      const workerPath = path.join(__dirname, `../workers/pdfWorker${ext}`);
+
+      const worker = new Worker(workerPath);
+
+      const timeout = setTimeout(() => {
+        worker.terminate();
+        const duration = Date.now() - startTime;
+        logger.error(`[PERF] PDF Parsing Timeout (>10s)`, { duration, filePath });
+        reject(new Error("PDF parsing timed out"));
+      }, 10000);
+
+      worker.on("message", (result) => {
+        clearTimeout(timeout);
+        if (result.success) {
+          const duration = Date.now() - startTime;
+          logger.info(`[PERF] PDF Parsing Complete`, { duration, filePath });
+          resolve(result.text);
+        } else {
+          logger.error(`[PERF] Worker Error`, { error: result.error });
+          reject(new Error(result.error));
+        }
+        worker.terminate();
+      });
+
+      worker.on("error", (err: any) => {
+        clearTimeout(timeout);
+        logger.error(`[PERF] Worker Infrastructure Error`, { error: err.message });
+        reject(err);
+        worker.terminate();
+      });
+
+      worker.on("exit", (code) => {
+        if (code !== 0) {
+          clearTimeout(timeout);
+          reject(new Error(`Worker stopped with exit code ${code}`));
+        }
+      });
+
+      // Send job
+      worker.postMessage({ filePath });
+    });
   }
 
   /**
