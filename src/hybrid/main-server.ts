@@ -1,14 +1,14 @@
+import dotenv from "dotenv";
+// Load environment variables immediately
+dotenv.config();
+
 import express, { Application, Request, Response, NextFunction } from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import logger from "../monitoring/logger";
 import { authenticateExpressRequest } from "../middleware/auth";
 import { RecycleBinService } from "../services/recycleBinService";
 import { SecretsService } from "../services/secrets-service";
 import { initializePrisma } from "../lib/prisma-async";
-
-// Load environment variables
-dotenv.config();
 
 // Import routers
 import authRouter from "../api/auth/index";
@@ -39,45 +39,42 @@ const app: Application = express();
 // Force server restart for Prisma Client update
 
 // Middleware
-app.use(
-  cors({
-    origin: async (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl requests)
-      if (!origin) return callback(null, true);
+// Robust CORS Configuration
+const allowedOrigins = [
+  "https://colabwize.com",
+  "https://app.colabwize.com",
+  "https://api.colabwize.com",
+  "http://localhost:3000",
+  "http://localhost:5173",
+  /\.vercel\.app$/
+];
 
-      const frontendUrl = await SecretsService.getFrontendUrl();
-      // Get Allowed Origins from secrets service
-      const allowedOriginsStr = await SecretsService.getAllowedOrigins();
-      const extraOrigins = allowedOriginsStr
-        ? allowedOriginsStr.split(",")
-        : [];
+const corsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
 
-      const allowedOrigins = [
-        frontendUrl,
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:3002",
-        "http://localhost:3003",
-        "http://localhost:3004",
-        "http://localhost:3005",
-        "http://localhost:5173",
-        "http://localhost:4173",
-        "http://127.0.0.1:3000",
-        ...extraOrigins,
-      ].filter(Boolean) as string[];
+    if (allowedOrigins.some(o =>
+      typeof o === "string" ? o === origin : o.test(origin)
+    )) {
+      return callback(null, true);
+    }
 
-      if (
-        allowedOrigins.indexOf(origin) !== -1 ||
-        (await SecretsService.getNodeEnv()) === "development"
-      ) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-  })
-);
+    // Log blocked origins for debugging
+    console.log(`[CORS] Blocked request from origin: ${origin}`);
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  maxAge: 86400 // Cache preflight response for 24 hours
+};
+
+// Apply CORS middleware globally BEFORE all routes
+app.use(cors(corsOptions));
+
+// Explicitly handle OPTIONS preflight for all routes
+app.options("*", cors(corsOptions));
 
 app.use(express.json({ limit: "50mb" }));
 

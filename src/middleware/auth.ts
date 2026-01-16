@@ -173,6 +173,8 @@ export async function authenticateExpressRequest(
         // Verify locally - <1ms latency
         const user = LocalAuthService.verifyToken(token);
 
+        console.log("✅ [Auth] Decoded JWT:", user); // Diagnostic Log
+
         (req as any).user = user;
         const authEnd = Date.now();
         (req as any).authTime = authEnd - authStart;
