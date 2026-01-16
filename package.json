@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node dist/hybrid/main-server.js",
     "dev": "tsx watch src/hybrid/main-server.ts",
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "postinstall": "prisma generate"
   },
   "dependencies": {
