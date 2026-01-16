@@ -2,11 +2,12 @@
   "name": "colabwize-backend",
   "version": "1.0.0",
   "description": "Backend API for CollaborateWise application",
-  "main": "src/hybrid/main-server.ts",
+  "main": "dist/hybrid/main-server.js",
   "scripts": {
     "start": "node dist/hybrid/main-server.js",
     "dev": "tsx watch src/hybrid/main-server.ts",
     "build": "tsc",
+    "prestart": "npm run build",
     "postinstall": "prisma generate"
   },
   "dependencies": {
