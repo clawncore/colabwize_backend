@@ -206,28 +206,39 @@ app.use((req, res) => {
   });
 });
 
-// Initialize recycle bin cleanup scheduler
-RecycleBinService.scheduleCleanup();
-
-// Initialize subscription cron jobs (certificate cleanup & usage reset)
-initializeSubscriptionJobs();
+// Initialize recycle bin cleanup scheduler and subscription jobs inside startServer
+// to ensure DB is ready and catch errors properly
 
 // Start server
 const startServer = async () => {
   try {
+    console.log("🚀 Starting server initialization...");
+
     // Initialize database connection first
     logger.info("Initializing database connection...");
     await initializePrisma();
     logger.info("✅ Database initialized successfully");
 
-    const PORT = await SecretsService.getPort();
-    app.listen(PORT, () => {
+    // Initialize scheduled jobs
+    try {
+      RecycleBinService.scheduleCleanup();
+      initializeSubscriptionJobs();
+      logger.info("✅ Scheduled jobs initialized");
+    } catch (jobError) {
+      logger.warn("⚠️ Failed to initialize scheduled jobs:", jobError);
+      // Continue server startup even if jobs fail
+    }
+
+    const PORT = Number(process.env.PORT) || 10000;
+
+    app.listen(PORT, "0.0.0.0", () => {
       logger.info(`Server running on port ${PORT}`);
-      console.log(`✅ Server running on http://localhost:${PORT}`);
-      console.log(`✅ Health check: http://localhost:${PORT}/health`);
-      console.log(`✅ Originality API: http://localhost:${PORT}/api/originality`);
+      console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
+      console.log(`✅ Health check: http://0.0.0.0:${PORT}/health`);
+      console.log(`✅ Originality API: http://0.0.0.0:${PORT}/api/originality`);
     });
   } catch (error: any) {
+    console.error("❌ Failed to start server:", error);
     logger.error("❌ Failed to start server:", error);
     process.exit(1);
   }
