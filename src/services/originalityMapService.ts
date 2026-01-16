@@ -10,11 +10,24 @@ import { UsageService } from "./usageService";
 import { SecretsService } from "./secrets-service";
 
 // @ts-ignore
-import { pipeline, env } from "@xenova/transformers";
+// import { pipeline, env } from "@xenova/transformers";
 
-// Configure transformers
-env.allowLocalModels = false;
-env.useBrowserCache = false;
+// Dynamic import holder
+let pipeline: any;
+let env: any;
+
+async function getTransformers() {
+  if (!pipeline || !env) {
+    const mod = await import("@xenova/transformers");
+    pipeline = mod.pipeline;
+    env = mod.env;
+
+    // Configure transformers
+    env.allowLocalModels = false;
+    env.useBrowserCache = false;
+  }
+  return { pipeline, env };
+}
 
 // Types
 export interface OriginalityScanResult {
@@ -45,14 +58,14 @@ export interface SimilarityMatchResult {
   positionStart: number;
   positionEnd: number;
   classification:
-    | "green"
-    | "yellow"
-    | "red"
-    | "common_phrase"
-    | "quoted_correctly"
-    | "needs_citation"
-    | "close_paraphrase"
-    | "safe";
+  | "green"
+  | "yellow"
+  | "red"
+  | "common_phrase"
+  | "quoted_correctly"
+  | "needs_citation"
+  | "close_paraphrase"
+  | "safe";
 }
 
 export interface RephraseResult {
@@ -80,6 +93,7 @@ class TransformerService {
   static async getInstance() {
     if (!this.instance) {
       logger.info("Loading feature-extraction model...");
+      const { pipeline } = await getTransformers();
       this.instance = await pipeline(
         "feature-extraction",
         "Xenova/all-MiniLM-L6-v2"
@@ -780,15 +794,15 @@ export class OriginalityMapService {
         | "failed",
       matches: scan.matches
         ? scan.matches.map((match: any) => ({
-            id: match.id,
-            sentenceText: match.sentence_text,
-            matchedSource: match.matched_source,
-            sourceUrl: match.source_url || undefined,
-            similarityScore: match.similarity_score,
-            positionStart: match.position_start,
-            positionEnd: match.position_end,
-            classification: match.classification as any,
-          }))
+          id: match.id,
+          sentenceText: match.sentence_text,
+          matchedSource: match.matched_source,
+          sourceUrl: match.source_url || undefined,
+          similarityScore: match.similarity_score,
+          positionStart: match.position_start,
+          positionEnd: match.position_end,
+          classification: match.classification as any,
+        }))
         : [],
       scannedAt: scan.scanned_at,
       realityCheck: this.calculateRealityCheck(
