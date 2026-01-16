@@ -181,15 +181,11 @@ export async function authenticateExpressRequest(
 
         return next();
       } catch (jwtError: any) {
-        // If JWT verification fails, the token is definitely invalid/expired.
-        // Do NOT fall back to remote auth.
-        console.warn(`[Auth] JWT Verification Failed: ${jwtError.message}`);
-        return sendErrorResponse(
-          res,
-          401,
-          "Invalid or expired token",
-          "Authentication failed"
-        );
+        // If JWT verification fails locally, it might be a secret mismatch or expiration.
+        // Instead of failing hard, we fall back to remote verification to be safe.
+        // This fixes the "401 on User Data" if the secret is rotated or wrong.
+        console.warn(`⚠️ [Auth] Local JWT Verification Failed (Falling back to remote): ${jwtError.message}`);
+        // Continue execution to Strategy 2
       }
     } else {
       // Log once per process or periodically? For now, log on request (dev) or warn.
