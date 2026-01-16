@@ -24,9 +24,12 @@ export async function initializePrisma(): Promise<PrismaClient> {
     }
 
     // Enforce strict SSL for Supabase compatibility
-    if (!databaseUrl.includes("sslaccept=strict")) {
+    // Fix P1011: Use accept_invalid_certs because Supabase Pooler certs may not verify against standard CAs
+    if (!databaseUrl.includes("sslaccept=")) {
         const separator = databaseUrl.includes("?") ? "&" : "?";
-        databaseUrl += `${separator}sslaccept=strict`;
+        databaseUrl += `${separator}sslaccept=accept_invalid_certs`;
+    } else if (databaseUrl.includes("sslaccept=strict")) {
+        databaseUrl = databaseUrl.replace("sslaccept=strict", "sslaccept=accept_invalid_certs");
     }
 
     // Ensure pgbouncer=true is present if using the pooler port (6543)

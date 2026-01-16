@@ -267,9 +267,9 @@ export class SecretsService {
 
   // Get database configuration values
   static async getDatabaseUrl(): Promise<string | null> {
-    // Simply return the DATABASE_URL environment variable
-    // For Supabase deployments, set DATABASE_URL to your Supabase postgres connection string
-    return this.getSecret("DATABASE_URL");
+    // CRITICAL: Strictly return from environment logic to avoid circular dependency.
+    // SecretsService cannot query the DB to find the DB URL.
+    return process.env.DATABASE_URL || null;
   }
 
   // Get AI Detection configuration values

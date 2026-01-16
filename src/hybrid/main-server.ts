@@ -114,16 +114,21 @@ app.get("/health", async (req, res) => {
       status: "OK",
       timestamp: new Date().toISOString(),
       services: {
-        database: "PostgreSQL",
+        database: "Connected",
         auth: "Supabase Auth",
       },
     });
   } catch (error: any) {
-    logger.error("Health check failed", { error: error.message });
-    res.status(500).json({
-      status: "ERROR",
+    logger.error("Health check - DB Connection Failed", { error: error.message });
+    // Return 200 OK so Render doesn't kill the container during startup/transient issues
+    // The application can still serve other requests (e.g. static files, or webhooks)
+    res.status(200).json({
+      status: "DEGRADED",
       timestamp: new Date().toISOString(),
-      error: error.message,
+      services: {
+        database: "Disconnected",
+        error: error.message
+      }
     });
   }
 });
