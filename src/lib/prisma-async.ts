@@ -13,7 +13,7 @@ export async function initializePrisma(): Promise<PrismaClient> {
     }
 
     // Get database URL from secrets service
-    const databaseUrl = await SecretsService.getDatabaseUrl();
+    let databaseUrl = await SecretsService.getDatabaseUrl();
 
     console.log(
         "DEBUG: Initializing Prisma with connection string present:",
@@ -23,6 +23,14 @@ export async function initializePrisma(): Promise<PrismaClient> {
     if (!databaseUrl) {
         logger.error("❌ DATABASE_URL not found in environment or secrets");
         throw new Error("DATABASE_URL is required for database connection");
+    }
+
+    // Enforce strict SSL for Node 22+ compatibility with Supabase
+    // This fixes P1011 OpenSSL error
+    if (!databaseUrl.includes("sslaccept=strict")) {
+        const separator = databaseUrl.includes("?") ? "&" : "?";
+        databaseUrl += `${separator}sslaccept=strict`;
+        console.log("🔒 Enforced strict SSL (sslaccept=strict) for database connection");
     }
 
     // Set the DATABASE_URL environment variable for Prisma
