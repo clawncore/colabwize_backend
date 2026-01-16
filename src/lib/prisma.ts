@@ -7,20 +7,17 @@ const globalForPrisma = global as unknown as {
   prisma: any;
 };
 
-// Initialize Prisma Client with PostgreSQL adapter
+// Initialize Prisma Client with direct database connection
 const connectionString = process.env.DATABASE_URL!;
 console.log(
   "DEBUG: Initializing Prisma with connection string present:",
   !!connectionString
 );
-const pool = new Pool({ connectionString });
-const adapter = new PrismaPg(pool);
 
-// Prisma client configuration
+// Prisma client configuration - using direct connection for compatibility
 export const prisma =
   globalForPrisma.prisma ||
   new PrismaClient({
-    adapter,
     log:
       process.env.NODE_ENV === "development"
         ? ["query", "error", "warn"]
