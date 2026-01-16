@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "description": "Backend API for CollaborateWise application",
   "main": "dist/hybrid/main-server.js",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
-    "start": "node --dns-result-order=ipv4first dist/hybrid/main-server.js",
+    "start": "node dist/hybrid/main-server.js",
     "dev": "tsx watch src/hybrid/main-server.ts",
     "build": "tsc",
     "postinstall": "prisma generate"
