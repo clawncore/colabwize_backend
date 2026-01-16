@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { EmailService } from "./emailService";
-import fetch from "node-fetch";
+// Using native fetch (Node 18+)
 import SecretsService from "./secrets-service";
 
 interface UserFeedback {

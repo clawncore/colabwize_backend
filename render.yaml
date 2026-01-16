@@ -2,7 +2,7 @@ services:
   - type: web
     name: colabwize-backend
     env: node
-    buildCommand: npm install
+    buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
@@ -10,7 +10,7 @@ services:
       - key: PORT
         value: 3001
       - key: DATABASE_URL
-        sync: false
+        sync: false  # Will use SUPABASE_URL for database connection
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY

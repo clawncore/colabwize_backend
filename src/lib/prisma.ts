@@ -1,16 +1,20 @@
 import { PrismaClient } from "@prisma/client";
 import logger from "../monitoring/logger";
+import { SecretsService } from "../services/secrets-service";
 
 const globalForPrisma = global as unknown as {
   prisma: any;
 };
 
 // Initialize Prisma Client with direct database connection
-const connectionString = process.env.DATABASE_URL!;
-console.log(
-  "DEBUG: Initializing Prisma with connection string present:",
-  !!connectionString
-);
+const getConnectionString = async (): Promise<string> => {
+  const connectionString = await SecretsService.getDatabaseUrl();
+  console.log(
+    "DEBUG: Initializing Prisma with connection string present:",
+    !!connectionString
+  );
+  return connectionString || "";
+};
 
 // Prisma client configuration - using direct connection for compatibility
 export const prisma =

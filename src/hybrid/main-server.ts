@@ -5,6 +5,7 @@ import logger from "../monitoring/logger";
 import { authenticateExpressRequest } from "../middleware/auth";
 import { RecycleBinService } from "../services/recycleBinService";
 import { SecretsService } from "../services/secrets-service";
+import { initializePrisma } from "../lib/prisma-async";
 
 // Load environment variables
 dotenv.config();
@@ -106,7 +107,7 @@ app.use(async (err: any, req: Request, res: Response, next: NextFunction) => {
 // Health check endpoint
 app.get("/health", async (req, res) => {
   try {
-    const { prisma } = await import("../lib/prisma");
+    const prisma = await initializePrisma();
     await prisma.$queryRaw`SELECT 1`;
 
     res.json({
@@ -212,15 +213,24 @@ RecycleBinService.scheduleCleanup();
 initializeSubscriptionJobs();
 
 // Start server
-// Start server
 const startServer = async () => {
-  const PORT = await SecretsService.getPort();
-  app.listen(PORT, () => {
-    logger.info(`Server running on port ${PORT}`);
-    console.log(`✅ Server running on http://localhost:${PORT}`);
-    console.log(`✅ Health check: http://localhost:${PORT}/health`);
-    console.log(`✅ Originality API: http://localhost:${PORT}/api/originality`);
-  });
+  try {
+    // Initialize database connection first
+    logger.info("Initializing database connection...");
+    await initializePrisma();
+    logger.info("✅ Database initialized successfully");
+
+    const PORT = await SecretsService.getPort();
+    app.listen(PORT, () => {
+      logger.info(`Server running on port ${PORT}`);
+      console.log(`✅ Server running on http://localhost:${PORT}`);
+      console.log(`✅ Health check: http://localhost:${PORT}/health`);
+      console.log(`✅ Originality API: http://localhost:${PORT}/api/originality`);
+    });
+  } catch (error: any) {
+    logger.error("❌ Failed to start server:", error);
+    process.exit(1);
+  }
 };
 
 startServer();

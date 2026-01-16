@@ -267,6 +267,8 @@ export class SecretsService {
 
   // Get database configuration values
   static async getDatabaseUrl(): Promise<string | null> {
+    // Simply return the DATABASE_URL environment variable
+    // For Supabase deployments, set DATABASE_URL to your Supabase postgres connection string
     return this.getSecret("DATABASE_URL");
   }
 

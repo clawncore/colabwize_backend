@@ -4,7 +4,7 @@
   "description": "Backend API for CollaborateWise application",
   "main": "src/hybrid/main-server.ts",
   "scripts": {
-    "start": "tsx src/hybrid/main-server.ts",
+    "start": "node dist/hybrid/main-server.js",
     "dev": "tsx watch src/hybrid/main-server.ts",
     "build": "tsc",
     "postinstall": "prisma generate"
