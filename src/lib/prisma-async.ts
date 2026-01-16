@@ -33,6 +33,10 @@ export async function initializePrisma(): Promise<PrismaClient> {
         console.log("🔒 Enforced strict SSL (sslaccept=strict) for database connection");
     }
 
+    // Log the redacted URL for debugging
+    const redactedUrl = databaseUrl.replace(/:([^:@]+)@/, ":****@");
+    console.log(`DEBUG: Final Connection String: ${redactedUrl}`);
+
     // Set the DATABASE_URL environment variable for Prisma
     process.env.DATABASE_URL = databaseUrl;
 
