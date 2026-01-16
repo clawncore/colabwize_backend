@@ -14,7 +14,7 @@ const router = express.Router();
  */
 router.post("/", async (req: Request, res: Response) => {
   try {
-    const { messages, context, sessionId } = req.body;
+    const { messages, context, sessionId } = req.body as any; // Safe cast until strict model is ready
     const userId = (req as any).user?.id;
 
     console.log("Chat API Request received:", {
@@ -27,7 +27,7 @@ router.post("/", async (req: Request, res: Response) => {
     // Check and increment usage for AI Integrity Chat
     await checkUsageLimit("ai_integrity")(req, res, async () => {
       // If we pass the check, increment usage immediately
-      await incrementFeatureUsage("ai_integrity")(req, res, () => {});
+      await incrementFeatureUsage("ai_integrity")(req, res, () => { });
     });
 
     // If checkUsageLimit sent a response (error), we shouldn't proceed.
@@ -50,7 +50,7 @@ router.post("/", async (req: Request, res: Response) => {
     if (!allowed) return; // Response already sent by middleware
 
     // Increment usage
-    await incrementFeatureUsage("ai_integrity")(req, res, () => {});
+    await incrementFeatureUsage("ai_integrity")(req, res, () => { });
 
     const result = await AIChatService.streamChat(
       messages,
@@ -138,14 +138,14 @@ router.patch("/session/:sessionId", async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     const { sessionId } = req.params;
-    const { title } = req.body;
+    const { title } = req.body as { title: string };
 
     if (!userId) {
       return sendErrorResponse(res, 401, "Unauthorized");
     }
 
     const updatedSession = await AIChatService.updateSession(
-      sessionId,
+      sessionId as string,
       userId,
       { title }
     );
@@ -168,7 +168,7 @@ router.delete("/session/:sessionId", async (req: Request, res: Response) => {
       return sendErrorResponse(res, 401, "Unauthorized");
     }
 
-    await AIChatService.deleteSession(sessionId, userId);
+    await AIChatService.deleteSession(sessionId as string, userId);
     return sendJsonResponse(res, 200, { success: true });
   } catch (error: any) {
     return sendErrorResponse(res, 500, error.message);
@@ -188,7 +188,7 @@ router.get("/session/:sessionId", async (req: Request, res: Response) => {
       return sendErrorResponse(res, 401, "Unauthorized");
     }
 
-    const history = await AIChatService.getSessionHistory(sessionId, userId);
+    const history = await AIChatService.getSessionHistory(sessionId as string, userId);
     return sendJsonResponse(res, 200, history);
   } catch (error: any) {
     return sendErrorResponse(res, 500, error.message);

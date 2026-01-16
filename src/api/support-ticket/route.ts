@@ -98,7 +98,7 @@ router.get("/:id", authenticateExpressRequest, async (req, res) => {
       });
     }
 
-    const ticket = await SupportTicketService.getTicketById(userId, id);
+    const ticket = await SupportTicketService.getTicketById(userId, id as string);
 
     if (!ticket) {
       return res.status(404).json({
@@ -157,7 +157,7 @@ router.patch("/:id/status", authenticateExpressRequest, async (req, res) => {
 
     const ticket = await SupportTicketService.updateTicketStatus(
       userId,
-      id,
+      id as string,
       status,
       adminNotes
     );

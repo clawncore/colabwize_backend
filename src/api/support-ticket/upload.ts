@@ -27,7 +27,7 @@ router.post("/upload", async (req, res) => {
     // Parse the form using a Promise wrapper
     const { fields, files } = await new Promise<{ fields: any; files: any }>(
       (resolve, reject) => {
-        form.parse(req, (err, fields, files) => {
+        form.parse(req, (err: any, fields: any, files: any) => {
           if (err) reject(err);
           else resolve({ fields, files });
         });

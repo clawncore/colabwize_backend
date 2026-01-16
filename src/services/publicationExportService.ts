@@ -210,10 +210,10 @@ export class PublicationExportService {
         fileSize: buffer.length,
         auditResults: auditResults
           ? {
-              isValid: auditResults.isValid,
-              issues: auditResults.issues,
-              warnings: auditResults.warnings,
-            }
+            isValid: auditResults.isValid,
+            issues: auditResults.issues,
+            warnings: auditResults.warnings,
+          }
           : undefined,
       };
     } catch (error: any) {
@@ -361,7 +361,7 @@ export class PublicationExportService {
                       width: 400,
                       height: 300,
                     },
-                  }),
+                  } as any),
                 ],
                 spacing: { before: 240, after: 240 },
               })
@@ -438,17 +438,17 @@ export class PublicationExportService {
                   const isHeader = cell.type === "tableHeader";
                   const cellParagraphs = cell.content
                     ? cell.content.map((p: any) => {
-                        if (p.type === "paragraph") {
-                          const children = this.extractTextRunsFromNode(p);
-                          return new Paragraph({
-                            children: children,
-                            alignment: isHeader
-                              ? AlignmentType.CENTER
-                              : AlignmentType.LEFT,
-                          });
-                        }
-                        return new Paragraph({ text: "" });
-                      })
+                      if (p.type === "paragraph") {
+                        const children = this.extractTextRunsFromNode(p);
+                        return new Paragraph({
+                          children: children,
+                          alignment: isHeader
+                            ? AlignmentType.CENTER
+                            : AlignmentType.LEFT,
+                        });
+                      }
+                      return new Paragraph({ text: "" });
+                    })
                     : [new Paragraph({ text: "" })];
 
                   cells.push(
@@ -456,9 +456,9 @@ export class PublicationExportService {
                       children: cellParagraphs,
                       shading: isHeader
                         ? {
-                            fill: "D9D9D9",
-                            color: "auto",
-                          }
+                          fill: "D9D9D9",
+                          color: "auto",
+                        }
                         : undefined,
                       borders: {
                         top: { style: "single", size: 1, color: "000000" },

@@ -12,6 +12,7 @@ import compareRouter from "./compare";
 import enhancedRouter from "./enhanced";
 import { prisma } from "../../lib/prisma";
 import { EnhancedOriginalityDetectionService } from "../../services/enhancedOriginalityDetectionService";
+import { getSafeString } from "../../utils/requestHelpers";
 
 const router = express.Router();
 
@@ -56,7 +57,7 @@ router.post(
         });
       }
 
-      const { projectId, content } = req.body;
+      const { projectId, content } = req.body as any;
 
       // Validation
       if (!projectId || !content) {
@@ -96,7 +97,7 @@ router.post(
       );
 
       // Increment usage counter after successful scan
-      await incrementFeatureUsage("originality_scan")(req, res, () => {});
+      await incrementFeatureUsage("originality_scan")(req, res, () => { });
 
       return res.status(200).json({
         success: true,
@@ -137,7 +138,7 @@ router.get("/scan/:scanId", async (req: Request, res: Response) => {
       });
     }
 
-    const result = await OriginalityMapService.getScanResults(scanId, userId);
+    const result = await OriginalityMapService.getScanResults(scanId as string, userId);
 
     return res.status(200).json({
       success: true,
@@ -188,7 +189,7 @@ router.get("/project/:projectId", async (req: Request, res: Response) => {
     }
 
     const results = await OriginalityMapService.getProjectScans(
-      projectId,
+      projectId as string,
       userId
     );
 
@@ -225,7 +226,7 @@ router.post(
         });
       }
 
-      const { scanId, matchId, originalText } = req.body;
+      const { scanId, matchId, originalText } = req.body as any;
 
       // Validation
       if (!scanId || !matchId || !originalText) {
@@ -311,7 +312,7 @@ router.get("/scan/:scanId/suggestions", async (req: Request, res: Response) => {
     }
 
     const suggestions = await RephraseService.getScanSuggestions(
-      scanId,
+      scanId as string,
       userId
     );
 
@@ -354,7 +355,7 @@ router.post("/check-self-plagiarism", async (req: Request, res: Response) => {
       });
     }
 
-    const { currentContent, currentProjectId } = req.body;
+    const { currentContent, currentProjectId } = req.body as any;
 
     if (!currentContent || !currentProjectId) {
       return res.status(400).json({

@@ -52,7 +52,7 @@ router.get(
       const userId = req.user!.id;
 
       const project = await DocumentUploadService.getProjectById(
-        projectId,
+        projectId as string,
         userId
       );
 
@@ -89,7 +89,7 @@ router.put(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { projectId } = req.params;
-      const { title, description, content } = req.body;
+      const { title, description, content } = req.body as any;
       const userId = req.user!.id;
 
       // Validate required fields
@@ -99,7 +99,7 @@ router.put(
 
       // Update project
       const updatedProject = await DocumentUploadService.updateProject(
-        projectId,
+        projectId as string,
         userId,
         title,
         description || "",
@@ -144,7 +144,7 @@ router.delete(
 
       // Delete project
       const deletedProject = await DocumentUploadService.deleteProject(
-        projectId,
+        projectId as string,
         userId
       );
 

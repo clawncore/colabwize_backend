@@ -35,7 +35,7 @@ export class LemonSqueezyService {
     endpoint: string,
     method: string = "GET",
     body?: any
-  ) {
+  ): Promise<any> {
     await this.initialize();
 
     if (!this.apiKey) {

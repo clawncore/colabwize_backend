@@ -8,6 +8,7 @@ import {
   incrementFeatureUsage,
 } from "../../middleware/usageMiddleware";
 import { SubscriptionService } from "../../services/subscriptionService";
+import { getSafeString } from "../../utils/requestHelpers";
 
 const router = express.Router();
 
@@ -47,7 +48,7 @@ router.post(
         });
       }
 
-      const { projectId, content } = req.body;
+      const { projectId, content } = req.body as any;
 
       // Validation
       if (!projectId || !content) {
@@ -85,7 +86,7 @@ router.post(
       );
 
       // Increment usage counter after successful scan
-      await incrementFeatureUsage("originality_scan")(req, res, () => {});
+      await incrementFeatureUsage("originality_scan")(req, res, () => { });
 
       return res.status(200).json({
         success: true,
@@ -127,7 +128,7 @@ router.get("/scan/:scanId", async (req: Request, res: Response) => {
     }
 
     const result = await EnhancedOriginalityDetectionService.getScanResults(
-      scanId,
+      scanId as string,
       userId
     );
 
@@ -182,7 +183,7 @@ router.get("/project/:projectId", async (req: Request, res: Response) => {
     }
 
     const results = await EnhancedOriginalityDetectionService.getProjectScans(
-      projectId,
+      projectId as string,
       userId
     );
 
@@ -221,7 +222,7 @@ router.post(
         });
       }
 
-      const { scanId, matchId, originalText } = req.body;
+      const { scanId, matchId, originalText } = req.body as any;
 
       // Validation
       if (!scanId || !matchId || !originalText) {
@@ -256,7 +257,7 @@ router.post(
       );
 
       // Increment usage counter
-      await incrementFeatureUsage("rephrase_suggestions")(req, res, () => {});
+      await incrementFeatureUsage("rephrase_suggestions")(req, res, () => { });
 
       return res.status(200).json({
         success: true,

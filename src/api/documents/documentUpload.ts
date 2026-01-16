@@ -5,6 +5,7 @@ import fs from "fs";
 import { authenticateExpressRequest } from "../../middleware/auth";
 import { DocumentUploadService } from "../../services/documentUploadService";
 import logger from "../../monitoring/logger";
+import { getSafeString } from "../../utils/requestHelpers";
 
 // Extend the Express Request type to include user property
 interface AuthenticatedRequest extends Request {
@@ -88,7 +89,7 @@ router.post(
   upload.single("document"),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { title, description } = req.body;
+      const { title, description } = req.body as any;
       const userId = req.user!.id; // authenticated user ID
 
       // Validate required fields
@@ -169,14 +170,14 @@ router.get(
       });
 
       const project = await DocumentUploadService.getProjectById(
-        projectId,
+        projectId as string,
         userId
       );
 
       if (!project) {
         // DEBUG: Check if project exists at all
         const projectCheck =
-          await DocumentUploadService.checkProjectExists(projectId);
+          await DocumentUploadService.checkProjectExists(projectId as string);
 
         if (projectCheck) {
           logger.warn(
@@ -235,7 +236,7 @@ router.put(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { projectId } = req.params;
-      const { title, description, content, word_count } = req.body;
+      const { title, description, content, word_count } = req.body as any;
       const userId = req.user!.id;
 
       // Validate required fields
@@ -245,7 +246,7 @@ router.put(
 
       // Update project
       const updatedProject = await DocumentUploadService.updateProject(
-        projectId,
+        projectId as string,
         userId,
         title,
         description || "",
@@ -285,7 +286,7 @@ router.post(
   authenticateExpressRequest,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { title, description, content } = req.body;
+      const { title, description, content } = req.body as any;
       const userId = req.user!.id;
 
       logger.info(

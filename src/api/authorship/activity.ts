@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import { ActivityTrackingService } from "../../services/activityTrackingService";
 import { authenticateExpressRequest } from "../../middleware/auth";
 import logger from "../../monitoring/logger";
+import { getSafeString } from "../../utils/requestHelpers";
 
 const router = express.Router();
 
@@ -95,7 +96,7 @@ router.get(
       }
 
       const stats = await ActivityTrackingService.getActivityStats(
-        projectId,
+        projectId as string,
         userId
       );
 
@@ -144,7 +145,7 @@ router.get(
       }
 
       const summary = await ActivityTrackingService.getActivitySummary(
-        projectId,
+        projectId as string,
         userId
       );
 
@@ -246,8 +247,6 @@ router.get(
       }
 
       const { projectId } = req.params;
-      const { timeFrameDays = "30" } = req.query;
-
       if (!projectId) {
         return res.status(400).json({
           success: false,
@@ -255,11 +254,12 @@ router.get(
         });
       }
 
-      const days = parseInt(timeFrameDays as string) || 30;
+      const { timeFrameDays = "30" } = req.query;
+      const days = parseInt(getSafeString(timeFrameDays) || "30") || 30;
 
       const detailedTracking =
         await ActivityTrackingService.getDetailedActivityTracking(
-          projectId,
+          projectId as string,
           userId,
           days
         );

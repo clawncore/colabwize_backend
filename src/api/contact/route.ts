@@ -1,11 +1,15 @@
 import { ContactService } from "../../services/contactService";
+import { getSafeString } from "../../utils/requestHelpers";
 
 // POST /api/contact - Handle contact form submission
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = await request.json() as Record<string, unknown>;
 
-    const { name, email, subject, message } = body;
+    const name = getSafeString(body.name);
+    const email = getSafeString(body.email);
+    const subject = getSafeString(body.subject);
+    const message = getSafeString(body.message);
 
     // Validate required fields
     if (!name || !email || !subject || !message) {
@@ -27,10 +31,10 @@ export async function POST(request: Request) {
 
     // Process the contact form submission
     const result = await ContactService.handleContactSubmission({
-      name,
-      email,
-      subject,
-      message,
+      name: name!,
+      email: email!,
+      subject: subject!,
+      message: message!,
       ip_address,
       user_agent,
     });

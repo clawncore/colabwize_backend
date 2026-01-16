@@ -5,10 +5,10 @@ import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 
 // Initialize Google Generative AI client
-let genAI: GoogleGenerativeAI | null = null;
+let genAI: any = null;
 
 // Lazy initialization of Google Generative AI client
-async function getGeminiClient(): Promise<GoogleGenerativeAI> {
+async function getGeminiClient(): Promise<any> {
   if (!genAI) {
     const apiKey = await SecretsService.getOpenAiApiKey(); // We'll reuse this for Gemini
 

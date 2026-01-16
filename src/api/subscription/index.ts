@@ -697,7 +697,7 @@ router.get(
 
       const hasAccess = await SubscriptionService.checkFeatureAccess(
         user.id,
-        feature
+        feature as string
       );
 
       return res.status(200).json({

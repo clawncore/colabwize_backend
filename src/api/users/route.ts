@@ -3,12 +3,13 @@ import {
   getSupabaseAdminClient,
 } from "../../lib/supabase/client";
 import { prisma } from "../../lib/prisma";
+import { getSafeString } from "../../utils/requestHelpers";
 
 // Request OTP for profile update
 export async function POST_REQUEST_OTP(request: Request) {
   try {
-    const body = await request.json();
-    const { action } = body;
+    const body = await request.json() as Record<string, unknown>;
+    const action = getSafeString(body.action);
 
     if (action !== "profile_update") {
       return new Response(
@@ -250,16 +251,14 @@ export async function GET(request: Request) {
 // Update user profile
 export async function PUT(request: Request) {
   try {
-    const body = await request.json();
-    const {
-      full_name,
-      phone_number,
-      user_type,
-      field_of_study,
-      bio,
-      institution,
-      location,
-    } = body;
+    const body = await request.json() as Record<string, unknown>;
+    const full_name = getSafeString(body.full_name);
+    const phone_number = getSafeString(body.phone_number);
+    const user_type = getSafeString(body.user_type);
+    const field_of_study = getSafeString(body.field_of_study);
+    const bio = getSafeString(body.bio);
+    const institution = getSafeString(body.institution);
+    const location = getSafeString(body.location);
 
     // Get user from authorization header
     const authHeader = request.headers.get("authorization");
@@ -460,7 +459,7 @@ export async function DELETE(request: Request & { user?: { id: string } }) {
       body = {};
     }
 
-    const { confirmPassword } = body || {};
+    const { password = "", confirmPassword = "" } = (body as Record<string, string>) || {};
 
     // Verify password before deleting account
     if (confirmPassword) {
@@ -527,18 +526,16 @@ export async function DELETE(request: Request & { user?: { id: string } }) {
 // Update user profile with OTP verification
 export async function updateProfileWithOTP(request: Request) {
   try {
-    const body = await request.json();
-    const {
-      full_name,
-      phone_number,
-      user_type,
-      field_of_study,
-      bio,
-      institution,
-      location,
-      email,
-      otp,
-    } = body;
+    const body = await request.json() as Record<string, unknown>;
+    const email = getSafeString(body.email);
+    const otp = getSafeString(body.otp);
+    const full_name = getSafeString(body.full_name);
+    const phone_number = getSafeString(body.phone_number);
+    const user_type = getSafeString(body.user_type);
+    const field_of_study = getSafeString(body.field_of_study);
+    const bio = getSafeString(body.bio);
+    const institution = getSafeString(body.institution);
+    const location = getSafeString(body.location);
 
     // Get user from authorization header
     const authHeader = request.headers.get("authorization");
@@ -713,8 +710,9 @@ export async function updateProfileWithOTP(request: Request) {
 // Change user password
 export async function changePassword(request: Request) {
   try {
-    const body = await request.json();
-    const { currentPassword, newPassword } = body;
+    const body = await request.json() as Record<string, unknown>;
+    const currentPassword = getSafeString(body.currentPassword);
+    const newPassword = getSafeString(body.newPassword);
 
     // Get user from authorization header
     const authHeader = request.headers.get("authorization");
@@ -770,6 +768,13 @@ export async function changePassword(request: Request) {
     }
 
     // Verify current password by attempting to sign in
+    if (!currentPassword) {
+      return new Response(JSON.stringify({ error: "Current password is required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const signInClient = await getSupabaseClient();
     const { error: signInError } = await signInClient.auth.signInWithPassword({
       email: user.email || "", // Use the nullish coalescing operator to provide a default value
@@ -1021,7 +1026,7 @@ export async function getAccountUsage(request: Request) {
 export async function updateAccountPreferences(request: Request) {
   try {
     const body = await request.json();
-    const { preferences } = body;
+    const preferences = (body as any).preferences || {};
 
     // Get user from authorization header
     const authHeader = request.headers.get("authorization");

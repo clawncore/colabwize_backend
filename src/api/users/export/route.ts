@@ -2,6 +2,7 @@ import { getSupabaseClient } from "../../../lib/supabase/client";
 import { prisma } from "../../../lib/prisma";
 import { ExportService } from "../../../services/exportService";
 import logger from "../../../monitoring/logger";
+import { getSafeString } from "../../../utils/requestHelpers";
 
 // Export user data
 export async function POST(request: Request) {
@@ -38,8 +39,9 @@ export async function POST(request: Request) {
     }
 
     // Parse request body
-    const body = await request.json();
-    const { format, include } = body;
+    const body = await request.json() as any;
+    const format = getSafeString(body.format);
+    const include = body.include || {};
 
     // Log the export request
     logger.info("User data export request received", {

@@ -23,7 +23,7 @@ router.post(
       }
 
       const { projectId } = req.params;
-      const { title, author, year, type, doi, url, source } = req.body;
+      const { title, author, year, type, doi, url, source } = req.body as any;
 
       if (!projectId) {
         return res.status(400).json({
@@ -40,7 +40,7 @@ router.post(
       }
 
       const citation = await CitationConfidenceService.addCitation(
-        projectId,
+        projectId as string,
         userId,
         {
           title,

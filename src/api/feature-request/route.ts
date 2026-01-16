@@ -2,6 +2,7 @@ import { Router, type Router as ExpressRouter } from "express";
 import { FeatureRequestService } from "../../services/featureRequestService";
 import logger from "../../monitoring/logger";
 import { authenticateExpressRequest } from "../../middleware/auth";
+import { getSafeString } from "../../utils/requestHelpers";
 
 const router: ExpressRouter = Router();
 
@@ -93,13 +94,13 @@ router.get("/", authenticateExpressRequest, async (req, res) => {
     const { category, status, priority, limit } = req.query;
 
     const filters: any = {};
-    if (category) filters.category = category as string;
-    if (status) filters.status = status as string;
-    if (priority) filters.priority = priority as string;
+    if (category) filters.category = getSafeString(category);
+    if (status) filters.status = getSafeString(status);
+    if (priority) filters.priority = getSafeString(priority);
 
     const requests = await FeatureRequestService.getFeatureRequests(
       filters,
-      limit ? parseInt(limit as string) : 50
+      limit ? parseInt(getSafeString(limit) || "50") : 50
     );
 
     return res.json({ success: true, requests });
@@ -127,7 +128,7 @@ router.get("/:id", authenticateExpressRequest, async (req, res) => {
       });
     }
 
-    const request = await FeatureRequestService.getFeatureRequestById(id);
+    const request = await FeatureRequestService.getFeatureRequestById(id as string);
 
     if (!request) {
       return res.status(404).json({
@@ -161,7 +162,7 @@ router.post("/:id/vote", authenticateExpressRequest, async (req, res) => {
       });
     }
 
-    const request = await FeatureRequestService.voteForFeature(id, userId);
+    const request = await FeatureRequestService.voteForFeature(id as string, userId);
 
     return res.json({
       success: true,
@@ -188,7 +189,7 @@ router.post("/:id/vote", authenticateExpressRequest, async (req, res) => {
 router.patch("/:id/status", authenticateExpressRequest, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status } = req.body as any;
 
     if (!status) {
       return res.status(400).json({
@@ -223,7 +224,7 @@ router.patch("/:id/status", authenticateExpressRequest, async (req, res) => {
 
     const request = await FeatureRequestService.updateFeatureStatus(
       userId,
-      id,
+      id as string,
       status
     );
 
