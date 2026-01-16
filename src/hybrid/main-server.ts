@@ -213,30 +213,39 @@ app.use((req, res) => {
 const startServer = async () => {
   try {
     console.log("🚀 Starting server initialization...");
-
-    // Initialize database connection first
-    logger.info("Initializing database connection...");
-    await initializePrisma();
-    logger.info("✅ Database initialized successfully");
-
-    // Initialize scheduled jobs
-    try {
-      RecycleBinService.scheduleCleanup();
-      initializeSubscriptionJobs();
-      logger.info("✅ Scheduled jobs initialized");
-    } catch (jobError) {
-      logger.warn("⚠️ Failed to initialize scheduled jobs:", jobError);
-      // Continue server startup even if jobs fail
-    }
-
     const PORT = Number(process.env.PORT) || 10000;
 
-    app.listen(PORT, "0.0.0.0", () => {
+    // PRIORITY 1: Bind port immediately for Render
+    const server = app.listen(PORT, "0.0.0.0", () => {
       logger.info(`Server running on port ${PORT}`);
       console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
-      console.log(`✅ Health check: http://0.0.0.0:${PORT}/health`);
-      console.log(`✅ Originality API: http://0.0.0.0:${PORT}/api/originality`);
     });
+
+    // PRIORITY 2: Initialize Database and Services in background
+    // This prevents startup timeouts if DB connection is slow
+    const initServices = async () => {
+      try {
+        // Initialize database connection
+        logger.info("Initializing database connection...");
+        await initializePrisma();
+        logger.info("✅ Database initialized successfully");
+
+        // Initialize scheduled jobs
+        RecycleBinService.scheduleCleanup();
+        initializeSubscriptionJobs();
+        logger.info("✅ Scheduled jobs initialized");
+
+      } catch (initError: any) {
+        logger.error("❌ Failed to initialize services:", initError);
+        console.error("❌ Critical Service Failure:", initError);
+        // Optional: close server if DB is strictly required for health check to pass
+        // or keep it running to serve 503s
+      }
+    };
+
+    // Trigger background initialization
+    initServices();
+
   } catch (error: any) {
     console.error("❌ Failed to start server:", error);
     logger.error("❌ Failed to start server:", error);

@@ -8,11 +8,25 @@ import { EmailService } from "./emailService";
 import { SecretsService } from "./secrets-service";
 
 // @ts-ignore
-import { pipeline, env } from "@xenova/transformers";
+// import { pipeline, env } from "@xenova/transformers";
 
-// Configure transformers
-env.allowLocalModels = false;
-env.useBrowserCache = false;
+// Dynamic import holder
+let pipeline: any;
+let env: any;
+
+async function getTransformers() {
+  if (!pipeline || !env) {
+    // Dynamic import to avoid top-level ESM issues in CJS environment
+    const mod = await import("@xenova/transformers");
+    pipeline = mod.pipeline;
+    env = mod.env;
+
+    // Configure transformers
+    env.allowLocalModels = false;
+    env.useBrowserCache = false;
+  }
+  return { pipeline, env };
+}
 
 // Types
 export interface OriginalityScanResult {
@@ -54,14 +68,14 @@ export interface SimilarityMatchResult {
   positionStart: number;
   positionEnd: number;
   classification:
-    | "green"
-    | "yellow"
-    | "red"
-    | "common_phrase"
-    | "quoted_correctly"
-    | "needs_citation"
-    | "close_paraphrase"
-    | "safe";
+  | "green"
+  | "yellow"
+  | "red"
+  | "common_phrase"
+  | "quoted_correctly"
+  | "needs_citation"
+  | "close_paraphrase"
+  | "safe";
   confidence: number; // 0-100 confidence in this match
 }
 
@@ -91,6 +105,7 @@ class EnhancedTransformerService {
   static async getInstance() {
     if (!this.instance) {
       logger.info("Loading enhanced feature-extraction model...");
+      const { pipeline } = await getTransformers();
       // Use a more sophisticated model for better semantic analysis
       this.instance = await pipeline(
         "feature-extraction",
@@ -104,6 +119,7 @@ class EnhancedTransformerService {
   static async getRerankInstance() {
     if (!this.rerankInstance) {
       logger.info("Loading cross-encoder re-ranking model...");
+      const { pipeline } = await getTransformers();
       // Cross-encoder model for more accurate sentence-level similarity
       this.rerankInstance = await pipeline(
         "feature-extraction",
@@ -254,8 +270,8 @@ class AcademicDatabaseService {
               : item.title || "",
             authors: Array.isArray(item.author)
               ? item.author.map((auth: any) =>
-                  `${auth.family || ""} ${auth.given || ""}`.trim()
-                )
+                `${auth.family || ""} ${auth.given || ""}`.trim()
+              )
               : [],
             abstract: item.abstract || "",
             url: `https://doi.org/${item.DOI}`,
@@ -1340,17 +1356,17 @@ export class EnhancedOriginalityDetectionService {
         | "failed",
       matches: scan.matches
         ? scan.matches.map((match: any) => ({
-            id: match.id,
-            sentenceText: match.sentence_text,
-            matchedSource: match.matched_source,
-            sourceUrl: match.source_url || undefined,
-            sourceDatabase: "web", // Default, would be enhanced in the actual implementation
-            similarityScore: match.similarity_score,
-            positionStart: match.position_start,
-            positionEnd: match.position_end,
-            classification: match.classification as any,
-            confidence: 85, // Default confidence
-          }))
+          id: match.id,
+          sentenceText: match.sentence_text,
+          matchedSource: match.matched_source,
+          sourceUrl: match.source_url || undefined,
+          sourceDatabase: "web", // Default, would be enhanced in the actual implementation
+          similarityScore: match.similarity_score,
+          positionStart: match.position_start,
+          positionEnd: match.position_end,
+          classification: match.classification as any,
+          confidence: 85, // Default confidence
+        }))
         : [],
       scannedAt: scan.scanned_at,
       realityCheck: this.calculateRealityCheck(

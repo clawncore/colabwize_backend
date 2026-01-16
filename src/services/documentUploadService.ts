@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { Request } from "express";
 import fs from "fs/promises";
-import pdfParse from "pdf-parse";
+// import pdfParse from "pdf-parse"; // Replaced with dynamic import
 import mammoth from "mammoth";
 import { RecycleBinService } from "./recycleBinService";
 import logger from "../monitoring/logger";
@@ -38,19 +38,19 @@ export class DocumentUploadService {
       format === "html"
         ? extractedContent
         : {
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-                content: [
-                  {
-                    type: "text",
-                    text: extractedContent,
-                  },
-                ],
-              },
-            ],
-          };
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                {
+                  type: "text",
+                  text: extractedContent,
+                },
+              ],
+            },
+          ],
+        };
 
     // Create project record in the database
     const project = await prisma.project.create({
@@ -315,6 +315,10 @@ export class DocumentUploadService {
    */
   private static async extractTextFromPDF(filePath: string): Promise<string> {
     try {
+      // Dynamic import to avoid top-level polyfill issues in Node 20
+      const pdfParseModule = await import("pdf-parse");
+      // Handle both ESM default export and CJS module.exports
+      const pdfParse = pdfParseModule.default || pdfParseModule;
       const data = await pdfParse(await fs.readFile(filePath));
       return data.text;
     } catch (error) {
