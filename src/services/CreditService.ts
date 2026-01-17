@@ -29,7 +29,7 @@ export class CreditService {
         referenceId?: string,
         description?: string
     ) {
-        return await prisma.$transaction(async (tx) => {
+        return await prisma.$transaction(async (tx: any) => {
             // Create transaction record
             const transaction = await tx.creditTransaction.create({
                 data: {
@@ -71,7 +71,7 @@ export class CreditService {
         referenceId?: string,
         description?: string
     ) {
-        return await prisma.$transaction(async (tx) => {
+        return await prisma.$transaction(async (tx: any) => {
             const currentBalance = await tx.creditBalance.findUnique({
                 where: { user_id: userId },
             });
