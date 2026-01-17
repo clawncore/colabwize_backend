@@ -22,7 +22,7 @@ const PLAN_LIMITS = {
     citation_check: 0, // NOT AVAILABLE - as per pricing page
     draft_comparison: false, // NOT AVAILABLE
     rephrase_suggestions: 3,
-    ai_integrity: 20,
+    ai_integrity: 0, // Not available in Free
     certificate: 10,
     max_scan_characters: 100000,
 
@@ -60,7 +60,7 @@ const PLAN_LIMITS = {
     citation_check: 50,
     draft_comparison: false, // NOT AVAILABLE
     rephrase_suggestions: 50,
-    ai_integrity: 100,
+    ai_integrity: 0, // Not available in Student
     certificate: 50,
     max_scan_characters: 300000,
 
@@ -243,7 +243,12 @@ export class SubscriptionService {
       return true;
     }
 
-    // If plan limit reached, check credits
+    // If plan limit reached, check credits (ONLY for Free or PAYG)
+    // Student/Researcher plans should NOT fall back to credits as per user request
+    if (["student", "researcher"].includes(plan)) {
+      return false;
+    }
+
     const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
     if (cost) {
       return CreditService.hasEnoughCredits(userId, cost);
@@ -396,6 +401,12 @@ export class SubscriptionService {
     }
 
     // 4. If Plan Exhausted / Unavailable / -2 -> Check Credits
+
+    // STRICT RULE: Student/Researcher plans do NOT use credits as fallback.
+    if (["student", "researcher"].includes(plan)) {
+      return { allowed: false, source: "BLOCKED", message: "Plan limit reached. Please upgrade your plan." };
+    }
+
     const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
     if (!cost) {
       // If no credit cost defined, and plan failed, then it's blocked.

@@ -8,6 +8,7 @@ import {
   incrementFeatureUsage,
 } from "../../middleware/usageMiddleware";
 import { SubscriptionService } from "../../services/subscriptionService";
+import { CreditService } from "../../services/CreditService";
 import compareRouter from "./compare";
 import enhancedRouter from "./enhanced";
 import { prisma } from "../../lib/prisma";
@@ -251,6 +252,33 @@ router.post(
         scanId,
         matchId,
       });
+
+      // User Rule: Dynamic limits based on credits for Free Plan
+      const plan = await SubscriptionService.getActivePlan(userId);
+      const wordCount = originalText.trim().split(/\s+/).length;
+
+      if (plan === "free") {
+        const creditBalance = await CreditService.getBalance(userId);
+
+        if (creditBalance <= 0) {
+          // Zero credits: Restrict to 500 words (User requested 500 limit if zero credits)
+          if (wordCount > 500) {
+            return res.status(400).json({
+              success: false,
+              message: "Free plan is limited to rephrasing 500 words at a time. Please purchase credits or upgrade to increase this limit.",
+            });
+          }
+        } else {
+          // Has credits: Higher limit (User requested "not limit to only 600")
+          // We'll set a reasonable safety cap, e.g., 2500 words
+          if (wordCount > 2500) {
+            return res.status(400).json({
+              success: false,
+              message: "Content exceeds total processing limit (2500 words). Please reduce the text length.",
+            });
+          }
+        }
+      }
 
       // Generate suggestions
       const suggestions = await RephraseService.generateRephraseSuggestions(

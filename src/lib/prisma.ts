@@ -6,13 +6,14 @@ const globalForPrisma = global as unknown as {
   prisma: any;
 };
 
-// Initialize Prisma Client with direct database connection
-const getConnectionString = async (): Promise<string> => {
-  const connectionString = await SecretsService.getDatabaseUrl();
-  console.log(
-    "DEBUG: Initializing Prisma with connection string present:",
-    !!connectionString
-  );
+const getConnectionString = (): string => {
+  const connectionString = process.env.DATABASE_URL;
+  // Append connection pool settings if not present
+  if (connectionString && !connectionString.includes("connection_limit")) {
+    const separator = connectionString.includes("?") ? "&" : "?";
+    // Increase pool size and timeout for development/production stability
+    return `${connectionString}${separator}connection_limit=20&pool_timeout=20`;
+  }
   return connectionString || "";
 };
 
@@ -25,6 +26,11 @@ export const prisma =
         ? ["query", "error", "warn"]
         : ["error"],
     errorFormat: "pretty",
+    datasources: {
+      db: {
+        url: getConnectionString(),
+      },
+    },
   });
 
 // Test database connection on initialization
@@ -65,8 +71,20 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 // Add graceful shutdown handler
 process.on("beforeExit", async () => {
-  logger.info("Closing database connections...");
+  logger.info("Closing database connections (beforeExit)...");
   await prisma.$disconnect();
+});
+
+process.on("SIGINT", async () => {
+  logger.info("Closing database connections (SIGINT)...");
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+  logger.info("Closing database connections (SIGTERM)...");
+  await prisma.$disconnect();
+  process.exit(0);
 });
 
 export default prisma;

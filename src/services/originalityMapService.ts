@@ -661,15 +661,18 @@ export class OriginalityMapService {
       return "quoted_correctly";
     }
 
-    if (words < 8) {
-      return "common_phrase";
+    if (words < 12) {
+      // Ignore short partial sentences to avoid "loose" flagging
+      return "safe";
     }
 
-    if (score > 60) {
+    if (score > 70) {
+      // High confidence match
       return hasCitation ? "safe" : "needs_citation";
     }
 
-    if (score > 24) {
+    if (score > 25) {
+      // Tightened threshold (was 24)
       return "close_paraphrase";
     }
 
@@ -699,10 +702,11 @@ export class OriginalityMapService {
     // 1. Split by common sentence terminators (. ! ?)
     // 2. Split by newlines (for headers/lists)
     // 3. Keep delimiters check if needed, but for now simple split is safer for "giant blob" prevention
-    return text
-      .split(/([.!?]+|\n+)/) // Split by punctuation OR newlines, keeping delimiters to map back if needed (though map below flattens)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !/^[.!?]+$/.test(s)); // Filter out empty strings and standalone punctuation
+    // Enhanced sentence splitting to respect "whole sentences":
+    // Uses a regex that respects common abbreviations (Mr., Mrs., etc.) and quotes.
+    return text.match(/[^.!?]+[.!?]+["']?|[^.!?]+$/g)
+      ?.map(s => s.trim())
+      .filter(s => s.length > 0) || [];
   }
 
   /**

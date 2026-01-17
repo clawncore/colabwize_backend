@@ -39,6 +39,12 @@ export async function initializePrisma(): Promise<PrismaClient> {
         databaseUrl += `${separator}pgbouncer=true`;
     }
 
+    // Enforce connection pool limits if not present
+    if (!databaseUrl.includes("connection_limit")) {
+        const separator = databaseUrl.includes("?") ? "&" : "?";
+        databaseUrl += `${separator}connection_limit=20&pool_timeout=20`;
+    }
+
     const redactedUrl = databaseUrl.replace(/:([^:@]+)@/, ":****@");
     console.log(`DEBUG: Connecting to DB: ${redactedUrl}`);
 

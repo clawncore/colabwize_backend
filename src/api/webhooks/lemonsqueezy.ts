@@ -1,7 +1,8 @@
 import express from "express";
 import { SubscriptionService } from "../../services/subscriptionService";
 import { LemonSqueezyService } from "../../services/lemonSqueezyService";
-import {EmailService} from "../../services/emailService";
+import { CreditService } from "../../services/CreditService";
+import { EmailService } from "../../services/emailService";
 import logger from "../../monitoring/logger";
 
 const router = express.Router();
@@ -102,6 +103,29 @@ async function handleOrderCreated(data: any) {
   });
 
   logger.info("Payment history created", { userId, orderId });
+
+  // Handle Credit Purchases
+  const plan = data.attributes.custom_data?.plan;
+  if (plan && plan.startsWith("credits_")) {
+    // Parse credit amount from plan ID (e.g. "credits_25" -> 25)
+    const baseAmount = parseInt(plan.replace("credits_", ""), 10);
+
+    if (!isNaN(baseAmount)) {
+      // Scale by 100 as per user request (25 -> 2500 credits)
+      // This ensures 1 scan (100 credits) matches the intended pack size (25 scans)
+      const creditAmount = baseAmount * 100;
+
+      await CreditService.addCredits(
+        userId,
+        creditAmount,
+        "PURCHASE",
+        orderId.toString(),
+        `Purchased ${baseAmount} Scans (${creditAmount} Credits)`
+      );
+
+      logger.info("Credits granted to user", { userId, creditAmount, plan });
+    }
+  }
 }
 
 /**
@@ -140,13 +164,13 @@ async function handleSubscriptionCreated(data: any) {
         user.email,
         user.full_name || "ColabWize User",
         "Free",
-        plan.charAt(0).toUpperCase() + plan.slice(1), 
+        plan.charAt(0).toUpperCase() + plan.slice(1),
         new Date().toLocaleDateString(),
         ["Full Access to Features", "Priority Support"] // Generic features
       );
     }
   } catch (error) {
-     logger.error("Failed to send subscription created email", { error });
+    logger.error("Failed to send subscription created email", { error });
   }
 }
 
@@ -179,19 +203,19 @@ async function handleSubscriptionUpdated(data: any) {
     // We don't easily know the old plan here without fetching the subscription BEFORE update, 
     // but the update handles the DB update. 
     // Ideally we would compare. For now, assuming Upgrade.
-    
+
     if (user && user.email) {
-        await EmailService.sendPlanChangeEmail(
+      await EmailService.sendPlanChangeEmail(
         user.email,
         user.full_name || "ColabWize User",
         "Previous Plan", // Placeholder if we can't easily determine
-        newPlan.charAt(0).toUpperCase() + newPlan.slice(1), 
+        newPlan.charAt(0).toUpperCase() + newPlan.slice(1),
         new Date().toLocaleDateString(),
         ["Upgraded Features"]
       );
     }
   } catch (error) {
-     logger.error("Failed to send subscription updated email", { error });
+    logger.error("Failed to send subscription updated email", { error });
   }
 }
 
