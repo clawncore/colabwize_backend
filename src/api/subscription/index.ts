@@ -1,6 +1,7 @@
 import express from "express";
 import { SubscriptionService } from "../../services/subscriptionService";
 import { UsageService } from "../../services/usageService";
+import { CreditService } from "../../services/CreditService";
 import { LemonSqueezyService } from "../../services/lemonSqueezyService";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { SecretsService } from "../../services/secrets-service";
@@ -53,12 +54,14 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     const plan = await SubscriptionService.getActivePlan(user.id);
     const limits = SubscriptionService.getPlanLimits(plan);
     const usage = await UsageService.getCurrentUsage(user.id);
+    const creditBalance = await CreditService.getBalance(user.id);
 
     return res.status(200).json({
       success: true,
       subscription: subscription || { plan: "free", status: "active" },
       limits,
       usage,
+      creditBalance,
     });
   } catch (error) {
     console.error("Get subscription error:", error);

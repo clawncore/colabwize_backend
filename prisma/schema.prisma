@@ -54,6 +54,8 @@ model User {
   user_metrics          UserMetrics?
   user_sessions         UserSession[]
   survey                UserSurvey?
+  credit_balance        CreditBalance?
+  credit_transactions   CreditTransaction[]
 
   @@index([email])
   @@map("users")
@@ -647,4 +649,31 @@ model ContactRequest {
   @@index([status])
   @@index([created_at])
   @@map("contact_requests")
+}
+
+model CreditBalance {
+  user_id            String   @id
+  balance            Int      @default(0)
+  lifetime_purchased Int      @default(0)
+  lifetime_used      Int      @default(0)
+  updated_at         DateTime @updatedAt
+  user               User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("credit_balances")
+}
+
+model CreditTransaction {
+  id           String   @id @default(uuid())
+  user_id      String
+  amount       Int
+  type         String   // PURCHASE, USAGE, BONUS, REFUND
+  reference_id String?  // usage_id or payment_id
+  description  String?
+  created_at   DateTime @default(now())
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([type])
+  @@index([created_at])
+  @@map("credit_transactions")
 }

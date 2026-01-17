@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { EmailService } from "./emailService";
 import logger from "../monitoring/logger";
@@ -15,6 +16,7 @@ export class AuthServiceWithOTP {
   private static generateOTP(): string {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
+
 
   /**
    * Generate JWT token
@@ -56,30 +58,44 @@ export class AuthServiceWithOTP {
       // Hash password
       const hashedPassword = await bcrypt.hash(userData.password, 10);
 
-      // Create user
-      const user = await prisma.user.create({
-        data: {
-          email: userData.email,
-          full_name: userData.fullName,
-          email_verified: false,
-          survey_completed: false,
-        },
-      });
-
-      // Generate OTP
+      // Generate OTP variables before transaction
       const otpCode = this.generateOTP();
       const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 10); // OTP expires in 10 minutes
+      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
-      // Store OTP in database
-      await prisma.oTPVerification.create({
-        data: {
-          user_id: user.id,
-          email: userData.email,
-          otp_code: otpCode,
-          expires_at: expiresAt,
-          verified: false,
-        },
+      // Create user, subscription, and OTP in a transaction
+      const user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // Create user
+        const newUser = await tx.user.create({
+          data: {
+            email: userData.email,
+            full_name: userData.fullName,
+            email_verified: false,
+            survey_completed: false,
+          },
+        });
+
+        // Create default subscription
+        await tx.subscription.create({
+          data: {
+            user_id: newUser.id,
+            plan: "free",
+            status: "active",
+          },
+        });
+
+        // Create OTP
+        await tx.oTPVerification.create({
+          data: {
+            user_id: newUser.id,
+            email: userData.email,
+            otp_code: otpCode,
+            expires_at: expiresAt,
+            verified: false,
+          },
+        });
+
+        return newUser;
       });
 
       // Send OTP email

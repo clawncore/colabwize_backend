@@ -1,6 +1,15 @@
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { LemonSqueezyService } from "./lemonSqueezyService";
+import { CreditService, CREDIT_COSTS } from "./CreditService";
+
+export type ConsumptionResult = {
+  allowed: boolean;
+  source: "PLAN" | "CREDIT" | "BLOCKED";
+  remaining?: number;
+  cost?: number;
+  message?: string;
+};
 
 /**
  * Plan limits and features
@@ -216,18 +225,31 @@ export class SubscriptionService {
       return true;
     }
 
-    // -2 = credit-based or unavailable
+    // -2 = credit-based or unavailable (PAYG)
     if (limit === -2) {
       if (feature === "scan") {
-        // TODO: Check credit balance for PAYG
-        return true;
+        const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
+        if (cost) {
+          return CreditService.hasEnoughCredits(userId, cost);
+        }
+        return false;
       }
       return false; // Unavailable for this plan
     }
 
     // Check usage
     const currentUsage = await this.checkMonthlyUsage(userId, feature);
-    return currentUsage < limit;
+    if (currentUsage < limit) {
+      return true;
+    }
+
+    // If plan limit reached, check credits
+    const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
+    if (cost) {
+      return CreditService.hasEnoughCredits(userId, cost);
+    }
+
+    return false;
   }
 
   /**
@@ -241,38 +263,76 @@ export class SubscriptionService {
    * Increment usage counter
    */
   static async incrementUsage(userId: string, feature: string): Promise<void> {
-    const now = new Date();
-    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const periodEnd = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59
-    );
+    const plan = await this.getActivePlan(userId);
+    const limits = this.getPlanLimits(plan);
 
-    await prisma.usageTracking.upsert({
-      where: {
-        user_id_feature_period_start: {
+    // Map feature to limit key
+    let limitKey = feature;
+    if (feature === "scan") limitKey = "scans_per_month";
+
+    let planLimit = 0;
+    if (limitKey in limits) {
+      const val = limits[limitKey as keyof typeof limits];
+      if (typeof val === "number") planLimit = val;
+    }
+
+    // Check if we should use Plan or Credits
+    let usePlan = false;
+
+    if (planLimit === -1) {
+      usePlan = true;
+    } else if (planLimit > 0) {
+      const currentUsage = await this.checkMonthlyUsage(userId, feature);
+      if (currentUsage < planLimit) {
+        usePlan = true;
+      }
+    }
+
+    if (usePlan) {
+      const now = new Date();
+      const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const periodEnd = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59
+      );
+
+      await prisma.usageTracking.upsert({
+        where: {
+          user_id_feature_period_start: {
+            user_id: userId,
+            feature,
+            period_start: periodStart,
+          },
+        },
+        create: {
           user_id: userId,
           feature,
+          count: 1,
           period_start: periodStart,
+          period_end: periodEnd,
         },
-      },
-      create: {
-        user_id: userId,
-        feature,
-        count: 1,
-        period_start: periodStart,
-        period_end: periodEnd,
-      },
-      update: {
-        count: { increment: 1 },
-      },
-    });
-
-    logger.info("Usage incremented", { userId, feature });
+        update: {
+          count: { increment: 1 },
+        },
+      });
+      logger.info("Plan Usage incremented", { userId, feature });
+    } else {
+      // Use Credits
+      const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
+      if (cost) {
+        await CreditService.deductCredits(userId, cost, undefined, `Usage: ${feature}`);
+        logger.info("Credit deducted for usage", { userId, feature, cost });
+      } else {
+        logger.warn("Usage increment passed but no plan/credit source found (cost missing?)", { userId, feature });
+        // Fallback: Increment usage anyway? No, strict PAYG means we shouldn't. 
+        // But if we are here, something passed the check. 
+        // Let's assume unlimited or error.
+      }
+    }
   }
 
   /**
@@ -289,6 +349,65 @@ export class SubscriptionService {
     });
 
     logger.info("Monthly usage reset completed");
+  }
+
+
+  /**
+   * Consume an action (Plan First, Then Credits)
+   * This is the main entry point for feature consumption.
+   */
+  static async consumeAction(
+    userId: string,
+    feature: string
+  ): Promise<ConsumptionResult> {
+    const plan = await this.getActivePlan(userId);
+    const limits = this.getPlanLimits(plan);
+
+    // 1. Determine Plan Limit
+    // Map feature to limit key (e.g., 'scan' -> 'scans_per_month')
+    let limitKey = feature;
+    if (feature === "scan") limitKey = "scans_per_month";
+
+    let planLimit = 0;
+    if (limitKey in limits) {
+      const val = limits[limitKey as keyof typeof limits];
+      if (typeof val === "number") planLimit = val;
+    }
+
+    // 2. Check Plan Usage
+    // -1 = Unlimited
+    if (planLimit === -1) {
+      await this.incrementUsage(userId, feature);
+      return { allowed: true, source: "PLAN" };
+    }
+
+    let planAvailable = false;
+    if (planLimit > 0) {
+      const currentUsage = await this.checkMonthlyUsage(userId, feature);
+      if (currentUsage < planLimit) {
+        planAvailable = true;
+      }
+    }
+
+    // 3. Consume Plan if Available
+    if (planAvailable) {
+      await this.incrementUsage(userId, feature);
+      return { allowed: true, source: "PLAN", remaining: planLimit - (await this.checkMonthlyUsage(userId, feature)) };
+    }
+
+    // 4. If Plan Exhausted / Unavailable / -2 -> Check Credits
+    const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
+    if (!cost) {
+      // If no credit cost defined, and plan failed, then it's blocked.
+      return { allowed: false, source: "BLOCKED", message: "Limit reached and no credit cost defined." };
+    }
+
+    try {
+      await CreditService.deductCredits(userId, cost, undefined, `Usage: ${feature}`);
+      return { allowed: true, source: "CREDIT", cost };
+    } catch (error) {
+      return { allowed: false, source: "BLOCKED", message: "Insufficient credits." };
+    }
   }
 
   /**
