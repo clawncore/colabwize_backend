@@ -10,7 +10,7 @@
     "start": "node dist/hybrid/main-server.js",
     "dev": "tsx watch src/hybrid/main-server.ts",
     "build": "rm -rf dist && tsc",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate && npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.12",
