@@ -32,6 +32,10 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
+# Copy scripts and prisma configs for postinstall
+COPY scripts ./scripts
+COPY prisma ./prisma
+
 # Install dependencies
 RUN npm ci --only=production
 
