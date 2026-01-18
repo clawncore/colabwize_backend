@@ -243,19 +243,31 @@ export class SecretsService {
 
   // Get Supabase configuration values
   static async getSupabaseUrl(): Promise<string | null> {
-    return this.getSecret("NEXT_PUBLIC_SUPABASE_URL");
+    return (
+      (await this.getSecret("NEXT_PUBLIC_SUPABASE_URL")) ||
+      (await this.getSecret("SUPABASE_URL"))
+    );
   }
 
   static async getPublicSupabaseUrl(): Promise<string | null> {
-    return this.getSecret("NEXT_PUBLIC_SUPABASE_URL");
+    return (
+      (await this.getSecret("NEXT_PUBLIC_SUPABASE_URL")) ||
+      (await this.getSecret("SUPABASE_URL"))
+    );
   }
 
   static async getSupabaseAnonKey(): Promise<string | null> {
-    return this.getSecret("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    return (
+      (await this.getSecret("NEXT_PUBLIC_SUPABASE_ANON_KEY")) ||
+      (await this.getSecret("SUPABASE_ANON_KEY"))
+    );
   }
 
   static async getPublicSupabaseAnonKey(): Promise<string | null> {
-    return this.getSecret("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    return (
+      (await this.getSecret("NEXT_PUBLIC_SUPABASE_ANON_KEY")) ||
+      (await this.getSecret("SUPABASE_ANON_KEY"))
+    );
   }
 
   static async getSupabaseServiceRoleKey(): Promise<string | null> {
