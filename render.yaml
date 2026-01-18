@@ -27,3 +27,5 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
+      - key: PUPPETEER_CACHE_DIR
+        value: /opt/render/project/src/backend/.cache/puppeteer

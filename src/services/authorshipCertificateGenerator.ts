@@ -520,15 +520,14 @@ export class AuthorshipCertificateGenerator {
 
         <!-- Date & QR RIGHT -->
         <div class="qr-container">
-           ${
-             qrCodeDataUrl
-               ? `
+           ${qrCodeDataUrl
+        ? `
            <div class="qr-box">
              <img src="${qrCodeDataUrl}" width="70" height="70" alt="QR" />
            </div>
            `
-               : ""
-           }
+        : ""
+      }
            <div class="qr-caption">Scan to Verify Online</div>
            <div style="margin-top: 5px; font-family: 'Cormorant Garamond', serif; font-size: 11pt; color: ${colors.secondaryText};"><strong>Date Issued:</strong> ${issueDate}</div>
         </div>
@@ -579,7 +578,14 @@ export class AuthorshipCertificateGenerator {
     try {
       browser = await puppeteer.launch({
         headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+          "--font-render-hinting=none"
+        ],
       });
 
       const page = await browser.newPage();
@@ -638,7 +644,14 @@ export class AuthorshipCertificateGenerator {
     try {
       browser = await puppeteer.launch({
         headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage", // Fix for shared memory issues in Docker/Render
+          "--disable-gpu",
+          "--font-render-hinting=none"
+        ],
       });
 
       const page = await browser.newPage();
