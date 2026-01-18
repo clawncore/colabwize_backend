@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node dist/hybrid/main-server.js",
     "dev": "tsx watch src/hybrid/main-server.ts",
-    "build": "rimraf dist && tsc",
+    "build": "rm -rf dist && tsc",
     "check-env": "node scripts/check-environment.js",
     "postinstall": "node scripts/setup-puppeteer.js && prisma generate"
   },
