@@ -22,6 +22,7 @@ interface PublicationExportOptions {
   includeCoverPage: boolean;
   coverPageStyle: "apa" | "mla";
   includeTOC: boolean;
+  includeAuthorshipCertificate?: boolean;
   performStructuralAudit: boolean;
   minWordCount?: number;
   metadata?: {
@@ -149,7 +150,123 @@ export class PublicationExportService {
         project.content
       );
 
-      // 7. Generate references section
+      // 7b. Generate Authorship Certificate
+      if (options.includeAuthorshipCertificate) {
+        try {
+          const { AuthorshipCertificateGenerator } = require("./authorshipCertificateGenerator");
+          const { AuthorshipReportService } = require("./authorshipReportService");
+          const { config } = require("../config/env");
+
+          const userMetadata = await PublicationService.getUserMetadata(userId);
+          const userName = options.metadata?.author || userMetadata.author || "Author";
+
+          const stats = await AuthorshipReportService.getAuthorshipMetrics(project.id);
+          const verificationUrl = `${config.appUrl}/verify/${project.id}`;
+
+          const qrCodeDataUrl = await AuthorshipCertificateGenerator.generateQRCodeDataURL(verificationUrl);
+
+          const certHtml = await AuthorshipCertificateGenerator.generateCertificateHTML(
+            {
+              projectId: project.id,
+              userId: userId,
+              userName: userName,
+              projectTitle: project.title,
+              certificateType: "authorship",
+              includeQRCode: true,
+              verificationUrl: verificationUrl
+            },
+            stats,
+            qrCodeDataUrl
+          );
+
+          const imageBuffer = await AuthorshipCertificateGenerator.generatePreviewImage(certHtml);
+
+          // Add page break and image
+          bodyParagraphs.push(
+            new Paragraph({
+              children: [
+                new ImageRun({
+                  data: imageBuffer,
+                  transformation: {
+                    width: 600, // Full width (approx)
+                    height: 450, // Aspect ratio
+                  },
+                  type: "png"
+                }),
+              ],
+              pageBreakBefore: true,
+            })
+          );
+
+        } catch (error) {
+          logger.error("Failed to append authorship certificate to DOCX", error);
+        }
+      }
+
+      // 8. Generate references section (renumbered from 7 to match flow, but references usually last? 
+      // Actually certificate should be VERY LAST or before references? 
+      // User likely wants it as an addendum.
+      // Let's keep references as is, and we appended to bodyParagraphs which come BEFORE references in mergeDocumentComponents?
+      // Wait, mergeDocumentComponents puts body then references.
+
+      // If I want certificate AFTER references, I should add it to a new list or append to referencesParagraphs.
+      // Let's append to referencesParagraphs if they exist, or create a new component.
+
+      // Better: Create `certificateParagraphs` and pass to mergeDocumentComponents.
+      // But mergeDocumentComponents signature is fixed in PublicationService?
+      // Let's check PublicationService.mergeDocumentComponents (it's imported).
+      // If I can't change it easily, I'll append to referencesParagraphs.
+
+      const certificateParagraphs: Paragraph[] = [];
+      if (options.includeAuthorshipCertificate) {
+        // Re-implement logic here to populate certificateParagraphs instead of bodyParagraphs
+        try {
+          const { AuthorshipCertificateGenerator } = require("./authorshipCertificateGenerator");
+          const { AuthorshipReportService } = require("./authorshipReportService");
+          const { config } = require("../config/env");
+
+          const userMetadata = await PublicationService.getUserMetadata(userId);
+          const userName = options.metadata?.author || userMetadata.author || "Author";
+
+          const stats = await AuthorshipReportService.getAuthorshipMetrics(project.id);
+          const verificationUrl = `${config.appUrl}/verify/${project.id}`;
+          const qrCodeDataUrl = await AuthorshipCertificateGenerator.generateQRCodeDataURL(verificationUrl);
+
+          const certHtml = await AuthorshipCertificateGenerator.generateCertificateHTML(
+            {
+              projectId: project.id,
+              userId: userId,
+              userName: userName,
+              projectTitle: project.title,
+              certificateType: "authorship",
+              includeQRCode: true,
+              verificationUrl: verificationUrl
+            },
+            stats,
+            qrCodeDataUrl
+          );
+
+          const imageBuffer = await AuthorshipCertificateGenerator.generatePreviewImage(certHtml);
+
+          certificateParagraphs.push(
+            new Paragraph({
+              children: [
+                new ImageRun({
+                  data: imageBuffer,
+                  transformation: {
+                    width: 700,
+                    height: 500,
+                  },
+                  type: "png"
+                }),
+              ],
+              pageBreakBefore: true,
+            })
+          );
+        } catch (e) { logger.error("Cert generation failed", e); }
+      }
+
+      // 7. Generate references section (original 7)
       const referencesParagraphs: Paragraph[] = [];
       if (project.citations && project.citations.length > 0) {
         referencesParagraphs.push(
@@ -157,9 +274,11 @@ export class PublicationExportService {
             text: "References",
             heading: HeadingLevel.HEADING_2,
             spacing: { before: 400, after: 200 },
+            pageBreakBefore: true, // References usually start on new page
           })
         );
-
+        // ... existing citation loop ...
+        // Re-inserting the loop logic below because I am replacing the block
         project.citations.forEach((citation: any, index: number) => {
           referencesParagraphs.push(
             new Paragraph({
@@ -168,6 +287,19 @@ export class PublicationExportService {
             })
           );
         });
+      }
+
+      // Append certificate paragraphs to references/body if needed
+      // Since mergeDocumentComponents takes specific named args, and I can't see its source but I see usage:
+      // { coverPage, toc, body, references }
+      // I will append certificateParagraphs to referencesParagraphs (if any) or bodyParagraphs (if no references).
+
+      if (certificateParagraphs.length > 0) {
+        if (referencesParagraphs.length > 0) {
+          referencesParagraphs.push(...certificateParagraphs);
+        } else {
+          bodyParagraphs.push(...certificateParagraphs);
+        }
       }
 
       // 8. Merge all components
@@ -492,6 +624,21 @@ export class PublicationExportService {
             })
           );
         }
+      } else if (node.type === "figure") {
+        // Handle figure (container)
+        const figureParagraphs = await this.convertTipTapToDOCXParagraphs(node);
+        paragraphs.push(...figureParagraphs);
+      } else if (node.type === "figcaption") {
+        // Handle figcaption
+        const children = this.extractTextRunsFromNode(node);
+        paragraphs.push(
+          new Paragraph({
+            children: children,
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 100, after: 200 },
+            style: "Caption", // Assuming standard Word style or we can set italics manually
+          })
+        );
       } else {
         // Fallback for unknown node types or debugging
         logger.debug("Unknown or unhandled node type in DOCX export", {
@@ -551,6 +698,11 @@ export class PublicationExportService {
         } else if (child.type === "hardBreak") {
           // Handle hard breaks (Shift+Enter)
           runs.push(new TextRun({ text: "", break: 1 }));
+        } else if (child.type === "citation") {
+          // Handle inline citation node
+          // Assuming citation node has attrs.label or similar
+          const label = child.attrs?.label || child.attrs?.text || "[Citation]";
+          runs.push(new TextRun({ text: label }));
         }
       });
     }

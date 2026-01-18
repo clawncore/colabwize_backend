@@ -273,12 +273,22 @@ export class SecretsService {
   }
 
   // Get AI Detection configuration values
-  static async getGptzeroApiKey(): Promise<string | null> {
-    return this.getSecret("GPTZERO_API_KEY");
+  static async getCopyLeaksEmail(): Promise<string | null> {
+    return this.getSecret("COPYLEAKS_EMAIL");
   }
 
-  static async getOriginalityApiKey(): Promise<string | null> {
-    return this.getSecret("ORIGINALITY_API_KEY");
+  static async getCopyLeaksApiKey(): Promise<string | null> {
+    return this.getSecret("COPYLEAKS_API_KEY");
+  }
+
+  // Get Anthropic API key
+  static async getAnthropicApiKey(): Promise<string | null> {
+    return this.getSecret("ANTHROPIC_API_KEY");
+  }
+
+  // Get Semantic Scholar API key
+  static async getSemanticScholarApiKey(): Promise<string | null> {
+    return this.getSecret("SEMANTIC_SCHOLAR_API_KEY");
   }
 
   // Get allowed origins for CORS

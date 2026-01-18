@@ -11,6 +11,7 @@ interface ExportOptions {
   format: "pdf" | "docx" | "txt" | "latex" | "rtf" | "zip";
   includeCitations?: boolean;
   includeComments?: boolean;
+  includeAuthorshipCertificate?: boolean;
   citationStyle?: "apa" | "mla" | "chicago";
   pageSize?: "A4" | "letter";
   orientation?: "portrait" | "landscape";
@@ -108,6 +109,7 @@ export class ExportService {
         includeCoverPage: true,
         coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
         includeTOC: true,
+        includeAuthorshipCertificate: options.includeAuthorshipCertificate,
         performStructuralAudit: false,
         metadata: options.metadata,
       }
@@ -148,6 +150,7 @@ export class ExportService {
       citationStyle: options.citationStyle,
       includeCoverPage: true, // Defaulting to true for PDF export as per general academic desires
       coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
+      includeAuthorshipCertificate: options.includeAuthorshipCertificate,
       metadata: options.metadata,
     });
 

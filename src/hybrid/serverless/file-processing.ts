@@ -172,6 +172,7 @@ async function generatePDFExport(fileData: any, userId: string) {
       format: "pdf",
       includeCitations: fileData.includeCitations ?? true,
       includeComments: fileData.includeComments ?? false,
+      includeAuthorshipCertificate: fileData.includeAuthorshipCertificate ?? false,
       citationStyle: fileData.citationStyle || "apa",
       pageSize: fileData.pageSize || "A4",
       orientation: fileData.orientation || "portrait",

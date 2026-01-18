@@ -79,7 +79,15 @@ export class OpenAIService {
     originalText: string,
     count: number = 3
   ): Promise<string[]> {
-    const prompt = `Provide ${count} different ways to rephrase the following text while maintaining its meaning and improving originality. Return only the rephrased versions, numbered 1-${count}:
+    const prompt = `Provide ${count} different ways to rephrase the following text.
+    
+CRITICAL INSTRUCTIONS:
+- Write mostly in active voice and use natural, varied sentence structures ("burstiness").
+- Do NOT use typical AI phrases like "In conclusion", "It is important to note", or "Delve into".
+- Make it sound like a knowledgeable human student, not a robot.
+- Maintain the original meaning perfectly.
+
+Return only the rephrased versions, numbered 1-${count}:
 
 Original text: "${originalText}"
 

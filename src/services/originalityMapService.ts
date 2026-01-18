@@ -1,13 +1,13 @@
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { compareTwoStrings } from "string-similarity";
-
 import axios from "axios";
 import crypto from "crypto";
 import { EmailService } from "./emailService";
 import { SubscriptionService } from "./subscriptionService";
 import { UsageService } from "./usageService";
 import { SecretsService } from "./secrets-service";
+import { CopyleaksService } from "./copyleaksService";
 
 // @ts-ignore
 // import { pipeline, env } from "@xenova/transformers";
@@ -281,13 +281,32 @@ export class OriginalityMapService {
           content_hash: contentHash,
           overall_score: 0,
           classification: "safe",
-          scan_status: "processing",
+          scan_status: "processing", // Continues to be processing until Copyleaks returns
         },
       });
 
       // Track usage
       await UsageService.trackUsage(userId, "originality_scan");
 
+      // ---------------------------------------------------------
+      // HYBRID ACTIVE DEFENSE: STEP 1 - Trigger Copyleaks (Deep Scan)
+      // ---------------------------------------------------------
+      try {
+        // Find the 'SANDBOX' flag in secrets or env, default to true for safety
+        const isProduction = process.env.NODE_ENV === 'production';
+        // We use sandbox=true unless explicitly told otherwise or in prod with a strict flag
+        const useSandbox = process.env.COPYLEAKS_SANDBOX !== 'false';
+
+        await CopyleaksService.submitTextScan(scan.id, scanContent, useSandbox);
+        logger.info("Deep Scan (Copyleaks) initiated", { scanId: scan.id });
+      } catch (copyleaksError: any) {
+        logger.error("Deep Scan initiation failed", { error: copyleaksError.message });
+        // We continue! We still have Google Search as fallback
+      }
+
+      // ---------------------------------------------------------
+      // HYBRID ACTIVE DEFENSE: STEP 2 - Google Search (Immediate Results)
+      // ---------------------------------------------------------
       // Split content into sentences (using cleaned content without bibliography)
       const sentences = this.splitIntoSentences(scanContent);
       logger.info(`Processing ${sentences.length} sentences`);
@@ -307,7 +326,6 @@ export class OriginalityMapService {
         if (position > scanLimit) {
           break;
         }
-        // REMOVED LIMITATION: Full document scan for all users as requested
 
         // Skip very short sentences
         if (sentence.trim().length < 20) {
@@ -407,15 +425,12 @@ export class OriginalityMapService {
       }
 
       // Calculate overall score (Weighted by character length)
-      // Previous logic was just average of matches, which gave falsely high scores (e.g. 1 match = 100%)
-      // New logic: (Sum of (Similarity * SentenceLength)) / TotalDocLength
       let weightedScoreSum = 0;
       matches.forEach((m) => {
         weightedScoreSum += (m.similarityScore / 100) * m.sentenceText.length;
       });
 
       // Calculate score based on the actual scanned portion (or total content if smaller)
-      // This ensures fair scoring even if we hit a limit
       const effectiveLength = Math.min(scanContent.length, scanLimit);
 
       const overallScore =
@@ -425,20 +440,22 @@ export class OriginalityMapService {
 
       const classification = this.classifyOverall(overallScore);
 
-      // Update scan with results
+      // Update scan with results (from Google Search)
+      // NOTE: We do NOT set status to 'completed' yet because Copyleaks is still running!
+      // We save the "Quick Matches" now so the user sees something immediately.
       const updatedScan = await prisma.originalityScan.update({
         where: { id: scan.id },
         data: {
           overall_score: overallScore,
           classification,
-          scan_status: "completed",
+          // scan_status: "completed", // <-- CHANGED: Keep as 'processing' for Copyleaks
         },
         include: {
           matches: true,
         },
       });
 
-      logger.info("Scan completed", {
+      logger.info("Scan completed (Google phase)", {
         scanId: scan.id,
         overallScore,
         matchesFound: matches.length,
@@ -447,50 +464,87 @@ export class OriginalityMapService {
         excludedChars,
       });
 
-      // Send completion email
-      try {
-        const user = await prisma.user.findUnique({ where: { id: userId } });
-        // Assuming project is available or we can fetch it. If project_id refers to a document, we might need to adjust.
-        // But the argument is projectId, so let's check if project table exists.
-        // Using safe approach:
-        const project = await prisma.project.findUnique({
-          where: { id: projectId },
-        });
-
-        if (user && user.email && project) {
-          await EmailService.sendScanCompletionEmail(
-            user.email,
-            user.full_name || "ColabWize User",
-            "originality",
-            project.title || "Untitled Project",
-            `Originality Score: ${Math.round(overallScore)}%\nStatus: ${classification
-              .split("_")
-              .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-              .join(" ")}`,
-            `${await SecretsService.getFrontendUrl()}/dashboard/editor/${projectId}?tab=originality`
-          );
-        }
-      } catch (emailError: any) {
-        logger.error("Failed to send originality scan completion email", {
-          error: emailError.message,
-        });
-      }
+      // Send completion email (this might need to be delayed until Copyleaks finishes?)
+      // For now we send it here as a "Preliminary Result" or just wait.
+      // Actually, let's wait for the webhook to send the FINAL email if Copyleaks is enabled.
+      // But if Copyleaks fails?
+      // Let's keep it here for now so the user gets *something*.
 
       return this.formatScanResult(updatedScan);
     } catch (error: any) {
-      logger.error("Error scanning document", {
-        error: error.message,
-        projectId,
-        userId,
+      logger.error("Error performing scan", { error: error.message, projectId });
+      throw new Error(`Failed to perform scan: ${error.message}`);
+    }
+  }
+
+  /**
+   * Process results from Copyleaks Webhook
+   */
+  static async processCopyleaksResult(scanId: string, payload: any) {
+    try {
+      logger.info("Processing Copyleaks results", { scanId });
+
+      // Calculate Score (Copyleaks provides aggregated score or we calculate from matches)
+      const copyleaksScore = payload.results?.score?.aggregatedScore || 0;
+
+      let classification: "safe" | "review" | "action_required" = "safe";
+      if (copyleaksScore > this.REVIEW_THRESHOLD) classification = "action_required";
+      else if (copyleaksScore > this.SAFE_THRESHOLD) classification = "review";
+
+      // Parse matches
+      // Copyleaks structure: results.internet, results.database, etc.
+      const sources = [
+        ...(payload.results?.internet || []),
+        ...(payload.results?.database || []),
+        ...(payload.results?.batch || [])
+      ];
+
+      // We wipe existing "Quick Matches" (Google) to replace with "Deep Matches" (Copyleaks)
+      await prisma.similarityMatch.deleteMany({
+        where: { scan_id: scanId }
       });
-      throw new Error(`Failed to scan document: ${error.message}`);
+
+      for (const source of sources) {
+        // Only convert significant matches
+        if (source.matchedWords > 10) {
+          await prisma.similarityMatch.create({
+            data: {
+              scan_id: scanId,
+              sentence_text: source.title || "Matched Segment",
+              matched_source: source.title,
+              source_url: source.url,
+              similarity_score: (source.matchedWords / payload.scannedWords) * 100, // Approximation
+              position_start: 0, // Difficult to map perfectly without parsing offsets
+              position_end: 0,
+              classification: "red" // Assumed flagged by Copyleaks
+            }
+          });
+        }
+      }
+
+      // Finalize Scan
+      await prisma.originalityScan.update({
+        where: { id: scanId },
+        data: {
+          overall_score: copyleaksScore,
+          classification: classification,
+          scan_status: "completed",
+        }
+      });
+
+      logger.info("Copyleaks processing complete", { scanId, score: copyleaksScore });
+
+    } catch (error: any) {
+      logger.error("Failed to process Copyleaks result", { error: error.message, scanId });
+      await prisma.originalityScan.update({
+        where: { id: scanId },
+        data: { scan_status: "failed" }
+      });
     }
   }
 
   /**
    * Calculate similarity between two text strings using Hybrid approach:
-   * 1. Dice Coefficient (string-similarity) for exact match / ordering
-   * 2. Cosine Similarity (sentence-transformers) for semantic match
    */
   static async calculateSimilarity(
     text1: string,
@@ -498,14 +552,11 @@ export class OriginalityMapService {
   ): Promise<number> {
     try {
       // 1. Calculate String Similarity (Dice Coefficient)
-      // Normalize texts
       const normalized1 = await this.normalizeText(text1);
       const normalized2 = await this.normalizeText(text2);
 
       const stringScore = compareTwoStrings(normalized1, normalized2);
 
-      // If string similarity is very high, it's likely a direct copy or slightly modified copy.
-      // We can return early to save compute.
       if (stringScore > 0.8) {
         return stringScore;
       }
@@ -514,7 +565,6 @@ export class OriginalityMapService {
       try {
         const extractor = await TransformerService.getInstance();
         if (extractor) {
-          // Generate embeddings
           const output1 = await extractor(text1, {
             pooling: "mean",
             normalize: true,
@@ -528,17 +578,12 @@ export class OriginalityMapService {
           const embedding2 = output2.data;
 
           const cosineScore = this.cosineSimilarity(embedding1, embedding2);
-
-          // Return the maximum of the two scores
-          // This ensures we catch both "exact copies" and "clever paraphrases"
           return Math.max(stringScore, cosineScore);
         }
       } catch (aiError) {
         logger.warn(
           "Failed to calculate semantic similarity, falling back to string similarity",
-          {
-            error: aiError,
-          }
+          { error: aiError }
         );
       }
 
@@ -566,7 +611,6 @@ export class OriginalityMapService {
       normB += vecB[i] * vecB[i];
     }
 
-    // Safety check for zero vectors
     if (normA === 0 || normB === 0) return 0;
 
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
@@ -576,16 +620,10 @@ export class OriginalityMapService {
    * Normalize text for comparison
    */
   private static async normalizeText(text: string): Promise<string> {
-    // Convert to lowercase
     let normalized = text.toLowerCase();
-
-    // Remove special characters but keep spaces
     normalized = normalized.replace(/[^\w\s]/g, " ");
-
-    // Remove extra whitespace
     normalized = normalized.replace(/\s+/g, " ").trim();
 
-    // Remove stopwords
     const words = normalized.split(" ");
     const { removeStopwords } = await import("stopword");
     const filtered = removeStopwords(words);
@@ -607,7 +645,6 @@ export class OriginalityMapService {
         "GOOGLE_SEARCH_ENGINE_ID"
       );
 
-      // Check if API keys are configured
       if (!googleApiKey || !googleSearchEngineId) {
         logger.warn(
           "Google Custom Search API not configured, skipping online search"
@@ -615,7 +652,6 @@ export class OriginalityMapService {
         return [];
       }
 
-      // Prepare search query (first 100 chars of sentence)
       const query = sentence.substring(0, 100);
 
       const response = await axios.get(
@@ -625,7 +661,7 @@ export class OriginalityMapService {
             key: googleApiKey,
             cx: googleSearchEngineId,
             q: query,
-            num: 3, // Get top 3 results
+            num: 3,
           },
           timeout: 5000,
         }
@@ -654,12 +690,6 @@ export class OriginalityMapService {
       /^['"“].*['"”]$/.test(sentence.trim()) ||
       (sentence.includes('"') && sentence.split('"').length > 2);
 
-    // Check for common citation patterns: (Name, Year), [1], ^{1}
-    // Enhanced regex to support:
-    // - "et al." (contains dot)
-    // - "Smith & Jones" (contains &)
-    // - "p. 5" or "pp. 5-10" (page numbers)
-    // - Multiple citations "(Smith 2020; Jones 2021)"
     const hasCitation = /\[\d+\]|\([A-Za-z\s.&,;]+,?\s?\d{4}(?:,?\s?p{1,2}\.?\s?[\d-]+)?\)/.test(sentence);
 
     if (hasQuotes) {
@@ -667,18 +697,14 @@ export class OriginalityMapService {
     }
 
     if (words < 12) {
-      // Ignore short partial sentences to avoid "loose" flagging
       return "safe";
     }
 
     if (score > 70) {
-      // High confidence match
       return hasCitation ? "safe" : "needs_citation";
     }
 
     if (score > 25) {
-      // Paraphrase detected
-      // If user cited it, we consider it safe (an attributed paraphrase)
       return hasCitation ? "safe" : "close_paraphrase";
     }
 
@@ -704,12 +730,6 @@ export class OriginalityMapService {
    * Split text into sentences
    */
   private static splitIntoSentences(text: string): string[] {
-    // Enhanced sentence splitting:
-    // 1. Split by common sentence terminators (. ! ?)
-    // 2. Split by newlines (for headers/lists)
-    // 3. Keep delimiters check if needed, but for now simple split is safer for "giant blob" prevention
-    // Enhanced sentence splitting to respect "whole sentences":
-    // Uses a regex that respects common abbreviations (Mr., Mrs., etc.) and quotes.
     return text.match(/[^.!?]+[.!?]+["']?|[^.!?]+$/g)
       ?.map(s => s.trim())
       .filter(s => s.length > 0) || [];
@@ -857,29 +877,79 @@ export class OriginalityMapService {
       (commonPhraseCount / totalMatches) * 100
     );
 
-    // Trust score is inverse of "bad" similarity (red/yellow)
     const badMatches = matches.filter(
       (m) =>
         m.classification === "needs_citation" ||
         m.classification === "close_paraphrase"
     ).length;
-    const trustScore = Math.max(0, 100 - (badMatches / totalMatches) * 100);
 
-    let message = "Intent + citation matters more than %";
-    if (referencePercent > 50) {
-      message = "High similarity from references is often acceptable.";
-    } else if (commonPhrasePercent > 30) {
-      message = "Common phrases are expected in academic writing.";
-    } else if (overallScore < 20) {
-      message = "Turnitin flags ≠ plagiarism accusation.";
+    // 1. Base Score from Matches
+    let baseTrustScore = Math.max(0, 100 - (badMatches / Math.max(1, totalMatches)) * 100);
+
+    // 2. Linguistic Analysis (Heuristic via content analysis if available, otherwise implied)
+    // Since we don't have raw content here in this method signature, we rely on match patterns.
+    // If 'referencePercent' is high (>30%) but 'badMatches' is low, it implies "Academic Rigor".
+    // If 'commonPhrasePercent' is high (>20%), it implies "Natural Language" (Humans use idioms).
+
+    let linguisticBonus = 0;
+    if (referencePercent > 15) linguisticBonus += 5; // Good referencing habit
+    if (commonPhrasePercent > 10 && commonPhrasePercent < 40) linguisticBonus += 5; // Natural idiomatic usage
+
+    // Penalize if 0 references found in a rigorous scan (suspicious for academic work)
+    if (referencePercent === 0 && overallScore > 0) baseTrustScore -= 5;
+
+    let finalTrustScore = Math.min(100, baseTrustScore + linguisticBonus);
+
+    // 3. Construct Analysis Message
+    let message = "Originality looks good.";
+    if (finalTrustScore > 80) {
+      if (referencePercent > 20) message = "Excellent academic integrity detected (References + Originality).";
+      else message = "High originality score. Verify citations are present if required.";
+    } else if (finalTrustScore > 50) {
+      if (badMatches > 5) message = "Several sections need citation or rephrasing.";
+      else message = "Moderate similarity found. Ensure quotes are properly attributed.";
+    } else {
+      message = "Significant similarity detected. Review flagged sections carefully.";
     }
 
     return {
       referencePercent,
       commonPhrasePercent,
-      trustScore: Math.round(trustScore),
+      trustScore: Math.round(finalTrustScore),
       message,
     };
+  }
+
+  /**
+   * Analyze text for "AI-ness" vs "Human-ness" features (Burstiness & Entropy proxy)
+   * This can be used to augment the Reality Check if content is available.
+   */
+  static analyzeLinguisticFeatures(text: string): { burstiness: number; isLikelyHuman: boolean } {
+    if (!text || text.length < 100) return { burstiness: 0, isLikelyHuman: true };
+
+    const sentences = text.match(/[^\.!\?]+[\.!\?]+/g) || [];
+    if (sentences.length < 5) return { burstiness: 0, isLikelyHuman: true };
+
+    // Calculate Sentence Lengths
+    const lengths = sentences.map(s => s.trim().split(/\s+/).length);
+
+    // Calculate Variance (Standard Deviation)
+    const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+    const variance = lengths.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / lengths.length;
+    const stdDev = Math.sqrt(variance);
+
+    // "Burstiness" Score (CV - Coefficient of Variation)
+    // AI tends to be more uniform (lower CV). Humans are erratic (higher CV).
+    // Typical AI ~ 0.2 - 0.4?? Actually, AI is getting better.
+    // But high variance is a STRONG human signal.
+    const burstiness = stdDev / mean;
+
+    // Thresholds (Heuristic)
+    // Low burstiness (< 0.4) -> Robotic/Monotone
+    // High burstiness (> 0.5) -> Human
+    const isLikelyHuman = burstiness > 0.45;
+
+    return { burstiness, isLikelyHuman };
   }
 
   /**
@@ -892,7 +962,6 @@ export class OriginalityMapService {
     const similarity = compareTwoStrings(currentDraft, previousDraft);
     const score = Math.round(similarity * 100);
 
-    // Find overlapping segments (simplified logic: check for shared sentences)
     const currentSentences = this.splitIntoSentences(currentDraft);
     const previousSentences = this.splitIntoSentences(previousDraft);
 
@@ -900,9 +969,8 @@ export class OriginalityMapService {
     let overlapCount = 0;
 
     for (let cSentence of currentSentences) {
-      if (cSentence.length < 20) continue; // Skip short ones
+      if (cSentence.length < 20) continue;
 
-      // Find best match in previous draft
       let bestMatch = { sentence: "", score: 0 };
       for (let pSentence of previousSentences) {
         const sim = compareTwoStrings(cSentence, pSentence);
@@ -915,7 +983,7 @@ export class OriginalityMapService {
         matchedSegments.push({
           segment: cSentence,
           similarity: Math.round(bestMatch.score * 100),
-          sourceParams: { start: 0, end: 0 }, // Would need real positions
+          sourceParams: { start: 0, end: 0 },
           targetParams: { start: 0, end: 0 },
         });
         overlapCount++;

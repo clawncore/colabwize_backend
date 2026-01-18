@@ -23,8 +23,15 @@ router.post(
         });
       }
 
-      const { projectId, timeSpent, editCount, keystrokes, wordCount } =
-        req.body;
+      const {
+        projectId,
+        timeSpent,
+        editCount,
+        keystrokes,
+        wordCount,
+        manualEdits,
+        aiAssistedEdits,
+      } = req.body;
 
       if (!projectId || timeSpent === undefined || editCount === undefined) {
         return res.status(400).json({
@@ -40,6 +47,8 @@ router.post(
         editCount,
         keystrokes,
         wordCount,
+        manualEdits: manualEdits ?? editCount, // Default to editCount if manualEdits missing (assume manual)
+        aiAssistedEdits: aiAssistedEdits ?? 0,
         sessionStart: new Date(Date.now() - timeSpent * 1000),
         sessionEnd: new Date(),
       });

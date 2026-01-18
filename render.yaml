@@ -51,6 +51,54 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
+      # Mathpix API Configuration
+      - key: MATHPIX_APP_ID
+        sync: false
+      - key: MATHPIX_APP_KEY
+        sync: false
+      # AI Provider Keys
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOGLE_GENERATIVE_AI_API_KEY
+        sync: false
+      # Search & Integrity Keys
+      - key: SEMANTIC_SCHOLAR_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GOOGLE_CSE_ID
+        sync: false
+      - key: GOOGLE_CUSTOM_SEARCH_API_KEY
+        sync: false
+      - key: SERPAPI_KEY
+        sync: false
+      - key: COPYLEAKS_EMAIL
+        sync: false
+      - key: COPYLEAKS_API_KEY
+        sync: false
+      # Security & Admin
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: ADMIN_USER_IDS
+        sync: false
+      # Discord Webhooks
+      - key: CONTACT_REQUEST_DISCORD_WEBHOOK_URL
+        sync: false
+      - key: DEMO_REQUEST_DISCORD_WEBHOOK_URL
+        sync: false
+      - key: FEATURE_REQUEST_DISCORD_WEBHOOK_URL
+        sync: false
+      - key: SIGNUP_SURVEY_DISCORD_WEBHOOK_URL
+        sync: false
+      # Emails
+      - key: FEEDBACK_EMAIL
+        sync: false
+      - key: CONTACT_ADMIN_EMAIL
+        sync: false
+      - key: COMPLIANCE_EMAIL
+        sync: false
       # Puppeteer/Chrome configuration
       - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
         value: "true"

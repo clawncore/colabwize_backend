@@ -11,6 +11,7 @@ import { SubscriptionService } from "../../services/subscriptionService";
 import { CreditService } from "../../services/CreditService";
 import compareRouter from "./compare";
 import enhancedRouter from "./enhanced";
+import webhookRouter from "./webhook";
 import { prisma } from "../../lib/prisma";
 import { EnhancedOriginalityDetectionService } from "../../services/enhancedOriginalityDetectionService";
 import { getSafeString } from "../../utils/requestHelpers";
@@ -21,6 +22,9 @@ router.use("/", compareRouter);
 
 // Enhanced originality detection routes
 router.use("/enhanced", enhancedRouter);
+
+// Webhook routes (No rate limit, as they come from Copyleaks)
+router.use("/webhook", webhookRouter);
 
 // Rate limiters
 const scanLimiter = rateLimit({
@@ -454,5 +458,62 @@ router.post("/check-self-plagiarism", async (req: Request, res: Response) => {
     });
   }
 });
+
+const humanizeLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // 5 requests per minute
+  message: "Too many humanize requests, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
+ * POST /api/originality/humanize
+ * Adversarial Humanization (Auto-Humanizer)
+ */
+router.post(
+  "/humanize",
+  humanizeLimiter,
+  checkUsageLimit("originality_scan"), // Reuse originality usage or create new feature? Let's reuse for now or just check authentication
+  // Ideally this should consume CREDITS or be PRO only.
+  // For now, we'll gate it behind authentication and general usage.
+  async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "Authentication required" });
+      }
+
+      const { content } = req.body;
+
+      if (!content || typeof content !== 'string' || content.length < 10) {
+        return res.status(400).json({ success: false, message: "Valid content is required (min 10 chars)" });
+      }
+
+      if (content.length > 5000) {
+        return res.status(400).json({ success: false, message: "Content too long (max 5000 chars)" });
+      }
+
+      logger.info("Starting text humanization", { userId, length: content.length });
+
+      // Import dynamically to avoid circular issues if any (though services should be fine)
+      const { HumanizerService } = await import("../../services/humanizerService");
+
+      const result = await HumanizerService.humanizeText(content);
+
+      // Track usage (todo: distinct metric)
+      await incrementFeatureUsage("originality_scan")(req, res, () => { });
+
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+
+    } catch (error: any) {
+      logger.error("Error in humanize endpoint", { error: error.message });
+      return res.status(500).json({ success: false, message: "Failed to humanize text" });
+    }
+  }
+);
 
 export default router;

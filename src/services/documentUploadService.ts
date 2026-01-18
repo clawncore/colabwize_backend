@@ -287,7 +287,26 @@ export class DocumentUploadService {
 
       switch (fileExtension) {
         case "pdf":
-          // First, try to convert PDF to DOCX to preserve formatting and images
+          // 0. Enterprise-Grade Parsing (Mathpix)
+          // Check if Mathpix credentials are available
+          if (process.env.MATHPIX_APP_ID && process.env.MATHPIX_APP_KEY) {
+            try {
+              const { MathpixService } = require("./mathpixService");
+              logger.info("[PDF-CONVERSION] Attempting Mathpix conversion", { filePath });
+
+              const html = await MathpixService.convertPdfToHtml(filePath);
+              logger.info("[PDF-CONVERSION] Mathpix conversion successful");
+
+              return { content: html, format: "html" };
+            } catch (mathpixError: any) {
+              logger.warn("[PDF-CONVERSION] Mathpix conversion failed, falling back to local tools", {
+                error: mathpixError.message
+              });
+              // Fall through to next method
+            }
+          }
+
+          // 1. First fallback: Convert PDF to DOCX (LibreOffice) to preserve formatting
           try {
             logger.info('[PDF-CONVERSION] Attempting PDF to DOCX conversion', { filePath });
             const docxPath = await PdfConversionService.convertPdfToDocx(filePath);
