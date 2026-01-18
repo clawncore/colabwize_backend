@@ -37,7 +37,7 @@ COPY scripts ./scripts
 COPY prisma ./prisma
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm ci
 
 # Copy application code
 COPY . .
