@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node dist/hybrid/main-server.js",
     "dev": "tsx watch src/hybrid/main-server.ts",
-    "build": "if exist dist rmdir /s /q dist && tsc",
+    "build": "rimraf dist && tsc",
     "check-env": "node scripts/check-environment.js",
     "postinstall": "node scripts/setup-puppeteer.js && prisma generate"
   },
@@ -62,6 +62,7 @@
     "@types/string-similarity": "^4.0.2",
     "@types/supertest": "^6.0.3",
     "nodemon": "^3.0.2",
+    "rimraf": "^6.1.2",
     "tsx": "^4.21.0"
   }
 }
