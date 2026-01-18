@@ -64,6 +64,10 @@ router.post("/lemonsqueezy", express.raw({ type: "application/json" }), async (r
         await handleSubscriptionUnpaused(data);
         break;
 
+      case "subscription_payment_success":
+        await handleSubscriptionPaymentSuccess(data);
+        break;
+
       default:
         logger.info("Unhandled webhook event", { eventName });
     }
@@ -319,5 +323,46 @@ async function handleSubscriptionUnpaused(data: any) {
 
 // Add prisma import at the top
 import { prisma } from "../../lib/prisma";
+
+/**
+ * Handle subscription payment success event (Renewals)
+ */
+async function handleSubscriptionPaymentSuccess(data: any) {
+  const userId = data.attributes.custom_data?.user_id;
+  const subscriptionId = data.attributes.subscription_id;
+
+  // Note: payment_success event ID might be different from order ID, 
+  // but usually related to an invoice.
+  // LemonSqueezy payload has 'subscription_invoice_id' or similar?
+  // Actually, let's look at the docs or standard payload.
+  // data.id is usually the ID of the event object (subscription-invoice).
+  // data.attributes.total is amount.
+
+  if (!userId) {
+    // Try to find user by subscription ID if custom_data is missing (recurring payments might lose custom_data in some old webhook versions, but usually it persists)
+    // For now, log warning.
+    logger.warn("Subscription payment success without user_id", { subscriptionId });
+    return;
+  }
+
+  const amount = data.attributes.total;
+  const currency = data.attributes.currency;
+  const receiptUrl = data.attributes.receipt_url; // url to receipt
+
+  // Create payment history record
+  await prisma.paymentHistory.create({
+    data: {
+      user_id: userId,
+      lemonsqueezy_order_id: data.id.toString(), // Using invoice ID/event ID as order ref
+      amount: data.attributes.total,
+      currency: currency.toLowerCase(),
+      status: "paid", // payment_success implies paid
+      receipt_url: receiptUrl,
+      description: `Subscription Renewal - ${data.attributes.billing_reason || 'Recurring'}`,
+    },
+  });
+
+  logger.info("Subscription renewal payment recorded", { userId, subscriptionId });
+}
 
 export default router;

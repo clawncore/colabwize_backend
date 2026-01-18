@@ -22,6 +22,7 @@ const PLAN_LIMITS = {
     citation_check: 0, // NOT AVAILABLE - as per pricing page
     draft_comparison: false, // NOT AVAILABLE
     rephrase_suggestions: 3,
+    paper_search: 3,
     ai_integrity: 0, // Not available in Free
     certificate: 10,
     max_scan_characters: 100000,
@@ -41,6 +42,7 @@ const PLAN_LIMITS = {
     citation_check: -2,
     draft_comparison: -2,
     rephrase_suggestions: -2,
+    paper_search: -2,
     ai_integrity: -2,
     certificate: -2,
     max_scan_characters: 300000,
@@ -60,6 +62,7 @@ const PLAN_LIMITS = {
     citation_check: 50,
     draft_comparison: false, // NOT AVAILABLE
     rephrase_suggestions: 50,
+    paper_search: 50,
     ai_integrity: 0, // Not available in Student
     certificate: 50,
     max_scan_characters: 300000,
@@ -79,6 +82,7 @@ const PLAN_LIMITS = {
     citation_check: -1,
     draft_comparison: -1, // Available
     rephrase_suggestions: -1,
+    paper_search: -1,
     ai_integrity: -1,
     certificate: -1,
     max_scan_characters: 500000,
@@ -522,6 +526,7 @@ export class SubscriptionService {
         features: [
           "3 document scans per month",
           "3 Rephrase Suggestions for improvement",
+          "3 Paper Searches",
           "Max 100,000 characters (~15k words)",
           "Basic originality check",
           "Export to PDF/Word",
@@ -537,6 +542,7 @@ export class SubscriptionService {
         features: [
           "50 document scans per month",
           "50 Rephrase Suggestions for improvement",
+          "50 Paper Searches",
           "Max 300,000 characters (~50k words)",
           "Full originality map",
           "Citation confidence auditor",

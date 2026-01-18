@@ -130,7 +130,6 @@ export class ExportService {
     userId: string,
     options: ExportOptions
   ): Promise<ExportResult> {
-    const puppeteer = require("puppeteer");
     const { HtmlExportService } = require("./htmlExportService");
 
     // 1. Fetch project data (re-fetching to ensure we have it if coming from internal call)
@@ -155,9 +154,22 @@ export class ExportService {
     // 3. Render PDF via Puppeteer
     let browser;
     try {
-      browser = await puppeteer.launch({
+      const puppeteer = await import('puppeteer');
+      browser = await puppeteer.default.launch({
         headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"], // Required for some containerized environments
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable' || '/usr/bin/chromium-browser' || undefined,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+          "--disable-web-security",
+          "--disable-features=VizDisplayCompositor",
+          "--no-first-run",
+          "--no-zygote",
+          "--disable-extensions",
+          "--disable-plugins",
+        ],
       });
       const page = await browser.newPage();
 
@@ -182,6 +194,16 @@ export class ExportService {
       };
     } catch (error: any) {
       logger.error("Puppeteer PDF generation failed", { error: error.message });
+
+      // Check if it's a Chrome not found error
+      if (error.message.includes("Could not find Chrome") || error.message.includes("Failed to launch the browser")) {
+        throw new Error(
+          "PDF export requires Chrome to be installed on the server. " +
+          "Contact your administrator to install Chrome or configure Puppeteer properly. " +
+          "Error: " + error.message
+        );
+      }
+
       throw new Error("Failed to generate PDF: " + error.message);
     } finally {
       if (browser) {
@@ -613,7 +635,6 @@ export class ExportService {
           return "";
         }
 
-        const fetch = (await import("node-fetch")).default;
         const response = await fetch(imageUrl);
         if (!response.ok) return "";
 

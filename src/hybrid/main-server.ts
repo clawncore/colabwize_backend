@@ -32,6 +32,7 @@ import contactRouter from "../api/contact/index";
 import onboardingRouter from "../api/onboarding/index";
 import chatRouter from "../api/chat/index";
 import waitlistRouter from "../api/waitlist/index";
+import imageRouter from "../api/images/upload";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 
 const app: Application = express();
@@ -222,6 +223,9 @@ app.use("/api/documents", authMiddleware, documentUploadRouter);
 
 // File Processing API (Import/Export)
 app.use("/api/files", authMiddleware, fileProcessingRouter);
+
+// Images API (Upload to Supabase)
+app.use("/api/images", authMiddleware, imageRouter);
 
 // Users API (Authentication required)
 app.use("/api/users", authMiddleware, usersRouter);

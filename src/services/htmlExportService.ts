@@ -94,6 +94,28 @@ export class HtmlExportService {
         margin-right: 0;
         text-indent: 0;
       }
+      /* Image support */
+      img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 1em auto;
+        page-break-inside: avoid;
+      }
+      img.float-left {
+        float: left;
+        margin: 0.5em 1em 0.5em 0;
+        max-width: 50%;
+      }
+      img.float-right {
+        float: right;
+        margin: 0.5em 0 0.5em 1em;
+        max-width: 50%;
+      }
+      .editor-image {
+        max-width: 100%;
+        height: auto;
+      }
       /* Column layout support */
       .columns {
         display: flex;

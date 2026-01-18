@@ -655,7 +655,12 @@ export class OriginalityMapService {
       (sentence.includes('"') && sentence.split('"').length > 2);
 
     // Check for common citation patterns: (Name, Year), [1], ^{1}
-    const hasCitation = /\([A-Za-z\s]+,?\s?\d{4}\)|\[\d+\]/.test(sentence);
+    // Enhanced regex to support:
+    // - "et al." (contains dot)
+    // - "Smith & Jones" (contains &)
+    // - "p. 5" or "pp. 5-10" (page numbers)
+    // - Multiple citations "(Smith 2020; Jones 2021)"
+    const hasCitation = /\[\d+\]|\([A-Za-z\s.&,;]+,?\s?\d{4}(?:,?\s?p{1,2}\.?\s?[\d-]+)?\)/.test(sentence);
 
     if (hasQuotes) {
       return "quoted_correctly";
@@ -672,8 +677,9 @@ export class OriginalityMapService {
     }
 
     if (score > 25) {
-      // Tightened threshold (was 24)
-      return "close_paraphrase";
+      // Paraphrase detected
+      // If user cited it, we consider it safe (an attributed paraphrase)
+      return hasCitation ? "safe" : "close_paraphrase";
     }
 
     return "safe";

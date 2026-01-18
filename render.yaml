@@ -1,23 +1,33 @@
 services:
   - type: web
     name: colabwize-backend
-    env: node
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    runtime: docker
+    repo: https://github.com/clawncore/colabwize.git
+    branch: main
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./
+    region: oregon
+    plan: starter
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3001
       - key: DATABASE_URL
-        sync: false  # Will use SUPABASE_URL for database connection
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
       - key: ALLOWED_ORIGINS
+        sync: false
+      - key: FRONTEND_URL
         sync: false
       - key: LEMONSQUEEZY_API_KEY
         sync: false
@@ -25,7 +35,26 @@ services:
         sync: false
       - key: LEMONSQUEEZY_WEBHOOK_SECRET
         sync: false
+      - key: LEMONSQUEEZY_STUDENT_PRO_MONTHLY_VARIANT_ID
+        sync: false
+      - key: LEMONSQUEEZY_STUDENT_PRO_ANNUAL_VARIANT_ID
+        sync: false
+      - key: LEMONSQUEEZY_RESEARCHER_MONTHLY_VARIANT_ID
+        sync: false
+      - key: LEMONSQUEEZY_RESEARCHER_ANNUAL_VARIANT_ID
+        sync: false
+      - key: LEMONSQUEEZY_CREDITS_10_VARIANT_ID
+        sync: false
+      - key: LEMONSQUEEZY_CREDITS_25_VARIANT_ID
+        sync: false
+      - key: LEMONSQUEEZY_CREDITS_50_VARIANT_ID
+        sync: false
       - key: RESEND_API_KEY
         sync: false
-      - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/project/src/backend/.cache/puppeteer
+      # Puppeteer/Chrome configuration
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/google-chrome-stable
+      - key: CHROME_PATH
+        value: /usr/bin/google-chrome-stable

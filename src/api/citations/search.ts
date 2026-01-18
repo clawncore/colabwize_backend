@@ -4,6 +4,15 @@ import logger from "../../monitoring/logger";
 
 const router = express.Router();
 
+import { SubscriptionService } from "../../services/subscriptionService";
+
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+  };
+}
+
 /**
  * GET /api/citations/search
  * Search for papers using OpenAlex API
@@ -11,6 +20,30 @@ const router = express.Router();
  */
 router.get("/search", async (req: Request, res: Response) => {
   try {
+    const authReq = req as AuthenticatedRequest;
+    const userId = authReq.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    // Check limits and consume action
+    const consumption = await SubscriptionService.consumeAction(
+      userId,
+      "paper_search"
+    );
+
+    if (!consumption.allowed) {
+      return res.status(403).json({
+        success: false,
+        message: consumption.message || "Monthly search limit reached",
+        requiresUpgrade: true,
+      });
+    }
+
     const query = req.query.q as string;
 
     if (!query) {
@@ -69,6 +102,7 @@ router.get("/search", async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       data: suggestions,
+      remaining: consumption.remaining, // Optional: return remaining count
     });
   } catch (error: any) {
     logger.error("Error searching OpenAlex", { error: error.message });

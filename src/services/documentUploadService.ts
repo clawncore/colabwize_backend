@@ -3,10 +3,12 @@ import { Request } from "express";
 import { Worker } from "worker_threads";
 import path from "path";
 import fs from "fs/promises";
-// import pdfParse from "pdf-parse"; // Replaced with dynamic import
+// @ts-ignore
+import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
 import { RecycleBinService } from "./recycleBinService";
 import logger from "../monitoring/logger";
+import { PdfConversionService } from "./pdfConversionService";
 
 interface ExtendedRequest extends Request {
   user?: {
@@ -270,30 +272,60 @@ export class DocumentUploadService {
   public static async extractTextFromDocument(
     file: Express.Multer.File
   ): Promise<{ content: string; format: "text" | "html" }> {
+    if (!file) {
+      throw new Error("File is required for text extraction");
+    }
+
+    const filePath = file.path;
+    const fileExtension = file.originalname.split(".").pop()?.toLowerCase();
+
+    if (!fileExtension) {
+      throw new Error("File extension not found");
+    }
+
     try {
-      if (!file) {
-        throw new Error("File is required for text extraction");
-      }
-
-      const filePath = file.path;
-      const fileExtension = file.originalname.split(".").pop()?.toLowerCase();
-
-      if (!fileExtension) {
-        throw new Error("File extension not found");
-      }
 
       switch (fileExtension) {
         case "pdf":
-          const pdfText = await this.extractTextFromPDF(filePath);
-          // Clean PDF text: remove hard wraps within paragraphs
-          // 1. Replace single newlines that are likely hard wraps with spaces
-          //    Look for: non-punctuation followed by newline followed by non-newline
-          const cleanedText = pdfText
-            .replace(/([^\n.!?])\n([^\n])/g, "$1 $2")
-            // 2. Reduce multiple newlines to max 2 (paragraph break)
-            .replace(/\n{3,}/g, "\n\n");
+          // First, try to convert PDF to DOCX to preserve formatting and images
+          try {
+            logger.info('[PDF-CONVERSION] Attempting PDF to DOCX conversion', { filePath });
+            const docxPath = await PdfConversionService.convertPdfToDocx(filePath);
 
-          return { content: cleanedText, format: "text" };
+            // If conversion succeeds, extract content from the converted DOCX
+            logger.info('[PDF-CONVERSION] PDF to DOCX conversion successful, extracting content', { docxPath });
+            const html = await this.extractHtmlFromDOCX(docxPath);
+
+            // Clean up the temporary DOCX file
+            try {
+              await fs.unlink(docxPath);
+              logger.info('[PDF-CONVERSION] Temporary DOCX file cleaned up', { docxPath });
+            } catch (cleanupError: any) {
+              logger.warn('[PDF-CONVERSION] Failed to clean up temporary DOCX file', {
+                docxPath,
+                error: cleanupError.message
+              });
+            }
+
+            return { content: html, format: "html" };
+          } catch (conversionError: any) {
+            logger.warn('[PDF-CONVERSION] PDF to DOCX conversion failed, falling back to text extraction', {
+              error: conversionError.message,
+              filePath
+            });
+
+            // If conversion fails, fall back to the original text extraction
+            const pdfText = await this.extractTextFromPDF(filePath);
+            // Clean PDF text: remove hard wraps within paragraphs
+            // 1. Replace single newlines that are likely hard wraps with spaces
+            //    Look for: non-punctuation followed by newline followed by non-newline
+            const cleanedText = pdfText
+              .replace(/([^\n.!?])\n([^\n])/g, "$1 $2")
+              // 2. Reduce multiple newlines to max 2 (paragraph break)
+              .replace(/\n{3,}/g, "\n\n");
+
+            return { content: cleanedText, format: "text" };
+          }
 
         case "docx":
           const html = await this.extractHtmlFromDOCX(filePath);
@@ -315,10 +347,22 @@ export class DocumentUploadService {
     } catch (error: any) {
       logger.error("Error extracting text from document", {
         error: error.message,
+        stack: error.stack,
         fileName: file?.originalname,
+        fileExtension,
+        filePath: file?.path
       });
+
+      // Return more user-friendly error message
+      let userMessage = "Unable to extract content from document";
+      if (error.message.includes("parse PDF")) {
+        userMessage = "Unable to extract text from PDF. The PDF may be scanned, password-protected, or corrupted.";
+      } else if (error.message.includes("extractable text content")) {
+        userMessage = "PDF appears to contain no extractable text. It may be a scanned document or image-based PDF.";
+      }
+
       return {
-        content: `Content from ${file?.originalname || "unknown file"}`,
+        content: `${userMessage} (File: ${file?.originalname})`,
         format: "text",
       };
     }
@@ -327,52 +371,51 @@ export class DocumentUploadService {
   /**
    * Extracts text from PDF files using a Worker Thread to prevent event-loop blocking
    */
+  /**
+   * Extracts text from PDF files directly
+   */
   private static async extractTextFromPDF(filePath: string): Promise<string> {
     const startTime = Date.now();
-    return new Promise((resolve, reject) => {
-      // Resolve worker path dynamically to support both TS (dev) and JS (prod)
-      const ext = path.extname(__filename);
-      const workerPath = path.join(__dirname, `../workers/pdfWorker${ext}`);
+    try {
+      logger.info(`[PDF] Starting PDF parsing`, { filePath });
 
-      const worker = new Worker(workerPath);
-
-      const timeout = setTimeout(() => {
-        worker.terminate();
-        const duration = Date.now() - startTime;
-        logger.error(`[PERF] PDF Parsing Timeout (>10s)`, { duration, filePath });
-        reject(new Error("PDF parsing timed out"));
-      }, 10000);
-
-      worker.on("message", (result) => {
-        clearTimeout(timeout);
-        if (result.success) {
-          const duration = Date.now() - startTime;
-          logger.info(`[PERF] PDF Parsing Complete`, { duration, filePath });
-          resolve(result.text);
-        } else {
-          logger.error(`[PERF] Worker Error`, { error: result.error });
-          reject(new Error(result.error));
-        }
-        worker.terminate();
+      const buffer = await fs.readFile(filePath);
+      logger.info(`[PDF] File read successfully`, {
+        filePath,
+        fileSize: buffer.length,
+        duration: Date.now() - startTime
       });
 
-      worker.on("error", (err: any) => {
-        clearTimeout(timeout);
-        logger.error(`[PERF] Worker Infrastructure Error`, { error: err.message });
-        reject(err);
-        worker.terminate();
+      const data = await pdfParse(buffer);
+
+      const duration = Date.now() - startTime;
+      logger.info(`[PERF] PDF Parsing Complete`, {
+        duration,
+        filePath,
+        textLength: data.text.length,
+        numPages: data.numpages
       });
 
-      worker.on("exit", (code) => {
-        if (code !== 0) {
-          clearTimeout(timeout);
-          reject(new Error(`Worker stopped with exit code ${code}`));
-        }
-      });
+      // Validate that we actually got content
+      if (!data.text || data.text.trim().length === 0) {
+        logger.warn(`[PDF] PDF parsed but returned empty content`, {
+          filePath,
+          numPages: data.numpages
+        });
+        throw new Error("PDF parsed successfully but contains no extractable text content");
+      }
 
-      // Send job
-      worker.postMessage({ filePath });
-    });
+      return data.text;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      logger.error(`[PDF] PDF Parsing Failed`, {
+        duration,
+        error: error.message,
+        stack: error.stack,
+        filePath
+      });
+      throw new Error(`Failed to parse PDF: ${error.message}`);
+    }
   }
 
   /**
