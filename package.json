@@ -11,7 +11,7 @@
     "dev": "tsx watch src/hybrid/main-server.ts",
     "build": "if exist dist rmdir /s /q dist && tsc",
     "check-env": "node scripts/check-environment.js",
-    "postinstall": "node scripts/setup-puppeteer.js && prisma generate && npx puppeteer browsers install chrome && npx puppeteer browsers install chromium"
+    "postinstall": "node scripts/setup-puppeteer.js && prisma generate"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.12",
