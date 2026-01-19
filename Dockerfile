@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
     ca-certificates \
+    openssl \
     libreoffice \
     libreoffice-writer \
     fonts-liberation \

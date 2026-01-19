@@ -41,6 +41,11 @@ const getConnectionString = (): string => {
       url.searchParams.set("pool_timeout", "60");
     }
 
+    // Add connect_timeout to handle cross-region latency
+    if (!url.searchParams.has("connect_timeout")) {
+      url.searchParams.set("connect_timeout", "30");
+    }
+
     // Ensure schema is set if using search_path in other places, though mostly handled by prisma schema
 
     return url.toString();
