@@ -1,5 +1,8 @@
 FROM node:20-slim
 
+# Ensure NODE_ENV is set for build and runtime
+ENV NODE_ENV=production
+
 # Install system dependencies
 # Install system dependencies & Chrome
 # Combined to reduce layers and prevent apt locks/timeouts

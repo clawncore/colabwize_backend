@@ -43,18 +43,26 @@ export async function initializePrisma(): Promise<PrismaClient> {
         }
 
         // Ensure pgbouncer=true is present if using the pooler port (6543)
-        if (url.port === "6543" && !url.searchParams.has("pgbouncer")) {
-            logger.info("⚠️ [Async] Detected Supabase Pooler (port 6543) without pgbouncer param. Appending pgbouncer=true");
-            url.searchParams.set("pgbouncer", "true");
+        // AND add explicit connection timeouts for cross-region stability
+        if (url.port === "6543") {
+            if (!url.searchParams.has("pgbouncer")) {
+                logger.info("⚠️ [Async] Detected Supabase Pooler (port 6543) without pgbouncer param. Appending pgbouncer=true");
+                url.searchParams.set("pgbouncer", "true");
+            }
         }
 
-        // Enforce connection pool limits
+        // Enforce connection pool limits & timeouts
         if (!url.searchParams.has("connection_limit")) {
             url.searchParams.set("connection_limit", "20");
         }
 
         if (!url.searchParams.has("pool_timeout")) {
             url.searchParams.set("pool_timeout", "60");
+        }
+
+        // Add connect_timeout to handle cross-region latency (Oregon -> Mumbai)
+        if (!url.searchParams.has("connect_timeout")) {
+            url.searchParams.set("connect_timeout", "30");
         }
 
         databaseUrl = url.toString();
