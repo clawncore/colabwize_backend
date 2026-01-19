@@ -59,6 +59,50 @@ export async function initializePrisma(): Promise<PrismaClient> {
 
         databaseUrl = url.toString();
 
+        // [DIAGNOSTICS] Perform network checks
+        try {
+            const dns = require('dns').promises;
+            const net = require('net');
+
+            logger.info(`🔍 [Diagnostics] Resolving DNS for: ${url.hostname}`);
+            const addresses = await dns.lookup(url.hostname).catch((e: any) => {
+                logger.error(`❌ [Diagnostics] DNS Lookup Failed: ${e.message}`);
+                return null;
+            });
+
+            if (addresses) {
+                logger.info(`✅ [Diagnostics] Resolved IP: ${addresses.address} (Family: IPv${addresses.family})`);
+
+                logger.info(`🔍 [Diagnostics] Testing TCP connection to ${url.hostname}:${url.port}...`);
+                await new Promise<void>((resolve, reject) => {
+                    const socket = new net.Socket();
+                    socket.setTimeout(5000);
+
+                    socket.on('connect', () => {
+                        logger.info(`✅ [Diagnostics] TCP Connection Successful to ${url.hostname}:${url.port}`);
+                        socket.destroy();
+                        resolve();
+                    });
+
+                    socket.on('timeout', () => {
+                        logger.error(`❌ [Diagnostics] TCP Connection Timed Out`);
+                        socket.destroy();
+                        reject(new Error("TCP Timeout"));
+                    });
+
+                    socket.on('error', (err: any) => {
+                        logger.error(`❌ [Diagnostics] TCP Connection Error: ${err.message}`);
+                        socket.destroy();
+                        reject(err);
+                    });
+
+                    socket.connect(Number(url.port), url.hostname);
+                }).catch(() => { /* error already logged */ });
+            }
+        } catch (diagError) {
+            logger.warn("⚠️ [Diagnostics] Failed to run network checks:", diagError);
+        }
+
     } catch (error) {
         logger.error("❌ Error parsing/configuring DATABASE_URL in async init:", error);
         // Fallback to original string if parsing fails, though unlikely
