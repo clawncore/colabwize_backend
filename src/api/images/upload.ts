@@ -1,25 +1,45 @@
 import express, { Response } from "express";
-import multer from "multer";
 import { ImageUploadService } from "../../services/ImageUploadService";
 import logger from "../../monitoring/logger";
 
 const router = express.Router();
 
-// Configure multer for memory storage
-const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB
-    },
-    fileFilter: (_req, file, cb) => {
-        const allowedMimes = ["image/jpeg", "image/png", "image/webp"];
-        if (allowedMimes.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error("Invalid file type. Only JPEG, PNG, and WebP are allowed."));
+// Robust multer initialization
+let upload: any;
+
+try {
+    // Determine environment-specific import
+    // Using require to avoid top-level import crashes
+    const multer = require("multer");
+
+    // Configure multer for memory storage
+    upload = multer({
+        storage: multer.memoryStorage(),
+        limits: {
+            fileSize: 5 * 1024 * 1024, // 5MB
+        },
+        fileFilter: (_req: any, file: any, cb: any) => {
+            const allowedMimes = ["image/jpeg", "image/png", "image/webp"];
+            if (allowedMimes.includes(file.mimetype)) {
+                cb(null, true);
+            } else {
+                cb(new Error("Invalid file type. Only JPEG, PNG, and WebP are allowed."));
+            }
+        },
+    });
+    logger.info("✅ Multer initialized successfully");
+} catch (error: any) {
+    logger.error("❌ Failed to initialize multer:", { error: error.message });
+    // Fallback: Dummy middleware that rejects uploads safely
+    upload = {
+        single: (_fieldName: string) => (req: any, res: Response, next: any) => {
+            return res.status(503).json({
+                success: false,
+                message: "Image upload service is currently unavailable (Multer init failed)"
+            });
         }
-    },
-});
+    };
+}
 
 interface AuthenticatedRequest extends express.Request {
     user?: {
