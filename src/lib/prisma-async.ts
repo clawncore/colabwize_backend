@@ -23,26 +23,45 @@ export async function initializePrisma(): Promise<PrismaClient> {
         throw new Error("DATABASE_URL is required for database connection");
     }
 
-    // Enforce strict SSL for Supabase compatibility
-    // Fix P1011: Use accept_invalid_certs because Supabase Pooler certs may not verify against standard CAs
-    if (!databaseUrl.includes("sslaccept=")) {
-        const separator = databaseUrl.includes("?") ? "&" : "?";
-        databaseUrl += `${separator}sslaccept=accept_invalid_certs`;
-    } else if (databaseUrl.includes("sslaccept=strict")) {
-        databaseUrl = databaseUrl.replace("sslaccept=strict", "sslaccept=accept_invalid_certs");
-    }
+    try {
+        const url = new URL(databaseUrl);
 
-    // Ensure pgbouncer=true is present if using the pooler port (6543)
-    // This tells Prisma to disable prepared statements
-    if (databaseUrl.includes(":6543") && !databaseUrl.includes("pgbouncer=true")) {
-        const separator = databaseUrl.includes("?") ? "&" : "?";
-        databaseUrl += `${separator}pgbouncer=true`;
-    }
+        // Log connection details (sanitized)
+        logger.info("Async Database Connection Details:", {
+            host: url.hostname,
+            port: url.port,
+            database: url.pathname,
+            params: Object.fromEntries(url.searchParams),
+            isSupabasePooler: url.port === "6543"
+        });
 
-    // Enforce connection pool limits if not present
-    if (!databaseUrl.includes("connection_limit")) {
-        const separator = databaseUrl.includes("?") ? "&" : "?";
-        databaseUrl += `${separator}connection_limit=20&pool_timeout=20`;
+        // Enforce strict SSL for Supabase compatibility
+        if (!url.searchParams.has("sslaccept")) {
+            url.searchParams.set("sslaccept", "accept_invalid_certs");
+        } else if (url.searchParams.get("sslaccept") === "strict") {
+            url.searchParams.set("sslaccept", "accept_invalid_certs");
+        }
+
+        // Ensure pgbouncer=true is present if using the pooler port (6543)
+        if (url.port === "6543" && !url.searchParams.has("pgbouncer")) {
+            logger.info("⚠️ [Async] Detected Supabase Pooler (port 6543) without pgbouncer param. Appending pgbouncer=true");
+            url.searchParams.set("pgbouncer", "true");
+        }
+
+        // Enforce connection pool limits
+        if (!url.searchParams.has("connection_limit")) {
+            url.searchParams.set("connection_limit", "10");
+        }
+
+        if (!url.searchParams.has("pool_timeout")) {
+            url.searchParams.set("pool_timeout", "20");
+        }
+
+        databaseUrl = url.toString();
+
+    } catch (error) {
+        logger.error("❌ Error parsing/configuring DATABASE_URL in async init:", error);
+        // Fallback to original string if parsing fails, though unlikely
     }
 
     const redactedUrl = databaseUrl.replace(/:([^:@]+)@/, ":****@");

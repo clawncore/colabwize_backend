@@ -7,14 +7,47 @@ const globalForPrisma = global as unknown as {
 };
 
 const getConnectionString = (): string => {
-  const connectionString = process.env.DATABASE_URL;
-  // Append connection pool settings if not present
-  if (connectionString && !connectionString.includes("connection_limit")) {
-    const separator = connectionString.includes("?") ? "&" : "?";
-    // Increase pool size and timeout for development/production stability
-    return `${connectionString}${separator}connection_limit=20&pool_timeout=20`;
+  let connectionString = process.env.DATABASE_URL;
+
+  if (!connectionString) {
+    logger.error("❌ DATABASE_URL environment variable is missing");
+    return "";
   }
-  return connectionString || "";
+
+  try {
+    // Log connection details (sanitized)
+    const url = new URL(connectionString);
+    logger.info("Database Connection Details:", {
+      host: url.hostname,
+      port: url.port,
+      database: url.pathname,
+      params: Object.fromEntries(url.searchParams),
+      isSupabasePooler: url.port === "6543"
+    });
+
+    // Force pgbouncer mode for Supabase Transaction Pooler
+    if (url.port === "6543" && !url.searchParams.has("pgbouncer")) {
+      logger.info("⚠️ Detected Supabase Pooler (port 6543) without pgbouncer param. Appending pgbouncer=true");
+      url.searchParams.set("pgbouncer", "true");
+    }
+
+    // Set connection pool settings
+    if (!url.searchParams.has("connection_limit")) {
+      // Use smaller pool size for Supabase Transaction mode (recommended: 10-15)
+      url.searchParams.set("connection_limit", "10");
+    }
+
+    if (!url.searchParams.has("pool_timeout")) {
+      url.searchParams.set("pool_timeout", "20");
+    }
+
+    // Ensure schema is set if using search_path in other places, though mostly handled by prisma schema
+
+    return url.toString();
+  } catch (error) {
+    logger.error("❌ Error parsing DATABASE_URL:", error);
+    return connectionString || "";
+  }
 };
 
 // Prisma client configuration - using direct connection for compatibility
