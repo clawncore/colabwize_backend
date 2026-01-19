@@ -1,21 +1,42 @@
 import { prisma } from "../lib/prisma";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import logger from "../monitoring/logger";
 import crypto from "crypto";
-
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+import { SecretsService } from "./secrets-service";
 
 const BUCKET_NAME = "uploads";
 
 export class ImageUploadService {
+    private static supabase: SupabaseClient | null = null;
+
+    /**
+     * Lazily initializes the Supabase client using SecretsService
+     */
+    private static async getClient(): Promise<SupabaseClient> {
+        if (this.supabase) return this.supabase;
+
+        const supabaseUrl = await SecretsService.getSupabaseUrl();
+        const supabaseServiceKey = await SecretsService.getSupabaseServiceRoleKey();
+
+        if (!supabaseUrl || !supabaseServiceKey) {
+            logger.error("Missing Supabase configuration", {
+                hasUrl: !!supabaseUrl,
+                hasKey: !!supabaseServiceKey
+            });
+            throw new Error("Supabase credentials not configured");
+        }
+
+        this.supabase = createClient(supabaseUrl, supabaseServiceKey);
+        return this.supabase;
+    }
+
     /**
      * Verify the storage bucket exists
      */
     static async ensureBucket() {
         try {
-            const { data: buckets, error } = await supabase.storage.listBuckets();
+            const client = await this.getClient();
+            const { data: buckets, error } = await client.storage.listBuckets();
 
             if (error) {
                 logger.error("Failed to list storage buckets", { error });
@@ -25,6 +46,8 @@ export class ImageUploadService {
             const exists = buckets?.some((bucket) => bucket.name === BUCKET_NAME);
 
             if (!exists) {
+                // Optional: Try to create it if we have permissions?
+                // For now, just throw as before
                 throw new Error(`Storage bucket '${BUCKET_NAME}' does not exist. Please create it in Supabase Dashboard.`);
             }
 
@@ -46,6 +69,7 @@ export class ImageUploadService {
     ): Promise<string> {
         try {
             await this.ensureBucket();
+            const client = await this.getClient();
 
             // Generate unique filename
             const extension = mimeType.split("/")[1];
@@ -53,7 +77,7 @@ export class ImageUploadService {
             const filePath = `${userId}/${projectId}/${imageId}.${extension}`;
 
             // Upload to Supabase
-            const { data, error } = await supabase.storage
+            const { data, error } = await client.storage
                 .from(BUCKET_NAME)
                 .upload(filePath, buffer, {
                     contentType: mimeType,
@@ -66,7 +90,7 @@ export class ImageUploadService {
             }
 
             // Get public URL
-            const { data: urlData } = supabase.storage
+            const { data: urlData } = client.storage
                 .from(BUCKET_NAME)
                 .getPublicUrl(filePath);
 
@@ -89,6 +113,8 @@ export class ImageUploadService {
      */
     static async deleteImage(imageUrl: string, userId: string): Promise<void> {
         try {
+            const client = await this.getClient();
+
             // Extract file path from URL
             const urlParts = imageUrl.split(`/storage/v1/object/public/${BUCKET_NAME}/`);
             if (urlParts.length < 2) {
@@ -102,7 +128,7 @@ export class ImageUploadService {
                 throw new Error("Unauthorized: Cannot delete image owned by another user");
             }
 
-            const { error } = await supabase.storage.from(BUCKET_NAME).remove([filePath]);
+            const { error } = await client.storage.from(BUCKET_NAME).remove([filePath]);
 
             if (error) {
                 logger.error("Supabase delete failed", { error, filePath });
