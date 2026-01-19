@@ -33,12 +33,12 @@ const getConnectionString = (): string => {
 
     // Set connection pool settings
     if (!url.searchParams.has("connection_limit")) {
-      // Use smaller pool size for Supabase Transaction mode (recommended: 10-15)
-      url.searchParams.set("connection_limit", "10");
+      // Increased for concurrent PDF generation load
+      url.searchParams.set("connection_limit", "20");
     }
 
     if (!url.searchParams.has("pool_timeout")) {
-      url.searchParams.set("pool_timeout", "20");
+      url.searchParams.set("pool_timeout", "60");
     }
 
     // Ensure schema is set if using search_path in other places, though mostly handled by prisma schema
