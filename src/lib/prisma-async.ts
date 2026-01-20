@@ -129,10 +129,9 @@ export async function initializePrisma(): Promise<PrismaClient> {
             await prisma.$connect();
             console.log("✅ Database connection established");
 
-            // Store in global for reuse only after successful connection
-            if (process.env.NODE_ENV !== "production") {
-                globalForPrisma.prisma = prisma;
-            }
+            // Store in global for reuse immediately
+            globalForPrisma.prisma = prisma;
+
             return prisma;
         } catch (error: any) {
             retries++;

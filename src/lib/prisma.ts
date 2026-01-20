@@ -37,8 +37,9 @@ const getConnectionString = (): string => {
       }
     }
 
-    // Ensure pgbouncer param is present for Pooler (even on 5432 session mode it helps generic poolers)
-    if (!url.searchParams.has("pgbouncer")) {
+    // Ensure pgbouncer param is present for Pooler (Port 6543)
+    // For Session Mode (5432), we usually want it OFF or we leave it as is.
+    if (url.port !== "5432" && !url.searchParams.has("pgbouncer")) {
       url.searchParams.set("pgbouncer", "true");
     }
 
