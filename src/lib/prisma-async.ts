@@ -100,20 +100,19 @@ export async function initializePrisma(): Promise<PrismaClient> {
     const redactedUrl = databaseUrl.replace(/:([^:@]+)@/, ":****@");
     console.log(`DEBUG: Connecting to DB: ${redactedUrl}`);
 
-    process.env.DATABASE_URL = databaseUrl;
-
-    const prisma = new PrismaClient({
+    // Connection retry logic with exponential backoff
+    const maxRetries = 5;
+    let retries = 0;
+    let currentUrl = databaseUrl;
+    let prisma = new PrismaClient({
+        datasources: { db: { url: currentUrl } },
         log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
         errorFormat: "pretty",
     });
 
-    // Connection retry logic with exponential backoff
-    const maxRetries = 5;
-    let retries = 0;
-
     while (retries < maxRetries) {
         try {
-            console.log(`🔌 Attempting database connection (Attempt ${retries + 1}/${maxRetries})...`);
+            console.log(`🔌 Attempting database connection (Attempt ${retries + 1}/${maxRetries}) to ${new URL(currentUrl).port}...`);
             await prisma.$connect();
             console.log("✅ Database connection established");
 
@@ -125,6 +124,24 @@ export async function initializePrisma(): Promise<PrismaClient> {
         } catch (error: any) {
             retries++;
             console.error(`❌ Connection failed (Attempt ${retries}/${maxRetries}): ${error.message}`);
+
+            // SMART FALLBACK: If Port 6543 (Transaction Mode) fails, try Port 5432 (Session Mode)
+            // Port 5432 on the Pooler Host is also IPv4 compatible, unlike Direct Connection.
+            const urlObj = new URL(currentUrl);
+            if (urlObj.port === "6543" && retries >= 2) {
+                console.log("⚠️ Port 6543 seems unreachable. Switching to Port 5432 (Session Mode) for next attempt...");
+                urlObj.port = "5432";
+                // Session mode supports prepared statements, so strictly we could remove pgbouncer=true,
+                // but keeping it is usually safe. We will keep it to minimize variables.
+                currentUrl = urlObj.toString();
+
+                // Re-initialize Prisma Client with new URL
+                prisma = new PrismaClient({
+                    datasources: { db: { url: currentUrl } },
+                    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+                    errorFormat: "pretty",
+                });
+            }
 
             if (retries >= maxRetries) {
                 console.error("❌ Max retries reached. Exiting.");
