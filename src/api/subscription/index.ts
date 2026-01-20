@@ -33,7 +33,16 @@ router.get("/plans", async (req, res) => {
  * GET /api/subscription/current
  * Get user's current subscription and usage
  */
+/**
+ * GET /api/subscription/current
+ * Get user's current subscription and usage
+ * HARDENED: Strict timeouts, parallel execution, fail-safe fallback
+ */
 router.get("/current", authenticateHybridRequest, async (req, res) => {
+  const DB_TIMEOUT_MS = 2000; // 2 seconds strict budget for DB
+  const TOTAL_TIMEOUT_MS = 5000; // 5 seconds hard cap for entire request
+  const start = Date.now();
+
   try {
     const user = (req as any).user;
 
@@ -44,30 +53,112 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       });
     }
 
-    const subscription = await SubscriptionService.getUserSubscription(user.id);
-    console.log(
-      "DEBUG: Fetched subscription for user",
-      user.id,
-      ":",
-      subscription
-    );
-    const plan = await SubscriptionService.getActivePlan(user.id);
+    // Helper for timeout wrapping
+    const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | "TIMEOUT"> => {
+      let timeoutId: NodeJS.Timeout;
+      const timeoutPromise = new Promise<"TIMEOUT">((resolve) => {
+        timeoutId = setTimeout(() => resolve("TIMEOUT"), ms);
+      });
+
+      return Promise.race([
+        promise.then(res => {
+          clearTimeout(timeoutId);
+          return res;
+        }).catch(err => {
+          clearTimeout(timeoutId);
+          console.error("Dependency failed:", err);
+          return "TIMEOUT" as const; // Treat error as timeout/failure for fallback
+        }),
+        timeoutPromise
+      ]);
+    };
+
+    // EXECUTE CORE LOGIC WRAPPED IN TOTAL DEADLINE
+    const executeLogic = async () => {
+      // EXECUTE IN PARALLEL
+      // We avoid calling SubscriptionService.getActivePlan() afterwards to prevent 2nd DB call
+      const [subResult, usageResult, creditResult] = await Promise.all([
+        withTimeout(SubscriptionService.getUserSubscription(user.id), DB_TIMEOUT_MS),
+        withTimeout(UsageService.getCurrentUsage(user.id), DB_TIMEOUT_MS),
+        withTimeout(CreditService.getBalance(user.id), DB_TIMEOUT_MS)
+      ]);
+
+      return { subResult, usageResult, creditResult };
+    };
+
+    // RACE AGAINST HARD HTTP TIMEOUT
+    const result = await Promise.race([
+      executeLogic(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("HTTP_HARD_TIMEOUT")), TOTAL_TIMEOUT_MS))
+    ]);
+
+    const { subResult, usageResult, creditResult } = result as any;
+
+    // DERIVE STATE
+    const isTimeout = subResult === "TIMEOUT";
+    const source = isTimeout ? "fallback" : "database";
+    const generatedAt = new Date().toISOString();
+
+    // Default Fallback State (Free)
+    let plan = "free";
+    let status = "active";
+    let subscriptionData = subResult === "TIMEOUT" ? null : subResult;
+
+    // Resolve Plan from Subscription (No extra DB call)
+    if (subscriptionData && ["active", "trialing"].includes(subscriptionData.status)) {
+      plan = subscriptionData.plan;
+    } else if (isTimeout) {
+      status = "unknown"; // UI should show warning/cached state
+    } else {
+      status = "inactive"; // Valid response, but no active sub
+    }
+
+    // Resolve Limits & Usage
     const limits = SubscriptionService.getPlanLimits(plan);
-    const usage = await UsageService.getCurrentUsage(user.id);
-    const creditBalance = await CreditService.getBalance(user.id);
+
+    // If usage timed out, return safe empty object (don't block UI)
+    const usage = usageResult === "TIMEOUT" ? {
+      documents: 0,
+      words: 0,
+      scans: 0,
+      // ... add other zeroed counters if needed
+    } : usageResult;
+
+    // Is credits timed out?
+    const creditBalance = creditResult === "TIMEOUT" ? 0 : creditResult;
+
+    const responseDuration = Date.now() - start;
+    if (responseDuration > 1000) {
+      console.warn(`[SLOW RESPONSE] /subscription/current took ${responseDuration}ms`);
+    }
 
     return res.status(200).json({
       success: true,
-      subscription: subscription || { plan: "free", status: "active" },
+      status,      // active | inactive | unknown
+      plan,        // free | student | pro | ...
       limits,
       usage,
       creditBalance,
+      source,
+      generatedAt,
+      // Keep legacy fields for backward compatibility if needed, but prefer flat structure above
+      subscription: subscriptionData || { plan: "free", status: status === "unknown" ? "unknown" : "active" }
     });
-  } catch (error) {
-    console.error("Get subscription error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to get subscription",
+
+  } catch (error: any) {
+    const isHardTimeout = error.message === "HTTP_HARD_TIMEOUT";
+    console.error(isHardTimeout ? "CRITICAL: HTTP Hard Timeout in /subscription/current" : "Critical error in /subscription/current:", error);
+
+    // FAIL SAFE: Never return 500 for this critical endpoint
+    return res.status(200).json({
+      success: true,
+      status: "unknown",
+      plan: "free",
+      limits: SubscriptionService.getPlanLimits("free"),
+      usage: {},
+      creditBalance: 0,
+      source: isHardTimeout ? "fallback_timeout" : "fallback_error",
+      generatedAt: new Date().toISOString()
     });
   }
 });

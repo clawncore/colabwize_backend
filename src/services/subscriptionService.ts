@@ -102,21 +102,33 @@ const PLAN_LIMITS = {
  */
 export class SubscriptionService {
   /**
-   * Get user's subscription
+   * Get user's subscription with strict timeout
    */
   static async getUserSubscription(userId: string) {
-    const subscription = await prisma.subscription.findUnique({
-      where: { user_id: userId },
-    });
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("DB_TIMEOUT")), 2000)
+    );
 
-    return subscription;
+    try {
+      const subscription = await Promise.race([
+        prisma.subscription.findUnique({
+          where: { user_id: userId },
+        }),
+        timeoutPromise,
+      ]);
+      return subscription as any; // Cast to avoid type issues with race result
+    } catch (error) {
+      console.error("SubscriptionService.getUserSubscription timed out or failed:", error);
+      return null;
+    }
   }
 
   /**
    * Get active plan for user
+   * Optimized to accept optional subscription object to avoid DB calls
    */
-  static async getActivePlan(userId: string): Promise<string> {
-    const subscription = await this.getUserSubscription(userId);
+  static async getActivePlan(userId: string, existingSubscription?: any): Promise<string> {
+    const subscription = existingSubscription ?? await this.getUserSubscription(userId);
 
     // Allow both active and trialing statuses
     if (
@@ -141,9 +153,10 @@ export class SubscriptionService {
    */
   static async checkFeatureAccess(
     userId: string,
-    feature: string
+    feature: string,
+    existingSubscription?: any
   ): Promise<boolean> {
-    const plan = await this.getActivePlan(userId);
+    const plan = await this.getActivePlan(userId, existingSubscription);
     const limits = this.getPlanLimits(plan);
 
     // Check if feature exists in plan
