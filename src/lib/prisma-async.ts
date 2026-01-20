@@ -67,48 +67,79 @@ export async function initializePrisma(): Promise<PrismaClient> {
 
         databaseUrl = url.toString();
 
-        // [DIAGNOSTICS] Perform network checks
+        // [DIAGNOSTICS] Perform network checks with console.log explicitly
         try {
             const dns = require('dns').promises;
             const net = require('net');
 
-            logger.info(`🔍 [Diagnostics] Resolving DNS for: ${url.hostname}`);
+            console.log(`🔍 [Diagnostics] Resolving DNS for: ${url.hostname}`);
             const addresses = await dns.lookup(url.hostname).catch((e: any) => {
-                logger.error(`❌ [Diagnostics] DNS Lookup Failed: ${e.message}`);
+                console.error(`❌ [Diagnostics] DNS Lookup Failed: ${e.message}`);
                 return null;
             });
 
             if (addresses) {
-                logger.info(`✅ [Diagnostics] Resolved IP: ${addresses.address} (Family: IPv${addresses.family})`);
+                console.log(`✅ [Diagnostics] Resolved IP: ${addresses.address} (Family: IPv${addresses.family})`);
 
-                logger.info(`🔍 [Diagnostics] Testing TCP connection to ${url.hostname}:${url.port}...`);
+                console.log(`🔍 [Diagnostics] Testing TCP connection to ${url.hostname}:${url.port}...`);
                 await new Promise<void>((resolve, reject) => {
                     const socket = new net.Socket();
-                    socket.setTimeout(5000);
+                    socket.setTimeout(8000); // 8s timeout for raw tcp
 
                     socket.on('connect', () => {
-                        logger.info(`✅ [Diagnostics] TCP Connection Successful to ${url.hostname}:${url.port}`);
+                        console.log(`✅ [Diagnostics] TCP Connection Successful to ${url.hostname}:${url.port}`);
                         socket.destroy();
                         resolve();
                     });
 
                     socket.on('timeout', () => {
-                        logger.error(`❌ [Diagnostics] TCP Connection Timed Out`);
+                        console.error(`❌ [Diagnostics] TCP Connection Timed Out to ${url.hostname}:${url.port}`);
                         socket.destroy();
-                        reject(new Error("TCP Timeout"));
+                        resolve(); // Resolve anyway to allow flow to continue, just logging error
                     });
 
                     socket.on('error', (err: any) => {
-                        logger.error(`❌ [Diagnostics] TCP Connection Error: ${err.message}`);
+                        console.error(`❌ [Diagnostics] TCP Connection Error to ${url.hostname}:${url.port}: ${err.message}`);
                         socket.destroy();
-                        reject(err);
+                        resolve();
                     });
 
                     socket.connect(Number(url.port), url.hostname);
-                }).catch(() => { /* error already logged */ });
+                });
             }
+
+            // ATTEMPT DIRECT CONNECTION FALLBACK CHECK
+            // Extract project ref from user "postgres.projectref"
+            const dbUser = url.username || "";
+            if (dbUser.includes(".")) {
+                const projectRef = dbUser.split(".")[1];
+                const directHost = `db.${projectRef}.supabase.co`;
+                console.log(`🔍 [Diagnostics] Checking DIRECT host alternative: ${directHost}:5432`);
+
+                await new Promise<void>((resolve) => {
+                    const socket = new net.Socket();
+                    socket.setTimeout(5000);
+                    socket.on('connect', () => {
+                        console.log(`✅ [Diagnostics] TCP Direct Connection Successful to ${directHost}:5432`);
+                        socket.destroy();
+                        resolve();
+                    });
+                    socket.on('error', (err: any) => {
+                        console.log(`⚠️ [Diagnostics] TCP Direct Connection Failed: ${err.message}`);
+                        socket.destroy();
+                        resolve();
+                    });
+                    socket.on('timeout', () => {
+                        console.log(`⚠️ [Diagnostics] TCP Direct Connection Timed Out`);
+                        socket.destroy();
+                        resolve();
+                    });
+                    socket.connect(5432, directHost);
+                });
+            }
+
         } catch (diagError) {
-            logger.warn("⚠️ [Diagnostics] Failed to run network checks:", diagError);
+            console.error("⚠️ [Diagnostics] Failed to run network checks:", diagError);
         }
 
     } catch (error) {
