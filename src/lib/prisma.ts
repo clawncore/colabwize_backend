@@ -15,8 +15,29 @@ const getConnectionString = (): string => {
   }
 
   try {
+    // Force IPv4
+    try {
+      const dns = require('dns');
+      if (dns.setDefaultResultOrder) {
+        dns.setDefaultResultOrder('ipv4first');
+      }
+    } catch (e) { /* ignore */ }
+
     // Log connection details (sanitized)
     const url = new URL(connectionString);
+
+    // AUTOMATIC FALLBACK TO DIRECT CONNECTION
+    const dbUser = url.username || "";
+    if (url.port === "6543" && dbUser.includes(".")) {
+      const projectRef = dbUser.split(".")[1];
+      const directHost = `db.${projectRef}.supabase.co`;
+      logger.info(`🔄 [Sync] Switching from Pooler to Direct (${directHost}:5432)`);
+
+      url.hostname = directHost;
+      url.port = "5432";
+      url.searchParams.delete("pgbouncer");
+    }
+
     logger.info("Database Connection Details:", {
       host: url.hostname,
       port: url.port,
@@ -24,12 +45,6 @@ const getConnectionString = (): string => {
       params: Object.fromEntries(url.searchParams),
       isSupabasePooler: url.port === "6543"
     });
-
-    // Force pgbouncer mode for Supabase Transaction Pooler
-    if (url.port === "6543" && !url.searchParams.has("pgbouncer")) {
-      logger.info("⚠️ Detected Supabase Pooler (port 6543) without pgbouncer param. Appending pgbouncer=true");
-      url.searchParams.set("pgbouncer", "true");
-    }
 
     // Set connection pool settings
     if (!url.searchParams.has("connection_limit")) {

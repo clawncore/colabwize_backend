@@ -12,6 +12,16 @@ export async function initializePrisma(): Promise<PrismaClient> {
         return globalForPrisma.prisma;
     }
 
+    // Force IPv4 to avoid ENETUNREACH on IPv6 in some Docker/Render environments
+    try {
+        const dns = require('dns');
+        if (dns.setDefaultResultOrder) {
+            dns.setDefaultResultOrder('ipv4first');
+        }
+    } catch (e) {
+        // ignore
+    }
+
     // Prioritize process.env.DATABASE_URL (Render), fallback to SecretsService
     let databaseUrl: string | undefined | null = process.env.DATABASE_URL;
     if (!databaseUrl) {
@@ -25,6 +35,22 @@ export async function initializePrisma(): Promise<PrismaClient> {
 
     try {
         const url = new URL(databaseUrl);
+
+        // AUTOMATIC FALLBACK TO DIRECT CONNECTION
+        // The Transaction Pooler (port 6543) is timing out. We switch to Direct (port 5432).
+        // User format: postgres.ref
+        const dbUser = url.username || "";
+        if (url.port === "6543" && dbUser.includes(".")) {
+            const projectRef = dbUser.split(".")[1];
+            const directHost = `db.${projectRef}.supabase.co`;
+
+            logger.info(`🔄 [Auto-Switch] Switching from Pooler (${url.hostname}:6543) to Direct (${directHost}:5432) to bypass timeouts.`);
+
+            url.hostname = directHost;
+            url.port = "5432";
+            url.searchParams.delete("pgbouncer"); // Direct doesn't need pgbouncer param
+            url.searchParams.set("ipv4_force", "true"); // Just a marker
+        }
 
         // Log connection details (sanitized)
         logger.info("Async Database Connection Details:", {
@@ -42,16 +68,7 @@ export async function initializePrisma(): Promise<PrismaClient> {
             url.searchParams.set("sslaccept", "accept_invalid_certs");
         }
 
-        // Ensure pgbouncer=true is present if using the pooler port (6543)
-        // AND add explicit connection timeouts for cross-region stability
-        if (url.port === "6543") {
-            if (!url.searchParams.has("pgbouncer")) {
-                logger.info("⚠️ [Async] Detected Supabase Pooler (port 6543) without pgbouncer param. Appending pgbouncer=true");
-                url.searchParams.set("pgbouncer", "true");
-            }
-        }
-
-        // Enforce connection pool limits & timeouts
+        // Connection pool limits
         if (!url.searchParams.has("connection_limit")) {
             url.searchParams.set("connection_limit", "20");
         }
@@ -60,7 +77,7 @@ export async function initializePrisma(): Promise<PrismaClient> {
             url.searchParams.set("pool_timeout", "60");
         }
 
-        // Add connect_timeout to handle cross-region latency (Oregon -> Mumbai)
+        // Add connect_timeout
         if (!url.searchParams.has("connect_timeout")) {
             url.searchParams.set("connect_timeout", "30");
         }
