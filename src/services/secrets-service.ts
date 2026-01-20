@@ -69,15 +69,9 @@ export class SecretsService {
     anonKey: string | null;
     serviceRoleKey: string | null;
   }> {
-    const url =
-      (await this.getSecret("NEXT_PUBLIC_SUPABASE_URL")) ||
-      (await this.getSecret("SUPABASE_URL"));
-    const anonKey =
-      (await this.getSecret("NEXT_PUBLIC_SUPABASE_ANON_KEY")) ||
-      (await this.getSecret("SUPABASE_ANON_KEY"));
-    const serviceRoleKey =
-      (await this.getSecret("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")) ||
-      (await this.getSecret("SUPABASE_SERVICE_ROLE_KEY"));
+    const url = await this.getSupabaseUrl();
+    const anonKey = await this.getSupabaseAnonKey();
+    const serviceRoleKey = await this.getSupabaseServiceRoleKey();
 
     if (!url || !anonKey) {
       logger.error(
@@ -244,38 +238,26 @@ export class SecretsService {
 
   // Get Supabase configuration values
   static async getSupabaseUrl(): Promise<string | null> {
-    return (
-      (await this.getSecret("NEXT_PUBLIC_SUPABASE_URL")) ||
-      (await this.getSecret("SUPABASE_URL"))
-    );
+    // STRICT ENV ONLY - Bypass DB Vault to avoid circular dependency
+    return process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || null;
   }
 
   static async getPublicSupabaseUrl(): Promise<string | null> {
-    return (
-      (await this.getSecret("NEXT_PUBLIC_SUPABASE_URL")) ||
-      (await this.getSecret("SUPABASE_URL"))
-    );
+    return process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || null;
   }
 
   static async getSupabaseAnonKey(): Promise<string | null> {
-    return (
-      (await this.getSecret("NEXT_PUBLIC_SUPABASE_ANON_KEY")) ||
-      (await this.getSecret("SUPABASE_ANON_KEY"))
-    );
+    // STRICT ENV ONLY - Bypass DB Vault to avoid circular dependency
+    return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || null;
   }
 
   static async getPublicSupabaseAnonKey(): Promise<string | null> {
-    return (
-      (await this.getSecret("NEXT_PUBLIC_SUPABASE_ANON_KEY")) ||
-      (await this.getSecret("SUPABASE_ANON_KEY"))
-    );
+    return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || null;
   }
 
   static async getSupabaseServiceRoleKey(): Promise<string | null> {
-    return (
-      (await this.getSecret("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")) ||
-      (await this.getSecret("SUPABASE_SERVICE_ROLE_KEY"))
-    );
+    // STRICT ENV ONLY - Bypass DB Vault to avoid circular dependency
+    return process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || null;
   }
 
   // Get database configuration values

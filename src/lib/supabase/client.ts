@@ -35,46 +35,24 @@ initializeSupabaseConfig();
 
 // Function to ensure config is loaded
 const waitForConfig = async () => {
+  // Since SecretsService now uses process.env directly, this should be instant.
+  // We keep a simple check just in case of race conditions with module loading.
   if (_configInitialized) return;
 
-  console.log("⏳ Waiting for Supabase configuration...");
-  // Wait up to 10 seconds for config initialization (increased from 2s)
-  for (let i = 0; i < 100; i++) {
-    if (_configInitialized) return;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
+  // Simple quick check
+  if (!_supabaseUrl && process.env.SUPABASE_URL) _supabaseUrl = process.env.SUPABASE_URL;
+  if (!_supabaseAnonKey && process.env.SUPABASE_ANON_KEY) _supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+  if (!_supabaseServiceRoleKey && process.env.SUPABASE_SERVICE_ROLE_KEY) _supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  console.warn("⚠️ SecretsService initialization timed out (10s). Attempting direct process.env fallback.");
-
-  // Fallback: Try process.env directly if SecretsService is slow/failing
-  // Force check explicitly
-  if (!_supabaseUrl && process.env.SUPABASE_URL) {
-    console.log("✅ Recovered SUPABASE_URL from process.env");
-    _supabaseUrl = process.env.SUPABASE_URL;
-  }
-
-  if (!_supabaseAnonKey && process.env.SUPABASE_ANON_KEY) {
-    console.log("✅ Recovered SUPABASE_ANON_KEY from process.env");
-    _supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-  }
-
-  if (!_supabaseServiceRoleKey && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    console.log("✅ Recovered SUPABASE_SERVICE_ROLE_KEY from process.env");
-    _supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  }
-
-  // Mark as initialized even if failed, to prevent infinite blocking, 
-  // though getters will throw if values are still missing.
   _configInitialized = true;
 };
 
 // Function to get the Supabase URL
 export async function getSupabaseUrl(): Promise<string> {
-  await waitForConfig();
-  // Double check in case waitForConfig marked done without setting (e.g. both failed)
-  if (!_supabaseUrl && process.env.SUPABASE_URL) _supabaseUrl = process.env.SUPABASE_URL;
+  if (!_supabaseUrl) await waitForConfig();
 
   if (!_supabaseUrl) {
+    if (process.env.SUPABASE_URL) return process.env.SUPABASE_URL;
     throw new Error("Supabase URL not configured");
   }
   return _supabaseUrl;
