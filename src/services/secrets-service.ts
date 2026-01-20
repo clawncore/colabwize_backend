@@ -1,5 +1,5 @@
 import logger from "../monitoring/logger";
-import { prisma } from "../lib/prisma";
+import { initializePrisma } from "../lib/prisma-async";
 
 // Service to retrieve secrets from environment variables and Supabase Vault
 export class SecretsService {
@@ -18,7 +18,8 @@ export class SecretsService {
       try {
         // Run raw query to fetch from vault.decrypted_secrets view
         // We use queryRawUnsafe because key mapping might vary or we want simple array
-        const result = (await prisma.$queryRawUnsafe(
+        const prismaClient = await initializePrisma();
+        const result = (await prismaClient.$queryRawUnsafe(
           `SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = $1 LIMIT 1`,
           name
         )) as any[];

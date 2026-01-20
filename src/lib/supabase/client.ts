@@ -47,23 +47,15 @@ const waitForConfig = async () => {
   console.warn("⚠️ SecretsService initialization timed out (10s). Attempting direct process.env fallback.");
 
   // Fallback: Try process.env directly if SecretsService is slow/failing
-  if (!_supabaseUrl) {
-    if (process.env.SUPABASE_URL) {
-      console.log("✅ Recovered SUPABASE_URL from process.env");
-      _supabaseUrl = process.env.SUPABASE_URL;
-    } else {
-      console.error("❌ SUPABASE_URL missing in process.env fallback");
-    }
+  // Force check explicitly
+  if (!_supabaseUrl && process.env.SUPABASE_URL) {
+    console.log("✅ Recovered SUPABASE_URL from process.env");
+    _supabaseUrl = process.env.SUPABASE_URL;
   }
 
-  if (!_supabaseAnonKey) {
-    if (process.env.SUPABASE_ANON_KEY) {
-      // Log redacted key presence
-      console.log("✅ Recovered SUPABASE_ANON_KEY from process.env");
-      _supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-    } else {
-      console.error("❌ SUPABASE_ANON_KEY missing in process.env fallback");
-    }
+  if (!_supabaseAnonKey && process.env.SUPABASE_ANON_KEY) {
+    console.log("✅ Recovered SUPABASE_ANON_KEY from process.env");
+    _supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
   }
 
   if (!_supabaseServiceRoleKey && process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -79,6 +71,9 @@ const waitForConfig = async () => {
 // Function to get the Supabase URL
 export async function getSupabaseUrl(): Promise<string> {
   await waitForConfig();
+  // Double check in case waitForConfig marked done without setting (e.g. both failed)
+  if (!_supabaseUrl && process.env.SUPABASE_URL) _supabaseUrl = process.env.SUPABASE_URL;
+
   if (!_supabaseUrl) {
     throw new Error("Supabase URL not configured");
   }
@@ -97,6 +92,9 @@ export async function getSupabaseAnonKey(): Promise<string> {
 // Function to get the Supabase Service Role Key
 export async function getSupabaseServiceRoleKey(): Promise<string | null> {
   await waitForConfig();
+  // Double check
+  if (!_supabaseServiceRoleKey && process.env.SUPABASE_SERVICE_ROLE_KEY) _supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
   return _supabaseServiceRoleKey;
 }
 
