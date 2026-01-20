@@ -125,7 +125,8 @@ if (!globalForPrisma.prisma) {
 }
 
 // @ts-ignore - TypeScript has issues with extended client type assignment
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+// @ts-ignore - TypeScript has issues with extended client type assignment
+globalForPrisma.prisma = prisma;
 
 // Add graceful shutdown handler
 process.on("beforeExit", async () => {
