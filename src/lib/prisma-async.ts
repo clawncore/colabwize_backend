@@ -36,20 +36,25 @@ export async function initializePrisma(): Promise<PrismaClient> {
     try {
         const url = new URL(databaseUrl);
 
-        // AUTOMATIC FALLBACK TO DIRECT CONNECTION
-        // The Transaction Pooler (port 6543) is timing out. We switch to Direct (port 5432).
-        // User format: postgres.ref
-        const dbUser = url.username || "";
-        if (url.port === "6543" && dbUser.includes(".")) {
-            const projectRef = dbUser.split(".")[1];
-            const directHost = `db.${projectRef}.supabase.co`;
+        // AUTOMATIC FALLBACK REMOVED
+        // The Direct Connection is IPv6 only (incompatible with Render without addon).
+        // We must stick to the Pooler (port 6543) and fix the firewall/timeout issues.
+        const dbUser = url.username || ""; // Keep for reference if needed later
 
-            logger.info(`🔄 [Auto-Switch] Switching from Pooler (${url.hostname}:6543) to Direct (${directHost}:5432) to bypass timeouts.`);
-
-            url.hostname = directHost;
-            url.port = "5432";
-            url.searchParams.delete("pgbouncer"); // Direct doesn't need pgbouncer param
-            url.searchParams.set("ipv4_force", "true"); // Just a marker
+        // FORCE IPV4 RESOLUTION
+        // Render/Docker sometimes prefers IPv6 which fails with ENETUNREACH.
+        // We explicitly resolve the hostname to an IPv4 address and use that.
+        try {
+            const dns = require('dns').promises;
+            logger.info(`🔍 [DNS] Resolving IPv4 for ${url.hostname}...`);
+            const { address } = await dns.lookup(url.hostname, { family: 4 });
+            if (address) {
+                logger.info(`✅ [DNS] Resolved ${url.hostname} -> ${address} (IPv4). Using IP in connection string.`);
+                url.hostname = address;
+            }
+        } catch (dnsErr: any) {
+            logger.warn(`⚠️ [DNS] Failed to resolve IPv4 for ${url.hostname}: ${dnsErr.message}`);
+            // Continue with original hostname if resolution fails
         }
 
         // Log connection details (sanitized)
@@ -84,80 +89,8 @@ export async function initializePrisma(): Promise<PrismaClient> {
 
         databaseUrl = url.toString();
 
-        // [DIAGNOSTICS] Perform network checks with console.log explicitly
-        try {
-            const dns = require('dns').promises;
-            const net = require('net');
-
-            console.log(`🔍 [Diagnostics] Resolving DNS for: ${url.hostname}`);
-            const addresses = await dns.lookup(url.hostname).catch((e: any) => {
-                console.error(`❌ [Diagnostics] DNS Lookup Failed: ${e.message}`);
-                return null;
-            });
-
-            if (addresses) {
-                console.log(`✅ [Diagnostics] Resolved IP: ${addresses.address} (Family: IPv${addresses.family})`);
-
-                console.log(`🔍 [Diagnostics] Testing TCP connection to ${url.hostname}:${url.port}...`);
-                await new Promise<void>((resolve, reject) => {
-                    const socket = new net.Socket();
-                    socket.setTimeout(8000); // 8s timeout for raw tcp
-
-                    socket.on('connect', () => {
-                        console.log(`✅ [Diagnostics] TCP Connection Successful to ${url.hostname}:${url.port}`);
-                        socket.destroy();
-                        resolve();
-                    });
-
-                    socket.on('timeout', () => {
-                        console.error(`❌ [Diagnostics] TCP Connection Timed Out to ${url.hostname}:${url.port}`);
-                        socket.destroy();
-                        resolve(); // Resolve anyway to allow flow to continue, just logging error
-                    });
-
-                    socket.on('error', (err: any) => {
-                        console.error(`❌ [Diagnostics] TCP Connection Error to ${url.hostname}:${url.port}: ${err.message}`);
-                        socket.destroy();
-                        resolve();
-                    });
-
-                    socket.connect(Number(url.port), url.hostname);
-                });
-            }
-
-            // ATTEMPT DIRECT CONNECTION FALLBACK CHECK
-            // Extract project ref from user "postgres.projectref"
-            const dbUser = url.username || "";
-            if (dbUser.includes(".")) {
-                const projectRef = dbUser.split(".")[1];
-                const directHost = `db.${projectRef}.supabase.co`;
-                console.log(`🔍 [Diagnostics] Checking DIRECT host alternative: ${directHost}:5432`);
-
-                await new Promise<void>((resolve) => {
-                    const socket = new net.Socket();
-                    socket.setTimeout(5000);
-                    socket.on('connect', () => {
-                        console.log(`✅ [Diagnostics] TCP Direct Connection Successful to ${directHost}:5432`);
-                        socket.destroy();
-                        resolve();
-                    });
-                    socket.on('error', (err: any) => {
-                        console.log(`⚠️ [Diagnostics] TCP Direct Connection Failed: ${err.message}`);
-                        socket.destroy();
-                        resolve();
-                    });
-                    socket.on('timeout', () => {
-                        console.log(`⚠️ [Diagnostics] TCP Direct Connection Timed Out`);
-                        socket.destroy();
-                        resolve();
-                    });
-                    socket.connect(5432, directHost);
-                });
-            }
-
-        } catch (diagError) {
-            console.error("⚠️ [Diagnostics] Failed to run network checks:", diagError);
-        }
+        /* Diagnostics removed - Issue confirmed as IPv6 ENETUNREACH.
+           Fix implemented via forced IPv4 resolution above. */
 
     } catch (error) {
         logger.error("❌ Error parsing/configuring DATABASE_URL in async init:", error);

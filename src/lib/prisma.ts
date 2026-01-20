@@ -26,16 +26,12 @@ const getConnectionString = (): string => {
     // Log connection details (sanitized)
     const url = new URL(connectionString);
 
-    // AUTOMATIC FALLBACK TO DIRECT CONNECTION
-    const dbUser = url.username || "";
-    if (url.port === "6543" && dbUser.includes(".")) {
-      const projectRef = dbUser.split(".")[1];
-      const directHost = `db.${projectRef}.supabase.co`;
-      logger.info(`🔄 [Sync] Switching from Pooler to Direct (${directHost}:5432)`);
+    // AUTOMATIC FALLBACK REMOVED
+    // Direct connection is IPv6 only. We must use the Pooler.
 
-      url.hostname = directHost;
-      url.port = "5432";
-      url.searchParams.delete("pgbouncer");
+    // Ensure pgbouncer param is present for Pooler
+    if (url.port === "6543" && !url.searchParams.has("pgbouncer")) {
+      url.searchParams.set("pgbouncer", "true");
     }
 
     logger.info("Database Connection Details:", {
