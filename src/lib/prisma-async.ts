@@ -48,14 +48,13 @@ export async function initializePrisma(): Promise<PrismaClient> {
         // because replacing hostname with IP breaks TLS SNI (Server Name Indication).
         try {
             const dns = require('dns').promises;
-            logger.info(`🔍 [DNS] Resolving IPv4 for ${url.hostname}...`);
+            console.log(`🔍 [DNS] Resolving IPv4 for ${url.hostname}...`);
             const { address } = await dns.lookup(url.hostname, { family: 4 });
             if (address) {
-                logger.info(`✅ [DNS] Resolved ${url.hostname} -> ${address} (IPv4). Keeping hostname for SNI.`);
+                console.log(`✅ [DNS] Resolved ${url.hostname} -> ${address} (IPv4). Keeping hostname for SNI.`);
             }
         } catch (dnsErr: any) {
-            logger.warn(`⚠️ [DNS] Failed to resolve IPv4 for ${url.hostname}: ${dnsErr.message}`);
-            // Continue with original hostname if resolution fails
+            console.warn(`⚠️ [DNS] Failed to resolve IPv4 for ${url.hostname}: ${dnsErr.message}`);
         }
 
         // Log connection details (sanitized)
@@ -114,9 +113,9 @@ export async function initializePrisma(): Promise<PrismaClient> {
 
     while (retries < maxRetries) {
         try {
-            logger.info(`Attempting database connection (Attempt ${retries + 1}/${maxRetries})...`);
+            console.log(`🔌 Attempting database connection (Attempt ${retries + 1}/${maxRetries})...`);
             await prisma.$connect();
-            logger.info("✅ Database connection established");
+            console.log("✅ Database connection established");
 
             // Store in global for reuse only after successful connection
             if (process.env.NODE_ENV !== "production") {
@@ -125,15 +124,15 @@ export async function initializePrisma(): Promise<PrismaClient> {
             return prisma;
         } catch (error: any) {
             retries++;
-            logger.error(`❌ Connection failed (Attempt ${retries}/${maxRetries}): ${error.message}`);
+            console.error(`❌ Connection failed (Attempt ${retries}/${maxRetries}): ${error.message}`);
 
             if (retries >= maxRetries) {
-                logger.error("❌ Max retries reached. Exiting.");
+                console.error("❌ Max retries reached. Exiting.");
                 throw error;
             }
 
             const delay = Math.min(1000 * Math.pow(2, retries), 10000); // Exponential backoff max 10s
-            logger.info(`Retrying in ${delay}ms...`);
+            console.log(`⏳ Retrying in ${delay}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
