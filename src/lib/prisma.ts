@@ -26,11 +26,16 @@ const getConnectionString = (): string => {
     // Log connection details (sanitized)
     const url = new URL(connectionString);
 
-    // AUTOMATIC FALLBACK REMOVED
-    // Direct connection is IPv6 only. We must use the Pooler.
+    // AUTOMATIC FALLBACK / OPTIMIZATION to Port 5432
+    // Port 6543 (Transaction Mode) is proving unreliable/slow in this region/setup.
+    // Port 5432 (Session Mode) on the Pooler supports IPv4 and works reliably.
+    if (url.port === "6543") {
+      console.log("⚡ Optimizing: Switching from Port 6543 to 5432 (Session Mode) for improved reliability.");
+      url.port = "5432";
+    }
 
-    // Ensure pgbouncer param is present for Pooler
-    if (url.port === "6543" && !url.searchParams.has("pgbouncer")) {
+    // Ensure pgbouncer param is present for Pooler (even on 5432 session mode it helps generic poolers)
+    if (!url.searchParams.has("pgbouncer")) {
       url.searchParams.set("pgbouncer", "true");
     }
 
@@ -39,7 +44,7 @@ const getConnectionString = (): string => {
       port: url.port,
       database: url.pathname,
       params: Object.fromEntries(url.searchParams),
-      isSupabasePooler: url.port === "6543"
+      isOptimizedPooler: url.port === "5432"
     });
 
     // Set connection pool settings

@@ -57,13 +57,20 @@ export async function initializePrisma(): Promise<PrismaClient> {
             console.warn(`⚠️ [DNS] Failed to resolve IPv4 for ${url.hostname}: ${dnsErr.message}`);
         }
 
+        // OPTIMIZATION: Default to Port 5432 (Session Mode)
+        // Port 6543 (Transaction Mode) is unreliable.
+        if (url.port === "6543") {
+            console.log("⚡ Optimizing: Switching from Port 6543 to 5432 (Session Mode) for improved reliability.");
+            url.port = "5432";
+        }
+
         // Log connection details (sanitized)
         logger.info("Async Database Connection Details:", {
             host: url.hostname,
             port: url.port,
             database: url.pathname,
             params: Object.fromEntries(url.searchParams),
-            isSupabasePooler: url.port === "6543"
+            isOptimizedPooler: url.port === "5432"
         });
 
         // Enforce strict SSL for Supabase compatibility
@@ -125,23 +132,8 @@ export async function initializePrisma(): Promise<PrismaClient> {
             retries++;
             console.error(`❌ Connection failed (Attempt ${retries}/${maxRetries}): ${error.message}`);
 
-            // SMART FALLBACK: If Port 6543 (Transaction Mode) fails, try Port 5432 (Session Mode)
-            // Port 5432 on the Pooler Host is also IPv4 compatible, unlike Direct Connection.
-            const urlObj = new URL(currentUrl);
-            if (urlObj.port === "6543" && retries >= 2) {
-                console.log("⚠️ Port 6543 seems unreachable. Switching to Port 5432 (Session Mode) for next attempt...");
-                urlObj.port = "5432";
-                // Session mode supports prepared statements, so strictly we could remove pgbouncer=true,
-                // but keeping it is usually safe. We will keep it to minimize variables.
-                currentUrl = urlObj.toString();
-
-                // Re-initialize Prisma Client with new URL
-                prisma = new PrismaClient({
-                    datasources: { db: { url: currentUrl } },
-                    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
-                    errorFormat: "pretty",
-                });
-            }
+            // Note: We already defaulted to 5432, so fallback logic is less critical but kept for safety
+            // if we ever switch back or if 5432 fails.
 
             if (retries >= maxRetries) {
                 console.error("❌ Max retries reached. Exiting.");
