@@ -32,6 +32,9 @@ const getConnectionString = (): string => {
     if (url.port === "6543") {
       console.log("⚡ Optimizing: Switching from Port 6543 to 5432 (Session Mode) for improved reliability.");
       url.port = "5432";
+      if (url.searchParams.has("pgbouncer")) {
+        url.searchParams.delete("pgbouncer");
+      }
     }
 
     // Ensure pgbouncer param is present for Pooler (even on 5432 session mode it helps generic poolers)

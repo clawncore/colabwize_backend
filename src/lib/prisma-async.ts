@@ -62,6 +62,12 @@ export async function initializePrisma(): Promise<PrismaClient> {
         if (url.port === "6543") {
             console.log("⚡ Optimizing: Switching from Port 6543 to 5432 (Session Mode) for improved reliability.");
             url.port = "5432";
+            // IMPORTANT: Session poolers (5432) do not typically require pgbouncer=true mode 
+            // and often benefit from allowing prepared statements.
+            if (url.searchParams.has("pgbouncer")) {
+                url.searchParams.delete("pgbouncer");
+                console.log("⚡ Optimization: Removed pgbouncer=true param for Session Mode (5432).");
+            }
         }
 
         // Log connection details (sanitized)

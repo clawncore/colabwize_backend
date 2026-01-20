@@ -36,22 +36,43 @@ initializeSupabaseConfig();
 // Function to ensure config is loaded
 const waitForConfig = async () => {
   if (_configInitialized) return;
-  // Wait up to 2 seconds for config initialization
-  for (let i = 0; i < 20; i++) {
+
+  console.log("⏳ Waiting for Supabase configuration...");
+  // Wait up to 10 seconds for config initialization (increased from 2s)
+  for (let i = 0; i < 100; i++) {
     if (_configInitialized) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+
+  console.warn("⚠️ SecretsService initialization timed out (10s). Attempting direct process.env fallback.");
+
   // Fallback: Try process.env directly if SecretsService is slow/failing
-  if (!_supabaseUrl && process.env.SUPABASE_URL) {
-    console.warn("⚠️ SecretsService timed out, falling back to process.env.SUPABASE_URL");
-    _supabaseUrl = process.env.SUPABASE_URL;
+  if (!_supabaseUrl) {
+    if (process.env.SUPABASE_URL) {
+      console.log("✅ Recovered SUPABASE_URL from process.env");
+      _supabaseUrl = process.env.SUPABASE_URL;
+    } else {
+      console.error("❌ SUPABASE_URL missing in process.env fallback");
+    }
   }
-  if (!_supabaseAnonKey && process.env.SUPABASE_ANON_KEY) {
-    _supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+  if (!_supabaseAnonKey) {
+    if (process.env.SUPABASE_ANON_KEY) {
+      // Log redacted key presence
+      console.log("✅ Recovered SUPABASE_ANON_KEY from process.env");
+      _supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    } else {
+      console.error("❌ SUPABASE_ANON_KEY missing in process.env fallback");
+    }
   }
+
   if (!_supabaseServiceRoleKey && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.log("✅ Recovered SUPABASE_SERVICE_ROLE_KEY from process.env");
     _supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   }
+
+  // Mark as initialized even if failed, to prevent infinite blocking, 
+  // though getters will throw if values are still missing.
   _configInitialized = true;
 };
 
