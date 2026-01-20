@@ -26,20 +26,12 @@ const getConnectionString = (): string => {
     // Log connection details (sanitized)
     const url = new URL(connectionString);
 
-    // AUTOMATIC FALLBACK / OPTIMIZATION to Port 5432
-    // Port 6543 (Transaction Mode) is proving unreliable/slow in this region/setup.
-    // Port 5432 (Session Mode) on the Pooler supports IPv4 and works reliably.
-    if (url.port === "6543") {
-      console.log("⚡ Optimizing: Switching from Port 6543 to 5432 (Session Mode) for improved reliability.");
-      url.port = "5432";
-      if (url.searchParams.has("pgbouncer")) {
-        url.searchParams.delete("pgbouncer");
-      }
-    }
+    // [AUDIT] Enforce Transaction Pooler (Port 6543) for Render
+    // We removed the logic that forced a downgrade to Session Mode (5432).
 
     // Ensure pgbouncer param is present for Pooler (Port 6543)
-    // For Session Mode (5432), we usually want it OFF or we leave it as is.
-    if (url.port !== "5432" && !url.searchParams.has("pgbouncer")) {
+    // Transaction Mode requires pgbouncer=true to maintain prepared statement compatibility or disable them
+    if (url.port === "6543" && !url.searchParams.has("pgbouncer")) {
       url.searchParams.set("pgbouncer", "true");
     }
 
@@ -48,7 +40,7 @@ const getConnectionString = (): string => {
       port: url.port,
       database: url.pathname,
       params: Object.fromEntries(url.searchParams),
-      isOptimizedPooler: url.port === "5432"
+      poolerMode: url.port === "6543" ? "Transaction" : "Session"
     });
 
     // Set connection pool settings
@@ -91,38 +83,8 @@ export const prisma =
     },
   });
 
-// Test database connection on initialization
-if (!globalForPrisma.prisma) {
-  // Add retry mechanism for database connection
-  const connectWithRetry = async (maxRetries = 5, delay = 5000) => {
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        logger.info(
-          `Attempting database connection (attempt ${i + 1}/${maxRetries})`
-        );
-        await prisma.$connect();
-        logger.info("✅ Database connection established");
-        return;
-      } catch (error: any) {
-        logger.warn(`❌ Database connection attempt ${i + 1} failed`, {
-          error,
-        });
-        if (i < maxRetries - 1) {
-          logger.info(`Retrying in ${delay / 1000} seconds...`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        } else {
-          logger.error("❌ Failed to connect to database after all retries", {
-            error,
-          });
-          // Don't throw here - let the app start and fail on first query if needed
-        }
-      }
-    }
-  };
-
-  logger.info("Starting database connection process");
-  connectWithRetry();
-}
+// [AUDIT] Removed eager connection block. 
+// Prisma connects lazily on the first query.
 
 // @ts-ignore - TypeScript has issues with extended client type assignment
 // @ts-ignore - TypeScript has issues with extended client type assignment

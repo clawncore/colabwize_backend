@@ -57,17 +57,13 @@ export async function initializePrisma(): Promise<PrismaClient> {
             console.warn(`⚠️ [DNS] Failed to resolve IPv4 for ${url.hostname}: ${dnsErr.message}`);
         }
 
-        // OPTIMIZATION: Default to Port 5432 (Session Mode)
-        // Port 6543 (Transaction Mode) is unreliable.
-        if (url.port === "6543") {
-            console.log("⚡ Optimizing: Switching from Port 6543 to 5432 (Session Mode) for improved reliability.");
-            url.port = "5432";
-            // IMPORTANT: Session poolers (5432) do not typically require pgbouncer=true mode 
-            // and often benefit from allowing prepared statements.
-            if (url.searchParams.has("pgbouncer")) {
-                url.searchParams.delete("pgbouncer");
-                console.log("⚡ Optimization: Removed pgbouncer=true param for Session Mode (5432).");
-            }
+        // [AUDIT] Enforce Transaction Pooler (Port 6543)
+        // We removed the logic that forced a downgrade to Session Mode (5432).
+
+        // Ensure pgbouncer param is present for Pooler (Port 6543)
+        if (url.port === "6543" && !url.searchParams.has("pgbouncer")) {
+            console.log("⚡ Adding pgbouncer=true for Transaction Mode (6543).");
+            url.searchParams.set("pgbouncer", "true");
         }
 
         // Log connection details (sanitized)
@@ -76,7 +72,7 @@ export async function initializePrisma(): Promise<PrismaClient> {
             port: url.port,
             database: url.pathname,
             params: Object.fromEntries(url.searchParams),
-            isOptimizedPooler: url.port === "5432"
+            poolerMode: url.port === "6543" ? "Transaction" : "Session"
         });
 
         // Enforce strict SSL for Supabase compatibility
@@ -111,45 +107,19 @@ export async function initializePrisma(): Promise<PrismaClient> {
     }
 
     const redactedUrl = databaseUrl.replace(/:([^:@]+)@/, ":****@");
-    console.log(`DEBUG: Connecting to DB: ${redactedUrl}`);
+    console.log(`DEBUG: Configured Prisma with URL: ${redactedUrl}`);
 
-    // Connection retry logic with exponential backoff
-    const maxRetries = 5;
-    let retries = 0;
-    let currentUrl = databaseUrl;
-    let prisma = new PrismaClient({
-        datasources: { db: { url: currentUrl } },
+    // [AUDIT] Lazy Initialization
+    // We do NOT call $connect() here. Prisma connects on the first query.
+    // This prevents startup crashes if the DB is momentarily unreachable.
+    const prisma = new PrismaClient({
+        datasources: { db: { url: databaseUrl } },
         log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
         errorFormat: "pretty",
     });
 
-    while (retries < maxRetries) {
-        try {
-            console.log(`🔌 Attempting database connection (Attempt ${retries + 1}/${maxRetries}) to ${new URL(currentUrl).port}...`);
-            await prisma.$connect();
-            console.log("✅ Database connection established");
-
-            // Store in global for reuse immediately
-            globalForPrisma.prisma = prisma;
-
-            return prisma;
-        } catch (error: any) {
-            retries++;
-            console.error(`❌ Connection failed (Attempt ${retries}/${maxRetries}): ${error.message}`);
-
-            // Note: We already defaulted to 5432, so fallback logic is less critical but kept for safety
-            // if we ever switch back or if 5432 fails.
-
-            if (retries >= maxRetries) {
-                console.error("❌ Max retries reached. Exiting.");
-                throw error;
-            }
-
-            const delay = Math.min(1000 * Math.pow(2, retries), 10000); // Exponential backoff max 10s
-            console.log(`⏳ Retrying in ${delay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-        }
-    }
+    // Store in global
+    globalForPrisma.prisma = prisma;
 
     return prisma;
 }
