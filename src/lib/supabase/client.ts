@@ -33,11 +33,31 @@ async function initializeSupabaseConfig() {
 // Initialize the configuration
 initializeSupabaseConfig();
 
+// Function to ensure config is loaded
+const waitForConfig = async () => {
+  if (_configInitialized) return;
+  // Wait up to 2 seconds for config initialization
+  for (let i = 0; i < 20; i++) {
+    if (_configInitialized) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  // Fallback: Try process.env directly if SecretsService is slow/failing
+  if (!_supabaseUrl && process.env.SUPABASE_URL) {
+    console.warn("⚠️ SecretsService timed out, falling back to process.env.SUPABASE_URL");
+    _supabaseUrl = process.env.SUPABASE_URL;
+  }
+  if (!_supabaseAnonKey && process.env.SUPABASE_ANON_KEY) {
+    _supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+  }
+  if (!_supabaseServiceRoleKey && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    _supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  }
+  _configInitialized = true;
+};
+
 // Function to get the Supabase URL
 export async function getSupabaseUrl(): Promise<string> {
-  if (!_configInitialized) {
-    await new Promise((resolve) => setTimeout(resolve, 100)); // Small delay to allow initialization
-  }
+  await waitForConfig();
   if (!_supabaseUrl) {
     throw new Error("Supabase URL not configured");
   }
@@ -46,9 +66,7 @@ export async function getSupabaseUrl(): Promise<string> {
 
 // Function to get the Supabase Anon Key
 export async function getSupabaseAnonKey(): Promise<string> {
-  if (!_configInitialized) {
-    await new Promise((resolve) => setTimeout(resolve, 100)); // Small delay to allow initialization
-  }
+  await waitForConfig();
   if (!_supabaseAnonKey) {
     throw new Error("Supabase Anon Key not configured");
   }
@@ -57,9 +75,7 @@ export async function getSupabaseAnonKey(): Promise<string> {
 
 // Function to get the Supabase Service Role Key
 export async function getSupabaseServiceRoleKey(): Promise<string | null> {
-  if (!_configInitialized) {
-    await new Promise((resolve) => setTimeout(resolve, 100)); // Small delay to allow initialization
-  }
+  await waitForConfig();
   return _supabaseServiceRoleKey;
 }
 
