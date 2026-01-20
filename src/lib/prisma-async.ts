@@ -43,14 +43,15 @@ export async function initializePrisma(): Promise<PrismaClient> {
 
         // FORCE IPV4 RESOLUTION
         // Render/Docker sometimes prefers IPv6 which fails with ENETUNREACH.
-        // We explicitly resolve the hostname to an IPv4 address and use that.
+        // We set default order to ipv4first above, which should handle it.
+        // We log the resolution here for diagnostics but DO NOT replace the hostname
+        // because replacing hostname with IP breaks TLS SNI (Server Name Indication).
         try {
             const dns = require('dns').promises;
             logger.info(`🔍 [DNS] Resolving IPv4 for ${url.hostname}...`);
             const { address } = await dns.lookup(url.hostname, { family: 4 });
             if (address) {
-                logger.info(`✅ [DNS] Resolved ${url.hostname} -> ${address} (IPv4). Using IP in connection string.`);
-                url.hostname = address;
+                logger.info(`✅ [DNS] Resolved ${url.hostname} -> ${address} (IPv4). Keeping hostname for SNI.`);
             }
         } catch (dnsErr: any) {
             logger.warn(`⚠️ [DNS] Failed to resolve IPv4 for ${url.hostname}: ${dnsErr.message}`);
