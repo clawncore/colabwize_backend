@@ -1,4 +1,4 @@
-import { LocalAuthService } from "../../../services/LocalAuthService";
+
 import { getSupabaseClient } from "../../../lib/supabase/client";
 import { prisma } from "../../../lib/prisma";
 import { ExportService } from "../../../services/exportService";
@@ -24,28 +24,17 @@ export async function POST(request: Request) {
 
     let user;
 
-    // STRATEGY 1: Stateless JWT
-    if (process.env.SUPABASE_JWT_SECRET) {
-      try {
-        user = LocalAuthService.verifyToken(token);
-      } catch (e) {
-        return new Response(
-          JSON.stringify({ error: "Invalid or expired token" }),
-          { status: 401, headers: { "Content-Type": "application/json" } }
-        );
-      }
-    } else {
-      // STRATEGY 2: Remote Fallback
-      const supabase = await getSupabaseClient();
-      const { data, error } = await supabase.auth.getUser(token);
-      if (error || !data.user) {
-        return new Response(
-          JSON.stringify({ error: "Invalid or expired token" }),
-          { status: 401, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      user = data.user;
+    // STRATEGY: Remote Verification via Supabase Admin
+    const supabase = await getSupabaseClient();
+    const { data, error } = await supabase.auth.getUser(token);
+
+    if (error || !data.user) {
+      return new Response(
+        JSON.stringify({ error: "Invalid or expired token" }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
+      );
     }
+    user = data.user;
 
     // Parse request body
     const body = await request.json() as any;
