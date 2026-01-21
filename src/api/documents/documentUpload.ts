@@ -119,9 +119,10 @@ router.post(
         stack: error.stack,
       });
 
-      return res.status(500).json({
+      return res.status(200).json({
         success: false,
-        error: error.message || "Internal server error",
+        status: "unavailable",
+        message: "Service temporarily unavailable. Please try again later.",
       });
     }
   }
@@ -147,9 +148,11 @@ router.get(
         stack: error.stack,
       });
 
-      return res.status(500).json({
+      return res.status(200).json({
         success: false,
-        error: error.message || "Internal server error",
+        status: "unavailable",
+        data: [],
+        message: "Service temporarily unavailable. Please try again later.",
       });
     }
   }
@@ -221,9 +224,10 @@ router.get(
         projectId: req.params.projectId,
       });
 
-      return res.status(500).json({
+      return res.status(200).json({
         success: false,
-        error: error.message || "Internal server error",
+        status: "unavailable",
+        message: "Service temporarily unavailable. Please try again later.",
       });
     }
   }
@@ -272,9 +276,10 @@ router.put(
         projectId: req.params.projectId,
       });
 
-      return res.status(500).json({
+      return res.status(200).json({
         success: false,
-        error: error.message || "Internal server error",
+        status: "unavailable",
+        message: "Service temporarily unavailable. Please try again later.",
       });
     }
   }
@@ -317,9 +322,10 @@ router.post(
         stack: error.stack,
       });
 
-      return res.status(500).json({
+      return res.status(200).json({
         success: false,
-        error: error.message || "Internal server error",
+        status: "unavailable",
+        message: "Service temporarily unavailable. Please try again later.",
       });
     }
   }
