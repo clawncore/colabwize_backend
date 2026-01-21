@@ -43,6 +43,7 @@ const app: Application = express();
 // Robust CORS Configuration
 const allowedOrigins = [
   "https://colabwize.com",
+  "https://www.colabwize.com",
   "https://app.colabwize.com",
   "https://api.colabwize.com",
   "http://localhost:3000",
