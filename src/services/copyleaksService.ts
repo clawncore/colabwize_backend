@@ -73,7 +73,7 @@ export class CopyleaksService {
             // For MVP "Hybrid", we might use polling if webhook is strictly required. 
             // But Copyleaks REQUIRES a webhook to return results. 
             // We'll set a placeholder if missing, but it will fail to return results if not reachable.
-            const validWebhook = webhookUrl || "https://colabwize-backend.onrender.com/api/originality/webhook/copyleaks";
+            const validWebhook = webhookUrl || "https://api.colabwize.com/api/originality/webhook/copyleaks";
 
             await axios.put(
                 endpoint,
