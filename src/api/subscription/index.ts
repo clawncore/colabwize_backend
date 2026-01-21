@@ -246,9 +246,9 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
     });
   } catch (error) {
     console.error("Create checkout error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
-      message: "Failed to create checkout",
+      message: "Service temporarily unavailable. Please try again later.",
     });
   }
 });
@@ -287,9 +287,9 @@ router.post("/portal", authenticateHybridRequest, async (req, res) => {
     });
   } catch (error) {
     console.error("Get portal error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
-      message: "Failed to get portal URL",
+      message: "Service temporarily unavailable. Please try again later.",
     });
   }
 });
@@ -317,9 +317,9 @@ router.post("/cancel", authenticateHybridRequest, async (req, res) => {
     });
   } catch (error) {
     console.error("Cancel subscription error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
-      message: "Failed to cancel subscription",
+      message: "Service temporarily unavailable. Please try again later.",
     });
   }
 });
@@ -347,9 +347,9 @@ router.post("/reactivate", authenticateHybridRequest, async (req, res) => {
     });
   } catch (error) {
     console.error("Reactivate subscription error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
-      message: "Failed to reactivate subscription",
+      message: "Service temporarily unavailable. Please try again later.",
     });
   }
 });
@@ -378,9 +378,10 @@ router.get("/usage", authenticateHybridRequest, async (req, res) => {
     });
   } catch (error) {
     console.error("Get usage error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
-      message: "Failed to get usage",
+      message: "Service temporarily unavailable. Please try again later.",
+      usage: [], // Degraded response
     });
   }
 });
@@ -416,9 +417,9 @@ router.get(
       });
     } catch (error) {
       console.error("Get certificate retention error:", error);
-      return res.status(500).json({
+      return res.status(200).json({
         success: false,
-        message: "Failed to get certificate retention info",
+        message: "Service temporarily unavailable. Please try again later.",
       });
     }
   }
@@ -465,9 +466,10 @@ router.get("/payment-methods", authenticateHybridRequest, async (req, res) => {
     });
   } catch (error) {
     console.error("Get payment methods error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to get payment methods",
+    return res.status(200).json({
+      success: true,
+      paymentMethods: [], // Degraded state: empty list
+      message: "Service temporarily unavailable. Could not fetch payment methods.",
     });
   }
 });
@@ -515,9 +517,10 @@ router.get("/invoices", authenticateHybridRequest, async (req, res) => {
     });
   } catch (error) {
     console.error("Get invoices error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to get invoices",
+    return res.status(200).json({
+      success: true, // Don't crash UI
+      invoices: [], // Return empty list
+      message: "Service temporarily unavailable. Could not fetch invoices.",
     });
   }
 });
@@ -582,9 +585,9 @@ router.post(
       });
     } catch (error) {
       console.error("Update payment method error:", error);
-      return res.status(500).json({
+      return res.status(200).json({
         success: false,
-        message: "Failed to update payment method",
+        message: "Service temporarily unavailable. Please try again later.",
       });
     }
   }

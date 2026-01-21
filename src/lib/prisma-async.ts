@@ -58,7 +58,14 @@ export async function initializePrisma(): Promise<PrismaClient> {
         }
 
         // [AUDIT] Enforce Transaction Pooler (Port 6543)
-        // We removed the logic that forced a downgrade to Session Mode (5432).
+        // AGGRESSIVE UPGRADE: If Port 5432 (Session/Direct) is detected, force upgrade to 6543 (Transaction)
+        // This prevents connection exhaustion (Too Many Clients) by mandating the Pooler.
+        if (url.port === "5432") {
+            const isRender = process.env.RENDER || process.env.IS_RENDER;
+            console.log("⚡ AGGRESSIVE UPGRADE: Converting Port 5432 (Session) -> 6543 (Transaction Pooler)");
+            url.port = "6543";
+            url.searchParams.set("pgbouncer", "true");
+        }
 
         // Ensure pgbouncer param is present for Pooler (Port 6543)
         if (url.port === "6543" && !url.searchParams.has("pgbouncer")) {

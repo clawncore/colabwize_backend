@@ -27,7 +27,12 @@ const getConnectionString = (): string => {
     const url = new URL(connectionString);
 
     // [AUDIT] Enforce Transaction Pooler (Port 6543) for Render
-    // We removed the logic that forced a downgrade to Session Mode (5432).
+    if (url.port === "5432") {
+      const isRender = process.env.RENDER || process.env.IS_RENDER;
+      if (isRender) {
+        logger.warn("⚠️ [PERFORMANCE] USING SESSION POOLING (PORT 5432) ON RENDER. Recommend switching to Port 6543.");
+      }
+    }
 
     // Ensure pgbouncer param is present for Pooler (Port 6543)
     // Transaction Mode requires pgbouncer=true to maintain prepared statement compatibility or disable them

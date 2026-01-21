@@ -55,9 +55,9 @@ router.post("/register", async (req, res) => {
     }
   } catch (error) {
     console.error("Register error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
-      message: "Registration failed. Please try again.",
+      message: "Registration temporarily unavailable. Please try again later.",
     });
   }
 });
@@ -86,9 +86,9 @@ router.post("/verify-otp", async (req, res) => {
     }
   } catch (error) {
     console.error("Verify OTP error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
-      message: "OTP verification failed. Please try again.",
+      message: "Service unavailable. Please try again later.",
     });
   }
 });
@@ -117,9 +117,9 @@ router.post("/resend-otp", async (req, res) => {
     }
   } catch (error) {
     console.error("Resend OTP error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
-      message: "Failed to resend OTP. Please try again.",
+      message: "Service unavailable. Please try again later.",
     });
   }
 });
@@ -148,9 +148,9 @@ router.post("/login", async (req, res) => {
     }
   } catch (error) {
     console.error("Login error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
-      message: "Login failed. Please try again.",
+      message: "Login temporarily unavailable. Please try again later.",
     });
   }
 });
@@ -183,9 +183,9 @@ router.get("/me", authenticateHybridRequest, async (req, res) => {
     });
   } catch (error) {
     console.error("Get user error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
-      message: "Failed to get user data.",
+      message: "Service temporarily unavailable.",
     });
   }
 });
@@ -226,8 +226,8 @@ router.post("/validate", async (req, res) => {
   } catch (error) {
     console.error("Validation error:", error);
     return res
-      .status(500)
-      .json({ success: false, message: "Validation failed" });
+      .status(200)
+      .json({ success: false, message: "Validation service unavailable" });
   }
 });
 
