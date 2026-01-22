@@ -1,9 +1,7 @@
-import { NextRequest } from "next/server";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
-import { NextResponse } from "next/server";
 
-export async function GET(request: NextRequest) {
+export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const type = url.pathname.split("/").pop(); // Get the type from the URL path like /api/templates/type/research-paper
@@ -13,7 +11,7 @@ export async function GET(request: NextRequest) {
     let whereClause: any = {};
 
     // If a type is provided, filter by type
-    if (type && type !== "type") {
+    if (type && type !== "type" && type !== "templates") {
       whereClause.type = type;
     }
 
@@ -43,19 +41,21 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, templates });
+    return new Response(JSON.stringify({ success: true, templates }), {
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error) {
     logger.error("Error fetching templates:", error);
-    return NextResponse.json(
-      { success: false, message: "Failed to fetch templates" },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ success: false, message: "Failed to fetch templates" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const data = await request.json();
+    const data = (await request.json()) as any;
     const {
       name,
       description,
@@ -78,19 +78,21 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, template });
+    return new Response(JSON.stringify({ success: true, template }), {
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error) {
     logger.error("Error creating template:", error);
-    return NextResponse.json(
-      { success: false, message: "Failed to create template" },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ success: false, message: "Failed to create template" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }
 
-export async function PUT(request: NextRequest) {
+export async function PUT(request: Request) {
   try {
-    const data = await request.json();
+    const data = (await request.json()) as any;
     const { id, name, description, type, content, is_public, citation_style } =
       data;
 
@@ -107,25 +109,30 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, template });
+    return new Response(JSON.stringify({ success: true, template }), {
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error) {
     logger.error("Error updating template:", error);
-    return NextResponse.json(
-      { success: false, message: "Failed to update template" },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ success: false, message: "Failed to update template" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE(request: Request) {
   try {
     const url = new URL(request.url);
     const id = url.searchParams.get("id");
 
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: "Template ID is required" },
-        { status: 400 }
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "Template ID is required",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
@@ -133,15 +140,18 @@ export async function DELETE(request: NextRequest) {
       where: { id },
     });
 
-    return NextResponse.json({
-      success: true,
-      message: "Template deleted successfully",
-    });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: "Template deleted successfully",
+      }),
+      { headers: { "Content-Type": "application/json" } }
+    );
   } catch (error) {
     logger.error("Error deleting template:", error);
-    return NextResponse.json(
-      { success: false, message: "Failed to delete template" },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ success: false, message: "Failed to delete template" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 }
