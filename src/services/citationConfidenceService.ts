@@ -377,7 +377,6 @@ export class CitationConfidenceService {
       type: string;
       doi?: string;
       url?: string;
-      url?: string;
       source?: string;
       formatted_citations?: any;
     }
@@ -458,7 +457,6 @@ export class CitationConfidenceService {
           year: citationData.year,
           type: citationData.type,
           doi: citationData.doi,
-          url: citationData.url,
           url: citationData.url,
           source: citationData.source || "manual",
           formatted_citations: citationData.formatted_citations,

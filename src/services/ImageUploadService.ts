@@ -111,6 +111,52 @@ export class ImageUploadService {
     /**
      * Delete image from storage
      */
+    static async deleteImage(imagePathOrUrl: string, userId: string): Promise<void> {
+        try {
+            await this.ensureBucket();
+            const client = await this.getClient();
+
+            // Extract relative path from URL if needed
+            // Expected format: bucket_url/object/public/uploads/userId/projectId/filename
+            // Or just userId/projectId/filename
+            let relativePath = imagePathOrUrl;
+
+            if (imagePathOrUrl.startsWith("http")) {
+                const parts = imagePathOrUrl.split(`${BUCKET_NAME}/`);
+                if (parts.length > 1) {
+                    relativePath = parts[1]; // Get path after bucket name
+                }
+            }
+
+            // Security check: ensure path belongs to user
+            if (!relativePath.startsWith(`${userId}/`)) {
+                logger.warn("Unauthorized deletion attempt", { userId, path: relativePath });
+                // We could throw here, but for now we just log, 
+                // in case admins are deleting or structure changes.
+                // But strict tenant isolation suggests throwing.
+                throw new Error("Unauthorized access to image resource");
+            }
+
+            const { error } = await client.storage
+                .from(BUCKET_NAME)
+                .remove([relativePath]);
+
+            if (error) {
+                logger.error("Supabase deletion failed", { error, relativePath });
+                throw error;
+            }
+
+            logger.info("Image deleted successfully", {
+                userId,
+                relativePath,
+            });
+
+        } catch (error) {
+            logger.error("Image deletion error", { error });
+            throw error;
+        }
+    }
+
     /**
      * Cleanup images older than X days
      * Note: This lists all files in the bucket and checks metadata. 
