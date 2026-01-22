@@ -103,9 +103,14 @@ router.patch("/profile", async (req, res) => {
  */
 router.post("/send-otp", async (req, res) => {
   try {
+    console.log("DEBUG: send-otp request received");
+    console.log("DEBUG: Headers:", req.headers);
+    console.log("DEBUG: Body:", req.body);
+
     const { userId, email, method = "email", fullName } = req.body;
 
     if (!userId || !email) {
+      console.log("DEBUG: Missing userId or email", { userId, email });
       return res.status(400).json({
         success: false,
         message: "User ID and email are required",
@@ -164,8 +169,9 @@ router.post("/verify-otp", async (req, res) => {
     const isValid = await OTPService.verifyOTP(userId, otp);
 
     if (isValid) {
-      // If verified, we might want to mark the email as verified in Supabase/Database
-      // But for now just return success
+      // Mark as verified in both Prisma and Supabase
+      await HybridAuthService.markEmailVerified(userId);
+
       return res.status(200).json({
         success: true,
         message: "OTP verified successfully",
@@ -182,6 +188,59 @@ router.post("/verify-otp", async (req, res) => {
       success: false,
       message: error.message || "Failed to verify OTP",
     });
+  }
+});
+
+
+/**
+ * POST /register-email
+ * Explicitly registers a user in the local database after Supabase signup
+ */
+router.post("/register-email", async (req, res) => {
+  try {
+    const {
+      id,
+      email,
+      fullName,
+      fieldOfStudy,
+      userType,
+      selectedPlan,
+      affiliateRef,
+      otpMethod
+    } = req.body;
+
+    if (!id || !email) {
+      return res.status(400).json({ error: "Missing required fields: id, email" });
+    }
+
+    const start = Date.now();
+    console.info("Processing email registration", { id, email });
+
+    const result = await HybridAuthService.registerEmailUser({
+      id,
+      email,
+      fullName,
+      fieldOfStudy,
+      userType,
+      selectedPlan,
+      affiliateRef,
+      otpMethod
+    });
+
+    console.info("Email registration completed", {
+      id,
+      success: result.success,
+      duration: `${Date.now() - start}ms`
+    });
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.message });
+    }
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error("Error in /register-email route", { error: error.message });
+    return res.status(500).json({ error: "Internal server error during registration" });
   }
 });
 

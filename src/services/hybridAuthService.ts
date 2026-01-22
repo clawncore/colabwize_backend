@@ -166,6 +166,126 @@ export class HybridAuthService {
   }
 
   /**
+   * Register a user signed up via Email (explicit flow)
+   * This is called immediately after Supabase signUp to ensure the user exists in Postgres
+   */
+  static async registerEmailUser(data: {
+    id: string;
+    email: string;
+    fullName?: string;
+    fieldOfStudy?: string;
+    userType?: string;
+    selectedPlan?: string;
+    affiliateRef?: string;
+    otpMethod?: string;
+  }): Promise<{ success: boolean; message: string; user?: any }> {
+    try {
+      // 1. Verify user exists in Supabase (security check)
+      const supabaseAdmin = await getSupabaseAdminClient();
+      if (!supabaseAdmin) {
+        throw new Error("Supabase admin client not available");
+      }
+
+      const { data: supabaseData, error: supabaseError } = await supabaseAdmin.auth.admin.getUserById(data.id);
+
+      if (supabaseError || !supabaseData.user) {
+        logger.warn("Attempted to register non-existent Supabase user", { userId: data.id });
+        return { success: false, message: "User not found in authentication system" };
+      }
+
+      // 2. Check if user already exists in Prisma
+      const existingUser = await prisma.user.findUnique({
+        where: { id: data.id },
+      });
+
+      if (existingUser) {
+        return {
+          success: true,
+          message: "User already exists",
+          user: existingUser,
+        };
+      }
+
+      // 3. Create user in Prisma
+      const newUser = await prisma.user.create({
+        data: {
+          id: data.id,
+          email: data.email,
+          full_name: data.fullName,
+          field_of_study: data.fieldOfStudy,
+          user_type: data.userType,
+          otp_method: data.otpMethod || "email",
+          email_verified: false, // Starts unverified
+          survey_completed: false,
+        },
+      });
+
+      // 4. Create subscription
+      // Determine plan (default to free if not specified or invalid)
+      const plan = data.selectedPlan || "free";
+
+      await prisma.subscription.create({
+        data: {
+          user_id: data.id,
+          plan: plan,
+          status: "active", // Free plan is active by default
+        },
+      });
+
+      logger.info("Registered new email user in Postgres", { userId: data.id, plan });
+
+      return {
+        success: true,
+        message: "User registered successfully",
+        user: newUser,
+      };
+    } catch (error: any) {
+      logger.error("Email registration failed", { error: error.message, userId: data.id });
+      throw error;
+    }
+  }
+
+  /**
+   * Mark email as verified for a user
+   */
+  static async markEmailVerified(userId: string): Promise<boolean> {
+    try {
+      // 1. Update in Prisma
+      await prisma.user.update({
+        where: { id: userId },
+        data: { email_verified: true },
+      });
+
+      // 2. Update in Supabase
+      const supabaseAdmin = await getSupabaseAdminClient();
+      if (supabaseAdmin) {
+        const { error } = await supabaseAdmin.auth.admin.updateUserById(
+          userId,
+          { email_confirm: true }
+        );
+
+        if (error) {
+          logger.error("Failed to verify user in Supabase", {
+            userId,
+            error: error.message
+          });
+          // We continue anyway since Prisma is our source of truth for business logic
+        } else {
+          logger.info("User verified in Supabase", { userId });
+        }
+      }
+
+      return true;
+    } catch (error: any) {
+      logger.error("Error marking email as verified", {
+        userId,
+        error: error.message
+      });
+      return false;
+    }
+  }
+
+  /**
    * Update User Profile
    */
   static async updateUserProfile(
