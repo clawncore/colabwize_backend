@@ -139,7 +139,7 @@ export class CitationConfidenceService {
     const avgCitationCount =
       validCitations.length > 0
         ? validCitations.reduce((sum, c) => sum + (c.citationCount || 0), 0) /
-          validCitations.length
+        validCitations.length
         : 0;
     const qualityScore = Math.min(
       100,
@@ -156,9 +156,9 @@ export class CitationConfidenceService {
     // Calculate weighted overall score
     const overall = Math.round(
       avgRecency * 0.4 +
-        coverageScore * 0.3 +
-        qualityScore * 0.2 +
-        diversityScore * 0.1
+      coverageScore * 0.3 +
+      qualityScore * 0.2 +
+      diversityScore * 0.1
     );
 
     // Determine status
@@ -377,7 +377,9 @@ export class CitationConfidenceService {
       type: string;
       doi?: string;
       url?: string;
+      url?: string;
       source?: string;
+      formatted_citations?: any;
     }
   ): Promise<any> {
     try {
@@ -457,7 +459,9 @@ export class CitationConfidenceService {
           type: citationData.type,
           doi: citationData.doi,
           url: citationData.url,
+          url: citationData.url,
           source: citationData.source || "manual",
+          formatted_citations: citationData.formatted_citations,
           is_reliable: isReliable,
         },
       });

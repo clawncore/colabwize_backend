@@ -1,249 +1,71 @@
-import { spawn } from 'child_process';
-import path from 'path';
-import fs from 'fs/promises';
-import logger from '../monitoring/logger';
+import { exec } from "child_process";
+import path from "path";
+import fs from "fs-extra";
+import { v4 as uuid } from "uuid";
+import logger from "../monitoring/logger";
 
 export class PdfConversionService {
     /**
-     * Converts a PDF file to DOCX format while preserving formatting, images, and styles
+     * Converts a PDF file to DOCX using LibreOffice
+     * @param inputPath Path to the input PDF file or Buffer of the PDF
+     * @returns Path to the generated DOCX file
      */
-    static async convertPdfToDocx(pdfFilePath: string): Promise<string> {
-        const startTime = Date.now();
+    static async convertPdfToDocx(input: string | Buffer): Promise<string> {
+        const tempDir = path.join("/tmp", uuid());
+        // Ensure /tmp exists (mostly for local Windows dev where /tmp might not exist, 
+        // but code uses absolute /tmp. On Windows this might be C:\tmp. 
+        // Better to use os.tmpdir() but User specified /tmp explicitly or implied standard linux paths. 
+        // I'll stick to user logic but ensure directory creation works).
+        // Actually, fs.ensureDir works.
 
-        try {
-            logger.info('[PDF-CONVERSION] Starting PDF to DOCX conversion', {
-                pdfFilePath,
-                timestamp: startTime
-            });
+        // For Windows compatibility, we should probably use strict paths if running locally, 
+        // but the target is Render (Linux). I'll keep user's logic but maybe use path.join for safety.
 
-            // Generate output path for the converted file
-            const outputDir = path.dirname(pdfFilePath);
-            const baseName = path.basename(pdfFilePath, '.pdf');
-            const docxFilePath = path.join(outputDir, `${baseName}.docx`);
+        await fs.ensureDir(tempDir);
 
-            // Check if LibreOffice is available
-            const libreOfficeAvailable = await this.isLibreOfficeAvailable();
-            if (!libreOfficeAvailable) {
-                logger.warn('[PDF-CONVERSION] LibreOffice not found, attempting conversion with alternative method');
-                throw new Error('LibreOffice is not available on this server. PDF conversion requires LibreOffice or similar office suite.');
-            }
+        let inputPdfPath: string;
 
-            // Use LibreOffice in headless mode to convert PDF to DOCX
-            const conversionProcess = spawn('libreoffice', [
-                '--headless',
-                '--invisible',
-                '--convert-to', 'docx',
-                '--outdir', outputDir,
-                pdfFilePath
-            ]);
-
-            // Set up promise to handle the conversion process
-            return new Promise<string>((resolve, reject) => {
-                let stdout = '';
-                let stderr = '';
-
-                conversionProcess.stdout.on('data', (data) => {
-                    stdout += data.toString();
-                });
-
-                conversionProcess.stderr.on('data', (data) => {
-                    stderr += data.toString();
-                });
-
-                conversionProcess.on('close', (code) => {
-                    const duration = Date.now() - startTime;
-                    logger.info(`[PDF-CONVERSION] Process completed`, {
-                        exitCode: code,
-                        duration,
-                        stdout,
-                        stderr: stderr || 'none'
-                    });
-
-                    if (code === 0) {
-                        // Check if the DOCX file was created
-                        fs.access(docxFilePath)
-                            .then(() => {
-                                logger.info('[PDF-CONVERSION] Conversion successful', {
-                                    docxFilePath,
-                                    duration
-                                });
-                                resolve(docxFilePath);
-                            })
-                            .catch(() => {
-                                logger.error('[PDF-CONVERSION] Conversion process succeeded but DOCX file not found', {
-                                    expectedPath: docxFilePath
-                                });
-                                reject(new Error('Conversion process completed successfully but DOCX file was not created'));
-                            });
-                    } else {
-                        logger.error('[PDF-CONVERSION] Conversion failed', {
-                            exitCode: code,
-                            stderr,
-                            duration
-                        });
-                        reject(new Error(`PDF to DOCX conversion failed with exit code ${code}: ${stderr}`));
-                    }
-                });
-
-                // Handle spawn errors
-                conversionProcess.on('error', (error) => {
-                    const duration = Date.now() - startTime;
-                    logger.error('[PDF-CONVERSION] Spawn error during conversion', {
-                        error: error.message,
-                        duration
-                    });
-                    reject(new Error(`Failed to start PDF conversion: ${error.message}`));
-                });
-            });
-        } catch (error: any) {
-            const duration = Date.now() - startTime;
-            logger.error('[PDF-CONVERSION] Unexpected error during PDF to DOCX conversion', {
-                error: error.message,
-                stack: error.stack,
-                pdfFilePath,
-                duration
-            });
-            throw new Error(`PDF to DOCX conversion failed: ${error.message}`);
+        if (Buffer.isBuffer(input)) {
+            inputPdfPath = path.join(tempDir, "input.pdf");
+            await fs.writeFile(inputPdfPath, input);
+        } else {
+            // If it's a file path, we can try to use it directly, 
+            // BUT libreoffice might have issues with permissions or weird filenames.
+            // Copying to temp dir is safer.
+            inputPdfPath = path.join(tempDir, "input.pdf");
+            await fs.copy(input, inputPdfPath);
         }
-    }
 
-    /**
-     * Checks if LibreOffice is available on the system
-     */
-    private static async isLibreOfficeAvailable(): Promise<boolean> {
-        return new Promise<boolean>((resolve) => {
-            const child = spawn('libreoffice', ['--help']);
+        const outputDir = tempDir;
 
-            child.on('error', () => {
-                resolve(false);
-            });
+        logger.info(`[LibreOffice] Starting conversion for ${inputPdfPath}`);
 
-            child.on('exit', (code) => {
-                resolve(code === 0 || code === 1); // LibreOffice returns 1 for help command
-            });
-        });
-    }
-
-    /**
-     * Alternative conversion method using unoconv (Python-based LibreOffice wrapper)
-     */
-    static async convertPdfToDocxUnoconv(pdfFilePath: string): Promise<string> {
-        const startTime = Date.now();
-
-        try {
-            logger.info('[PDF-CONVERSION-UNOCONV] Starting PDF to DOCX conversion', {
-                pdfFilePath,
-                timestamp: startTime
-            });
-
-            // Generate output path for the converted file
-            const outputDir = path.dirname(pdfFilePath);
-            const baseName = path.basename(pdfFilePath, '.pdf');
-            const docxFilePath = path.join(outputDir, `${baseName}.docx`);
-
-            // Check if unoconv is available
-            const unoconvAvailable = await this.isUnoconvAvailable();
-            if (!unoconvAvailable) {
-                logger.warn('[PDF-CONVERSION-UNOCONV] Unoconv not found');
-                throw new Error('Unoconv is not available on this server. PDF conversion requires unoconv or LibreOffice.');
-            }
-
-            const conversionProcess = spawn('unoconv', [
-                '-f', 'docx',
-                '-o', outputDir,
-                pdfFilePath
-            ]);
-
-            return new Promise<string>((resolve, reject) => {
-                let stderr = '';
-
-                conversionProcess.stderr.on('data', (data) => {
-                    stderr += data.toString();
-                });
-
-                conversionProcess.on('close', (code) => {
-                    const duration = Date.now() - startTime;
-                    logger.info(`[PDF-CONVERSION-UNOCONV] Process completed`, {
-                        exitCode: code,
-                        duration,
-                        stderr: stderr || 'none'
-                    });
-
-                    if (code === 0) {
-                        // Check if the DOCX file was created
-                        fs.access(docxFilePath)
-                            .then(() => {
-                                logger.info('[PDF-CONVERSION-UNOCONV] Conversion successful', {
-                                    docxFilePath,
-                                    duration
-                                });
-                                resolve(docxFilePath);
-                            })
-                            .catch(() => {
-                                logger.error('[PDF-CONVERSION-UNOCONV] Conversion process succeeded but DOCX file not found', {
-                                    expectedPath: docxFilePath
-                                });
-                                reject(new Error('Conversion process completed successfully but DOCX file was not created'));
-                            });
-                    } else {
-                        logger.error('[PDF-CONVERSION-UNOCONV] Conversion failed', {
-                            exitCode: code,
-                            stderr,
-                            duration
-                        });
-                        reject(new Error(`PDF to DOCX conversion failed with exit code ${code}: ${stderr}`));
+        return new Promise<string>((resolve, reject) => {
+            exec(
+                `libreoffice --headless --convert-to docx "${inputPdfPath}" --outdir "${outputDir}"`,
+                async (err, stdout, stderr) => {
+                    if (err) {
+                        logger.error("[LibreOffice] Conversion failed", { error: err.message, stderr });
+                        return reject(err);
                     }
-                });
 
-                conversionProcess.on('error', (error) => {
-                    const duration = Date.now() - startTime;
-                    logger.error('[PDF-CONVERSION-UNOCONV] Spawn error during conversion', {
-                        error: error.message,
-                        duration
-                    });
-                    reject(new Error(`Failed to start PDF conversion: ${error.message}`));
-                });
-            });
-        } catch (error: any) {
-            const duration = Date.now() - startTime;
-            logger.error('[PDF-CONVERSION-UNOCONV] Unexpected error during PDF to DOCX conversion', {
-                error: error.message,
-                stack: error.stack,
-                pdfFilePath,
-                duration
-            });
-            throw new Error(`PDF to DOCX conversion failed: ${error.message}`);
-        }
-    }
+                    logger.info("[LibreOffice] Conversion stdout", { stdout });
 
-    /**
-     * Checks if unoconv is available on the system
-     */
-    private static async isUnoconvAvailable(): Promise<boolean> {
-        return new Promise<boolean>((resolve) => {
-            const child = spawn('unoconv', ['--help']);
+                    try {
+                        const files = await fs.readdir(outputDir);
+                        const docxFile = files.find((f) => f.endsWith(".docx"));
 
-            child.on('error', () => {
-                resolve(false);
-            });
+                        if (!docxFile) {
+                            reject(new Error("DOCX conversion failed: No output file created"));
+                            return;
+                        }
 
-            child.on('exit', (code) => {
-                resolve(code === 0 || code === 1); // unoconv returns 1 for help command
-            });
+                        resolve(path.join(outputDir, docxFile));
+                    } catch (readErr) {
+                        reject(readErr);
+                    }
+                }
+            );
         });
-    }
-
-    /**
-     * Fallback conversion using Ghostscript + other tools (for complex PDFs)
-     * This is a more complex method but can handle difficult PDFs
-     */
-    static async convertPdfToDocxAdvanced(pdfFilePath: string): Promise<string> {
-        // This would implement more advanced conversion techniques
-        // For now, we'll throw an error indicating that this requires additional setup
-        throw new Error(
-            'Advanced PDF conversion requires additional setup including ' +
-            'Poppler, Ghostscript, and Pandoc. ' +
-            'Please install these tools or use LibreOffice for basic conversion.'
-        );
     }
 }

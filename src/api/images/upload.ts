@@ -48,12 +48,15 @@ interface AuthenticatedRequest extends express.Request {
     };
 }
 
+import { authenticateExpressRequest } from "../../middleware/auth";
+
 /**
  * POST /api/images/upload
  * Upload an image to Supabase storage
  */
 router.post(
     "/upload",
+    authenticateExpressRequest,
     upload.single("image"),
     async (req: AuthenticatedRequest, res: Response) => {
         try {

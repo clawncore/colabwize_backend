@@ -195,6 +195,17 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// LibreOffice Debug Route
+app.get("/debug/libreoffice", (req, res) => {
+  const { exec } = require("child_process");
+  exec("libreoffice --version", (err: any, stdout: string, stderr: string) => {
+    if (err) {
+      return res.status(500).json({ err: err.message, stderr });
+    }
+    res.json({ stdout, stderr });
+  });
+});
+
 // Mount routers with authentication
 const authMiddleware = authenticateExpressRequest;
 

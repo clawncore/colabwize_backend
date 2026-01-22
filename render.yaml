@@ -1,12 +1,12 @@
 services:
   - type: web
     name: colabwize-backend
-    runtime: docker
+    runtime: node
     repo: https://github.com/clawncore/colabwize.git
     branch: main
     rootDir: backend
-    dockerfilePath: ./Dockerfile
-    dockerContext: ./
+    buildCommand: npm install && apt-get update && apt-get install -y libreoffice
+    startCommand: npm start
     region: oregon
     plan: starter
     healthCheckPath: /health

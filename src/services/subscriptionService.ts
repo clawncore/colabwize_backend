@@ -144,8 +144,13 @@ export class SubscriptionService {
   /**
    * Get plan limits
    */
+  /**
+   * Get plan limits
+   */
   static getPlanLimits(plan: string) {
-    return PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free;
+    let normalizedPlan = plan.toLowerCase().trim();
+    if (normalizedPlan === 'student pro') normalizedPlan = 'student';
+    return PLAN_LIMITS[normalizedPlan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free;
   }
 
   /**
@@ -207,70 +212,65 @@ export class SubscriptionService {
   /**
    * Check if user can perform an action based on feature limits
    */
+  /**
+   * Check if user can perform an action based on feature limits
+   * Canonical Rule: Subscription tier overrides scan limits.
+   */
   static async canPerformAction(
     userId: string,
     feature: string
   ): Promise<boolean> {
     const plan = await this.getActivePlan(userId);
     const limits = this.getPlanLimits(plan);
+    const normalizedPlan = plan.toLowerCase();
 
-    // If feature not in limits (and not explicitly handled), assume allowed or denied?
-    // Safe default: if keys match, check limit. If no key, maybe check feature flag.
-    // Let's assume 'feature' maps to a countable limit key in PLAN_LIMITS.
+    // 1. Authority Check: High-tier plans are UNLIMITED
+    // If user is Researcher, they are allowed. Period.
+    if (normalizedPlan === "researcher" || normalizedPlan.includes("pro")) {
+      logger.info("Entitlement Check: ALLOWED (Tier Override)", { userId, feature, plan });
+      return true;
+    }
 
-    // Map high-level feature names to limit keys if needed, or assume 1:1
-    // e.g. "scan" -> "scans_per_month"
-    // "rephrase_suggestions" -> "rephrase_suggestions"
+    // Map feature to limit key
     let limitKey = feature;
     if (feature === "scan") limitKey = "scans_per_month";
 
-    if (!(limitKey in limits)) {
-      // If not a limit key, check if it's a boolean feature flag
-      if (
-        feature in limits &&
-        typeof limits[feature as keyof typeof limits] === "boolean"
-      ) {
-        return limits[feature as keyof typeof limits] as boolean;
+    // 2. Limit Check
+    if (limitKey in limits) {
+      const limit = limits[limitKey as keyof typeof limits];
+
+      // Explicitly handle -1 as unlimited (redundant for Researcher, but safe for others)
+      if (limit === -1) {
+        logger.info("Entitlement Check: ALLOWED (Unlimited Limit)", { userId, feature, limit });
+        return true;
       }
-      return true; // Unknown feature, allow or handle differently
-    }
 
-    const limit = limits[limitKey as keyof typeof limits] as number;
-
-    // -1 = unlimited
-    if (limit === -1) {
-      return true;
-    }
-
-    // -2 = credit-based or unavailable (PAYG)
-    if (limit === -2) {
-      if (feature === "scan") {
-        const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
-        if (cost) {
-          return CreditService.hasEnoughCredits(userId, cost);
+      // Strict Positive Limit Check
+      if (typeof limit === "number" && limit > 0) {
+        const currentUsage = await this.checkMonthlyUsage(userId, feature);
+        if (currentUsage < limit) {
+          logger.info("Entitlement Check: ALLOWED (Within Quota)", { userId, feature, currentUsage, limit });
+          return true;
         }
-        return false;
+
+        // If 'Student' and limit reached -> BLOCKED (No credits fallback for Student)
+        if (normalizedPlan === "student") {
+          logger.warn("Entitlement Check: DENIED (Quota Exceeded)", { userId, feature, currentUsage, limit, plan });
+          return false;
+        }
       }
-      return false; // Unavailable for this plan
     }
 
-    // Check usage
-    const currentUsage = await this.checkMonthlyUsage(userId, feature);
-    if (currentUsage < limit) {
-      return true;
-    }
-
-    // If plan limit reached, check credits (ONLY for Free or PAYG)
-    // Student/Researcher plans should NOT fall back to credits as per user request
-    if (["student", "researcher"].includes(plan)) {
-      return false;
-    }
-
+    // 3. Fallback: Credits (Free/PAYG only)
     const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
     if (cost) {
-      return CreditService.hasEnoughCredits(userId, cost);
+      const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
+      logger.info(`Entitlement Check: ${hasCredits ? 'ALLOWED' : 'DENIED'} (Credits)`, { userId, feature, cost, hasCredits });
+      return hasCredits;
     }
 
+    // Default Deny
+    logger.warn("Entitlement Check: DENIED (Default)", { userId, feature, plan });
     return false;
   }
 

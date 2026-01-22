@@ -266,6 +266,7 @@ model Citation {
   journal        String?
   citation_count Int?
   source         String?
+  formatted_citations Json?
   is_reliable    Boolean  @default(true)
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt

@@ -434,124 +434,210 @@ export class PublicationExportService {
             }
           }
         }
-      } else if (node.type === "image" && node.attrs?.src) {
+      } else if ((node.type === "image" || node.type === "imageExtension") && node.attrs?.src) {
         try {
           const src = node.attrs.src;
+
+          // Skip Blob URLs - they cannot be resolved server-side
+          if (src.startsWith("blob:")) {
+            logger.warn("Skipping blob URL in export", { src });
+            continue; // Skip this node
+          }
+
           logger.debug("Processing image for DOCX export", { src });
 
-          let data: Buffer | string | Uint8Array | undefined;
+          let data: Buffer | undefined;
 
           if (src.startsWith("data:")) {
-            const base64Data = src.split(",")[1];
-            if (base64Data) {
+            const matches = src.match(/^data:image\/([a-zA-Z+]+);base64,(.+)$/);
+            if (matches && matches.length === 3) {
+              const base64Data = matches[2];
               data = Buffer.from(base64Data, "base64");
             }
           } else if (src.startsWith("http")) {
-            const response = await fetch(src);
-            const arrayBuffer = await response.arrayBuffer();
-            data = Buffer.from(arrayBuffer);
+            try {
+              // Add header to avoid basic blocking or request JSON if API
+              const response = await fetch(src, {
+                headers: { 'User-Agent': 'ColabWize-Export-Service' }
+              });
+
+              if (response.ok) {
+                const arrayBuffer = await response.arrayBuffer();
+                data = Buffer.from(arrayBuffer);
+              } else {
+                logger.warn("Failed to fetch image", { status: response.status, src });
+              }
+            } catch (e) {
+              logger.warn("Fetch failed", { error: e });
+            }
           } else {
-            // Handle relative URLs or local paths by trying to resolve against app URL or storage
-            // This assumes the app is running and accessible or the path is relative to public
-            // For now, let's try to construct a full URL if we have a base
+            // Handle relative URLs
             const appUrl = await SecretsService.getAppUrl();
             const fullUrl = src.startsWith("/")
               ? `${appUrl}${src}`
               : `${appUrl}/${src}`;
-
-            logger.debug("Attempting to fetch relative image URL", {
-              src,
-              fullUrl,
-            });
 
             try {
               const response = await fetch(fullUrl);
               if (response.ok) {
                 const arrayBuffer = await response.arrayBuffer();
                 data = Buffer.from(arrayBuffer);
-              } else {
-                logger.warn("Failed to fetch relative image", {
-                  status: response.status,
-                  fullUrl,
-                });
               }
             } catch (err) {
-              logger.warn("Error fetching relative image URL", {
-                error: err,
-                fullUrl,
-              });
+              logger.warn("Error fetching relative image URL", { error: err, fullUrl });
             }
           }
 
-          if (data) {
+          if (data && data.length > 0) {
+            // --- MAGIC BYTE VALIDATION ---
+            // Prevent embedding HTML (like 404 pages) or text as images, which crashes Word
+            let detectedType: "png" | "jpeg" | "gif" | "bmp" | "svg" | null = null;
+
+            // Check for PNG: 89 50 4E 47
+            if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47) {
+              detectedType = "png";
+            }
+            // Check for JPEG: FF D8 FF
+            else if (data[0] === 0xFF && data[1] === 0xD8 && data[2] === 0xFF) {
+              detectedType = "jpeg";
+            }
+            // Check for GIF: 47 49 46 38
+            else if (data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x38) {
+              detectedType = "gif";
+            }
+            // Check for BMP: 42 4D
+            else if (data[0] === 0x42 && data[1] === 0x4D) {
+              detectedType = "bmp";
+            }
+            // Check for simple SVG by starting tag (not perfect but catches most text-based SVGs)
+            // <svg (3c 73 76 67)
+            else if (data.toString('utf8').trim().startsWith('<svg')) {
+              detectedType = "svg";
+            }
+
+            if (!detectedType) {
+              logger.warn("Invalid image data detected (unknown signature), skipping to prevent corruption.", {
+                firstBytes: data.subarray(0, 8).toString('hex')
+              });
+              // Insert a placeholder to indicate missing image?
+              // paragraphs.push(new Paragraph({ text: "[Image Unavailable]", color: "red" }));
+              continue;
+            }
+
+            // Respect user dimensions if available
+            const widthAttr = node.attrs.width;
+            const heightAttr = node.attrs.height;
+
+            const parseDim = (val: any) => {
+              const parsed = parseInt(String(val).replace("px", ""), 10);
+              return isNaN(parsed) || parsed <= 0 ? null : parsed;
+            };
+
+            const userWidth = parseDim(widthAttr);
+            const userHeight = parseDim(heightAttr);
+
+            const transformation: any = {
+              width: userWidth || 400,
+              height: userHeight || 300,
+            };
+
             paragraphs.push(
               new Paragraph({
                 children: [
                   new ImageRun({
                     data: data,
-                    transformation: {
-                      width: 400,
-                      height: 300,
-                    },
-                  } as any),
+                    transformation: transformation,
+                    type: detectedType as any,
+                    altText: node.attrs.alt || "Image", // Preserve alt text info
+                  }),
                 ],
                 spacing: { before: 240, after: 240 },
+                alignment:
+                  node.attrs.align === "center"
+                    ? AlignmentType.CENTER
+                    : node.attrs.align === "right"
+                      ? AlignmentType.RIGHT
+                      : AlignmentType.LEFT,
               })
             );
-          } else {
-            logger.warn("Could not retrieve image data", { src });
           }
         } catch (e: any) {
-          logger.warn("Failed to process image for DOCX export", {
-            error: e.message,
-            stack: e.stack,
-            src: node.attrs?.src,
-          });
+          logger.warn("Failed to process image for DOCX export", { error: e.message });
         }
-      } else if (node.type === "columns") {
+      } else if (node.type === "columns" || node.type === "columnLayout") {
         // Handle multi-column layout
-        // DOCX library doesn't directly support columns like CSS, so we'll use a table with invisible borders
-        if (node.content) {
-          const columnCells = [];
-          for (const column of node.content) {
-            if (column.type === "column") {
-              const columnParagraphs =
-                await this.convertTipTapToDOCXParagraphs(column);
-              columnCells.push(
+        const numColumns = parseInt(node.attrs?.columns || "2", 10);
+
+        if (node.content && node.content.length > 0) {
+          const tableRows: TableRow[] = [];
+          const isNestedStructure = node.content.some((c: any) => c.type === "column");
+
+          if (isNestedStructure) {
+            // Old nested logic
+            const columnCells = [];
+            for (const column of node.content) {
+              if (column.type === "column") {
+                const columnParagraphs = await this.convertTipTapToDOCXParagraphs(column);
+                columnCells.push(
+                  new TableCell({
+                    children: columnParagraphs.length > 0 ? columnParagraphs : [new Paragraph({ text: "" })],
+                    borders: { top: { style: "none" }, bottom: { style: "none" }, left: { style: "none" }, right: { style: "none" } },
+                    width: { size: Math.floor(5000 / numColumns), type: WidthType.PERCENTAGE },
+                    verticalAlign: VerticalAlign.TOP,
+                  })
+                );
+              }
+            }
+            if (columnCells.length > 0) {
+              tableRows.push(new TableRow({ children: columnCells }));
+            }
+          } else {
+            // Flat Grid Logic
+            const items = node.content;
+            const colWidth = Math.floor(5000 / numColumns);
+            let currentRowCells: TableCell[] = [];
+
+            for (let i = 0; i < items.length; i++) {
+              const item = items[i];
+              const cellParagraphs = await this.convertTipTapToDOCXParagraphs({ content: [item] });
+
+              currentRowCells.push(
                 new TableCell({
-                  children:
-                    columnParagraphs.length > 0
-                      ? columnParagraphs
-                      : [new Paragraph({ text: "" })],
-                  borders: {
-                    top: { style: "none" },
-                    bottom: { style: "none" },
-                    left: { style: "none" },
-                    right: { style: "none" },
-                  },
-                  width: {
-                    size: 100 / node.content.length,
-                    type: WidthType.PERCENTAGE,
-                  },
+                  children: cellParagraphs.length > 0 ? cellParagraphs : [new Paragraph({ text: "" })],
+                  borders: { top: { style: "none" }, bottom: { style: "none" }, left: { style: "none" }, right: { style: "none" } },
+                  width: { size: colWidth, type: WidthType.PERCENTAGE },
                   verticalAlign: VerticalAlign.TOP,
                 })
               );
+
+              if (currentRowCells.length === numColumns) {
+                tableRows.push(new TableRow({ children: currentRowCells }));
+                currentRowCells = [];
+              }
+            }
+
+            if (currentRowCells.length > 0) {
+              while (currentRowCells.length < numColumns) {
+                currentRowCells.push(
+                  new TableCell({
+                    children: [new Paragraph({ text: "" })],
+                    borders: { top: { style: "none" }, bottom: { style: "none" }, left: { style: "none" }, right: { style: "none" } },
+                    width: { size: colWidth, type: WidthType.PERCENTAGE },
+                  })
+                );
+              }
+              tableRows.push(new TableRow({ children: currentRowCells }));
             }
           }
-          if (columnCells.length > 0) {
+
+          if (tableRows.length > 0) {
             paragraphs.push(
               new Paragraph({
                 children: [
                   new Table({
-                    rows: [
-                      new TableRow({
-                        children: columnCells,
-                      }),
-                    ],
-                    width: {
-                      size: 100,
-                      type: WidthType.PERCENTAGE,
-                    },
+                    rows: tableRows,
+                    width: { size: 100, type: WidthType.PERCENTAGE },
+                    borders: { top: { style: "none" }, bottom: { style: "none" }, left: { style: "none" }, right: { style: "none" }, insideHorizontal: { style: "none" }, insideVertical: { style: "none" } },
                   }),
                 ] as any,
               })
