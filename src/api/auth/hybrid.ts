@@ -5,6 +5,57 @@ import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware
 const router = express.Router();
 
 /**
+ * POST /api/auth/hybrid/signup
+ * Create user in Supabase + Postgres
+ */
+router.post("/signup", async (req, res) => {
+  try {
+    const { email, password, ...userData } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
+    }
+
+    const result = await HybridAuthService.signUp(email, password, userData);
+
+    if (result.success) {
+      return res.status(201).json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (error: any) {
+    console.error("Hybrid signup error:", error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Signup failed",
+    });
+  }
+});
+
+/**
+ * POST /api/auth/hybrid/check-email
+ */
+router.post("/check-email", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email required" });
+    }
+    const result = await HybridAuthService.checkEmail(email);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ success: false, message: "Check email failed" });
+  }
+});
+
+/**
  * POST /api/auth/hybrid/oauth-signup
  * Register user after OAuth callback
  */
@@ -103,48 +154,35 @@ router.patch("/profile", async (req, res) => {
  */
 router.post("/send-otp", async (req, res) => {
   try {
-    console.log("DEBUG: send-otp request received");
-    console.log("DEBUG: Headers:", req.headers);
-    console.log("DEBUG: Body:", req.body);
+    const { email, method } = req.body;
 
-    const { userId, email, method = "email", fullName } = req.body;
-
-    if (!userId || !email) {
-      console.log("DEBUG: Missing userId or email", { userId, email });
-      return res.status(400).json({
-        success: false,
-        message: "User ID and email are required",
-      });
+    // Check if email is provided
+    if (!email) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email required" });
     }
 
-    // Import OTPService dynamically to avoid circular dependencies if any
-    const { OTPService } = require("../../services/otpService");
+    // Check for unsupported methods
+    if (method === "sms") {
+      return res
+        .status(400)
+        .json({ success: false, message: "SMS not supported yet" });
+    }
 
-    const result = await OTPService.sendOTP(
-      userId,
-      email,
-      "", // Phone number
-      method,
-      fullName || ""
-    );
+    // Reuse existing resend verification logic which generates and sends OTP
+    const result = await HybridAuthService.resendVerification(email);
 
-    if (result) {
-      return res.status(200).json({
-        success: true,
-        message: "OTP sent successfully",
-      });
+    if (result.success) {
+      return res.status(200).json(result);
     } else {
-      return res.status(500).json({
-        success: false,
-        message: "Failed to send OTP",
-      });
+      // Even if success is false (e.g. already verified), return 400 with the message
+      return res.status(400).json(result);
     }
-  } catch (error: any) {
-    console.error("Send OTP error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Failed to send OTP",
-    });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to send OTP" });
   }
 });
 
@@ -154,94 +192,57 @@ router.post("/send-otp", async (req, res) => {
  */
 router.post("/verify-otp", async (req, res) => {
   try {
-    const { userId, otp } = req.body;
+    const { userId, otp, email } = req.body; // email is optional fallback
 
-    if (!userId || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: "User ID and OTP are required",
-      });
+    if (!otp) {
+      return res.status(400).json({ success: false, message: "OTP required" });
     }
 
-    // Import OTPService dynamically
-    const { OTPService } = require("../../services/otpService");
+    // We need at least userId OR email
+    if (!userId && !email) {
+      return res
+        .status(400)
+        .json({ success: false, message: "User ID or Email required" });
+    }
 
-    const isValid = await OTPService.verifyOTP(userId, otp);
+    const result = await HybridAuthService.verifyOTP(
+      userId || null,
+      otp,
+      email
+    );
 
-    if (isValid) {
-      // Mark as verified in both Prisma and Supabase
-      await HybridAuthService.markEmailVerified(userId);
-
-      return res.status(200).json({
-        success: true,
-        message: "OTP verified successfully",
-      });
+    if (result.success) {
+      return res.status(200).json(result);
     } else {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired OTP",
-      });
+      return res.status(400).json(result);
     }
-  } catch (error: any) {
-    console.error("Verify OTP error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Failed to verify OTP",
-    });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ success: false, message: "Verification failed" });
   }
 });
 
 
 /**
- * POST /register-email
- * Explicitly registers a user in the local database after Supabase signup
+ * POST /api/auth/hybrid/resend-verification
  */
-router.post("/register-email", async (req, res) => {
+router.post("/resend-verification", async (req, res) => {
   try {
-    const {
-      id,
-      email,
-      fullName,
-      fieldOfStudy,
-      userType,
-      selectedPlan,
-      affiliateRef,
-      otpMethod
-    } = req.body;
-
-    if (!id || !email) {
-      return res.status(400).json({ error: "Missing required fields: id, email" });
+    const { email } = req.body;
+    if (!email) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email required" });
     }
-
-    const start = Date.now();
-    console.info("Processing email registration", { id, email });
-
-    const result = await HybridAuthService.registerEmailUser({
-      id,
-      email,
-      fullName,
-      fieldOfStudy,
-      userType,
-      selectedPlan,
-      affiliateRef,
-      otpMethod
-    });
-
-    console.info("Email registration completed", {
-      id,
-      success: result.success,
-      duration: `${Date.now() - start}ms`
-    });
-
-    if (!result.success) {
-      return res.status(400).json({ error: result.message });
-    }
-
+    const result = await HybridAuthService.resendVerification(email);
     return res.status(200).json(result);
   } catch (error: any) {
-    console.error("Error in /register-email route", { error: error.message });
-    return res.status(500).json({ error: "Internal server error during registration" });
+    return res
+      .status(400)
+      .json({ success: false, message: error.message || "Resend failed" });
   }
 });
 
 export default router;
+

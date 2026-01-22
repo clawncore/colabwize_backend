@@ -166,122 +166,260 @@ export class HybridAuthService {
   }
 
   /**
-   * Register a user signed up via Email (explicit flow)
-   * This is called immediately after Supabase signUp to ensure the user exists in Postgres
+   * Generate a 6-digit OTP code
    */
-  static async registerEmailUser(data: {
-    id: string;
-    email: string;
-    fullName?: string;
-    fieldOfStudy?: string;
-    userType?: string;
-    selectedPlan?: string;
-    affiliateRef?: string;
-    otpMethod?: string;
-  }): Promise<{ success: boolean; message: string; user?: any }> {
+  private static generateOTP(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  /**
+   * Check if email exists and is verified
+   */
+  static async checkEmail(email: string): Promise<{
+    exists: boolean;
+    confirmed: boolean;
+  }> {
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      return { exists: false, confirmed: false };
+    }
+
+    return {
+      exists: true,
+      confirmed: user.email_verified,
+    };
+  }
+
+  /**
+   * Sign up a new user
+   */
+  static async signUp(
+    email: string,
+    password: string,
+    userData: {
+      full_name?: string;
+      phone_number?: string;
+      otp_method?: string;
+      user_type?: string;
+      field_of_study?: string;
+      selected_plan?: string;
+      affiliate_ref?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    user?: any;
+    message: string;
+    otpSent?: boolean;
+    needsVerification?: boolean;
+  }> {
     try {
-      // 1. Verify user exists in Supabase (security check)
+      // 1. Check if user exists in our database
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (existingUser) {
+        return {
+          success: false,
+          message: "User with this email already exists",
+        };
+      }
+
+      // 2. Create user in Supabase Auth
       const supabaseAdmin = await getSupabaseAdminClient();
       if (!supabaseAdmin) {
         throw new Error("Supabase admin client not available");
       }
 
-      const { data: supabaseData, error: supabaseError } = await supabaseAdmin.auth.admin.getUserById(data.id);
+      // We auto-confirm in Supabase because we handle verification ourselves via OTP
+      // or we want them to be able to sign in, but blocked by our backend check
+      // However, usually we want email_confirm: true so they can technically sign in to Supabase,
+      // but our frontend checks our own DB for verification status.
+      const { data: supabaseUser, error: supabaseError } =
+        await supabaseAdmin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            full_name: userData.full_name,
+          },
+        });
 
-      if (supabaseError || !supabaseData.user) {
-        logger.warn("Attempted to register non-existent Supabase user", { userId: data.id });
-        return { success: false, message: "User not found in authentication system" };
+      if (supabaseError) {
+        throw new Error(`Supabase creation failed: ${supabaseError.message}`);
       }
 
-      // 2. Check if user already exists in Prisma
-      const existingUser = await prisma.user.findUnique({
-        where: { id: data.id },
-      });
-
-      if (existingUser) {
-        return {
-          success: true,
-          message: "User already exists",
-          user: existingUser,
-        };
+      if (!supabaseUser.user) {
+        throw new Error("Failed to create Supabase user");
       }
 
-      // 3. Create user in Prisma
-      const newUser = await prisma.user.create({
+      const userId = supabaseUser.user.id;
+
+      // 3. Create user in our Database with the SAME ID
+      const user = await prisma.user.create({
         data: {
-          id: data.id,
-          email: data.email,
-          full_name: data.fullName,
-          field_of_study: data.fieldOfStudy,
-          user_type: data.userType,
-          otp_method: data.otpMethod || "email",
-          email_verified: false, // Starts unverified
+          id: userId,
+          email,
+          full_name: userData.full_name,
+          phone_number: userData.phone_number,
+          user_type: userData.user_type,
+          field_of_study: userData.field_of_study,
+          otp_method: userData.otp_method || "email",
+          email_verified: false, // Force verification
           survey_completed: false,
         },
       });
 
-      // 4. Create subscription
-      // Determine plan (default to free if not specified or invalid)
-      const plan = data.selectedPlan || "free";
-
+      // 4. Create default free subscription for the user
       await prisma.subscription.create({
         data: {
-          user_id: data.id,
-          plan: plan,
-          status: "active", // Free plan is active by default
+          user_id: userId,
+          plan: "free",
+          status: "active",
         },
       });
 
-      logger.info("Registered new email user in Postgres", { userId: data.id, plan });
+      // 5. Generate and Send OTP
+      const otpCode = this.generateOTP();
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+
+      await prisma.oTPVerification.create({
+        data: {
+          user_id: userId,
+          email,
+          otp_code: otpCode,
+          expires_at: expiresAt,
+          verified: false,
+        },
+      });
+
+      // Send OTP email to user
+      await EmailService.sendOTPEmail(email, otpCode, userData.full_name || "");
 
       return {
         success: true,
-        message: "User registered successfully",
-        user: newUser,
+        user: { id: userId, email },
+        message: "Signup successful. Please verify your email.",
+        otpSent: true, // Signal to frontend to show OTP screen
+        needsVerification: true,
       };
     } catch (error: any) {
-      logger.error("Email registration failed", { error: error.message, userId: data.id });
+      logger.error("Hybrid sign up failed", { error: error.message });
+      // If user was created in Supabase but DB failed, we might have an inconsistency
+      // But for now let's just error out.
+
+      // If user already exists in Supabase (but not in our DB, which shouldn't happen if they are synced),
+      // we might want to handle that.
+      if (
+        error.message.includes("already registered") ||
+        error.message.includes("already exists")
+      ) {
+        return {
+          success: false,
+          message: "User with this email already exists",
+        };
+      }
+
       throw error;
     }
   }
 
   /**
-   * Mark email as verified for a user
+   * Verify OTP
    */
-  static async markEmailVerified(userId: string): Promise<boolean> {
+  static async verifyOTP(
+    userId: string | null,
+    otp: string,
+    email?: string // Optional fallback search
+  ): Promise<{ success: boolean; message: string }> {
     try {
-      // 1. Update in Prisma
+      let user;
+
+      if (userId) {
+        user = await prisma.user.findUnique({ where: { id: userId } });
+      } else if (email) {
+        user = await prisma.user.findUnique({ where: { email } });
+      }
+
+      if (!user) {
+        return { success: false, message: "User not found" };
+      }
+
+      const otpRecord = await prisma.oTPVerification.findFirst({
+        where: {
+          user_id: user.id,
+          otp_code: otp,
+          verified: false,
+          expires_at: { gt: new Date() },
+        },
+        orderBy: { created_at: "desc" },
+      });
+
+      if (!otpRecord) {
+        return { success: false, message: "Invalid or expired OTP" };
+      }
+
+      // Mark OTP verified (delete all OTPs for this user to clean up)
+      await prisma.oTPVerification.deleteMany({
+        where: { user_id: user.id },
+      });
+
+      // Mark User verified
       await prisma.user.update({
-        where: { id: userId },
+        where: { id: user.id },
         data: { email_verified: true },
       });
 
-      // 2. Update in Supabase
-      const supabaseAdmin = await getSupabaseAdminClient();
-      if (supabaseAdmin) {
-        const { error } = await supabaseAdmin.auth.admin.updateUserById(
-          userId,
-          { email_confirm: true }
-        );
+      // Send Welcome Email
+      await EmailService.sendWelcomeEmail(user.email, user.full_name || "");
 
-        if (error) {
-          logger.error("Failed to verify user in Supabase", {
-            userId,
-            error: error.message
-          });
-          // We continue anyway since Prisma is our source of truth for business logic
-        } else {
-          logger.info("User verified in Supabase", { userId });
-        }
+      return { success: true, message: "Email verified successfully" };
+    } catch (error: any) {
+      logger.error("Verify OTP failed", { error: error.message });
+      return { success: false, message: "Verification failed" };
+    }
+  }
+
+  /**
+   * Resend Verification
+   */
+  static async resendVerification(
+    email: string
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        return { success: false, message: "User not found" };
       }
 
-      return true;
-    } catch (error: any) {
-      logger.error("Error marking email as verified", {
-        userId,
-        error: error.message
+      if (user.email_verified) {
+        return { success: false, message: "Email already verified" };
+      }
+
+      const otpCode = this.generateOTP();
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+
+      await prisma.oTPVerification.create({
+        data: {
+          user_id: user.id,
+          email,
+          otp_code: otpCode,
+          expires_at: expiresAt,
+          verified: false,
+        },
       });
-      return false;
+
+      await EmailService.sendOTPEmail(email, otpCode, user.full_name || "");
+
+      return { success: true, message: "Verification code resent" };
+    } catch (error: any) {
+      logger.error("Resend verification failed", { error: error.message });
+      throw error;
     }
   }
 
