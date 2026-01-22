@@ -680,3 +680,25 @@ model CreditTransaction {
   @@index([created_at])
   @@map("credit_transactions")
 }
+
+model DocumentTemplate {
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  type           String   // project type: research-paper, essay, lab-report, etc.
+  content        Json     // Tiptap JSON content structure
+  tags           String[] @default([])
+  is_public      Boolean  @default(true)
+  user_id        String?  // null for system templates
+  citation_style String?  // default citation style for this template
+  author_name    String?  @default("ColabWize")
+  rating         Float?   @default(0)
+  downloads      Int      @default(0)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@index([type])
+  @@index([is_public])
+  @@index([user_id])
+  @@map("document_templates")
+}
