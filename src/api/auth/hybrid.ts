@@ -1,57 +1,8 @@
 import express from "express";
 import { HybridAuthService } from "../../services/hybridAuthService";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
-import { getSupabaseAdminClient } from "../../lib/supabase/client";
 
 const router = express.Router();
-
-/**
- * POST /api/auth/hybrid/send-otp
- * Send Supabase Magic Link / OTP
- */
-router.post("/send-otp", async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        error: "Email is required",
-      });
-    }
-
-    const supabaseAdmin = await getSupabaseAdminClient();
-    if (!supabaseAdmin) {
-      throw new Error("Supabase admin client not available");
-    }
-
-    const { error } = await supabaseAdmin.auth.signInWithOtp({
-      email,
-      options: {
-        shouldCreateUser: true,
-      },
-    });
-
-    if (error) {
-      console.error("Supabase OTP Error:", error);
-      return res.status(400).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    return res.json({
-      success: true,
-      otpSent: true,
-    });
-  } catch (error: any) {
-    console.error("Send OTP Error:", error);
-    return res.status(500).json({
-      success: false,
-      error: error.message || "Internal server error",
-    });
-  }
-});
 
 /**
  * POST /api/auth/hybrid/oauth-signup
