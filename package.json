@@ -9,9 +9,9 @@
   "scripts": {
     "start": "node dist/hybrid/main-server.js",
     "dev": "tsx watch src/hybrid/main-server.ts",
-    "build": "rm -rf dist && tsc",
+    "build": "npx rimraf dist && tsc",
     "check-env": "node scripts/check-environment.js",
-    "postinstall": "node scripts/setup-puppeteer.js && prisma generate"
+    "postinstall": "npx puppeteer browsers install chrome && node scripts/setup-puppeteer.js && prisma generate"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.12",
