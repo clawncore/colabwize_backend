@@ -2,53 +2,19 @@
   "type": "doc",
   "content": [
     {
-      "type": "imageExtension",
+      "type": "paragraph",
       "attrs": {
-        "alt": "Image from URL",
-        "src": "https://vignan.ac.in/newvignan/assets/images/Logo%20with%20Deemed.svg",
-        "align": "center",
-        "title": null,
-        "width": null,
-        "height": null,
-        "rotate": 0
-      }
-    },
-    {
-      "type": "heading",
-      "attrs": {
-        "level": 1,
         "textAlign": null
       },
       "content": [
         {
-          "text": "The Impact of Remote Work on Employee Productivity and Well-Being",
+          "text": "SIMBISAI CHINHEMA",
           "type": "text",
           "marks": [
             {
               "type": "textStyle",
               "attrs": {
-                "fontFamily": "Arial"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "type": "heading",
-      "attrs": {
-        "level": 1,
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Student Name",
-          "type": "text",
-          "marks": [
-            {
-              "type": "textStyle",
-              "attrs": {
-                "fontFamily": "Arial"
+                "fontFamily": "Times New Roman"
               }
             },
             {
@@ -59,31 +25,19 @@
       ]
     },
     {
-      "type": "heading",
+      "type": "paragraph",
       "attrs": {
-        "level": 1,
         "textAlign": null
       },
       "content": [
         {
-          "type": "hardBreak",
-          "marks": [
-            {
-              "type": "textStyle",
-              "attrs": {
-                "fontFamily": "Arial"
-              }
-            }
-          ]
-        },
-        {
-          "text": "Department / Program",
+          "text": "Instructor’s Name: RRR ",
           "type": "text",
           "marks": [
             {
               "type": "textStyle",
               "attrs": {
-                "fontFamily": "Arial"
+                "fontFamily": "Times New Roman"
               }
             }
           ]
@@ -94,19 +48,19 @@
             {
               "type": "textStyle",
               "attrs": {
-                "fontFamily": "Arial"
+                "fontFamily": "Times New Roman"
               }
             }
           ]
         },
         {
-          "text": "Institution Name",
+          "text": "Course Name:bioinfromatics",
           "type": "text",
           "marks": [
             {
               "type": "textStyle",
               "attrs": {
-                "fontFamily": "Arial"
+                "fontFamily": "Times New Roman"
               }
             }
           ]
@@ -117,19 +71,19 @@
             {
               "type": "textStyle",
               "attrs": {
-                "fontFamily": "Arial"
+                "fontFamily": "Times New Roman"
               }
             }
           ]
         },
         {
-          "text": "Date",
+          "text": "23 January 2026",
           "type": "text",
           "marks": [
             {
               "type": "textStyle",
               "attrs": {
-                "fontFamily": "Arial"
+                "fontFamily": "Times New Roman"
               }
             }
           ]
@@ -140,19 +94,20 @@
       "type": "horizontalRule"
     },
     {
-      "type": "paragraph",
+      "type": "heading",
       "attrs": {
+        "level": 1,
         "textAlign": null
       },
       "content": [
         {
-          "text": "Abstract",
+          "text": "The Human Genome Project: Mapping the Blueprint of Human Life",
           "type": "text",
           "marks": [
             {
               "type": "textStyle",
               "attrs": {
-                "fontFamily": "Arial"
+                "fontFamily": "Times New Roman"
               }
             }
           ]
@@ -160,76 +115,64 @@
       ]
     },
     {
-      "type": "orderedList",
+      "type": "heading",
       "attrs": {
-        "type": null,
-        "start": 1
+        "level": 2,
+        "textAlign": null
       },
       "content": [
         {
-          "type": "listItem",
-          "content": [
+          "text": "Introduction",
+          "type": "text",
+          "marks": [
             {
-              "type": "paragraph",
+              "type": "textStyle",
               "attrs": {
-                "textAlign": "justify"
-              },
-              "content": [
-                {
-                  "text": "The rapid adoption of remote work has transformed traditional organizational structures and work practices across multiple industries",
-                  "type": "text",
-                  "marks": [
-                    {
-                      "type": "textStyle",
-                      "attrs": {
-                        "fontFamily": "Arial"
-                      }
-                    },
-                    {
-                      "type": "bold"
-                    }
-                  ]
-                },
-                {
-                  "text": ". While remote work offers flexibility and potential p",
-                  "type": "text",
-                  "marks": [
-                    {
-                      "type": "textStyle",
-                      "attrs": {
-                        "fontFamily": "Arial"
-                      }
-                    }
-                  ]
-                },
-                {
-                  "text": "roductivity benefits, it also introduces challenges related to communication, collaboration, and employee well-being. This paper examines the effects of remote work on employee productivity and psychological health, focusing on both positive outcomes and emerging ",
-                  "type": "text",
-                  "marks": [
-                    {
-                      "type": "textStyle",
-                      "attrs": {
-                        "fontFamily": "Arial"
-                      }
-                    },
-                    {
-                      "type": "italic"
-                    }
-                  ]
-                },
-                {
-                  "text": "risks. The analysis highlights the need for balanced organizational strategies that support performance while addressing social and mental health concerns.(Fei Zhou, Ting Yu, Ronghui Du, Guohui Fan, Ying Liu, Zhibo Liu, Jie Xiang, Yeming Wang, Bin Song, Xiaoying Gu, Lulu Guan, Yuan Wei, Hui Li, Xudong Wu, Jiuyang Xu, Shengjin Tu, Yi Zhang, Hua Chen, Bin Cao 2020)(Chaolin Huang et al. 2020)[1]",
-                  "type": "text",
-                  "marks": [
-                    {
-                      "type": "textStyle",
-                      "attrs": {
-                        "fontFamily": "Arial"
-                      }
-                    }
-                  ]
-                }
-              ]
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        },
+        {
+          "type": "hardBreak",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        },
+        {
+          "text": "The Human Genome Project has achieved its primary objectives outlined in the 5-year plan spanning from 1993 to 1998. A new plan for 1998 to 2003 has been introduced, with a strong focus on human DNA sequencing. A challenging timeline has been established to finalize the entire sequence by the conclusion of 2003, surpassing initial estimates by 2 years. Additionally, a preliminary \"working draft\" of the human sequence is expected to be generated by the end of 2001.(Francis S. Collins et al.)",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "The Human Genome Project (HGP) represents one of the most ambitious and transformative scientific endeavors in modern history. Initiated in 1990 and completed in 2003, the project sought to identify, map, and sequence the entire human genome, thereby revealing the complete set of genetic instructions that govern human development, function, and disease. Prior to the Human Genome Project, genetic research was limited to the study of individual genes and small genomic regions, restricting scientists’ ability to understand complex biological systems.. The project significantly contributed to the advancement of scientific understanding and brought about groundbreaking changes in the fields of medicine, biotechnology, and bioinformatics. Moreover, it sparked important discussions surrounding ethical, legal, and social implications that still shape genomic research today.(Kenneth I. Berns)",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
             }
           ]
         }
@@ -246,8 +189,58 @@
       },
       "content": [
         {
-          "text": "Introduction",
+          "text": "Background and Origin of the Human Genome Project",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        },
+        {
+          "type": "hardBreak"
+        }
+      ]
+    },
+    {
+      "type": "imageExtension",
+      "attrs": {
+        "alt": "Image from URL",
+        "src": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQLTSAA-Ic-I0Kw9KI6DugWKYjRgWZhudJG0w&s",
+        "align": "left",
+        "title": null,
+        "width": null,
+        "height": null,
+        "rotate": 0
+      }
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "source:",
           "type": "text"
+        },
+        {
+          "text": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQLTSAA-Ic-I0Kw9KI6DugWKYjRgWZhudJG0w&s",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer",
+                "href": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQLTSAA-Ic-I0Kw9KI6DugWKYjRgWZhudJG0w&s",
+                "class": null,
+                "target": "_blank"
+              }
+            }
+          ]
         }
       ]
     },
@@ -258,8 +251,429 @@
       },
       "content": [
         {
-          "text": "Remote work has shifted from a niche employment arrangement to a mainstream work model.[1] Advances in digital communication technologies and changing workforce expectations have enabled organizations to operate beyond physical office spaces.(Chaolin Huang et al.)",
-          "type": "text"
+          "text": "The Human Genome Project emerged from advances in molecular biology and computing during the late twentieth century. Rapid progress in DNA sequencing technologies and the growing recognition that genetic information played a central role in disease motivated scientists to pursue a coordinated effort to map the entire human genome. Officially launched in 1990, the project was jointly funded by the United States National Institutes of Health (NIH) and the Department of Energy (DOE), with significant contributions from international partners in the United Kingdom, Japan, France, Germany, and China. The global nature of the Human Genome Project reflected both the scale of the task and the shared scientific interest in understanding human genetics.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Originally planned as a fifteen-year initiative, the project was completed two years ahead of schedule in 2003, coinciding with the fiftieth anniversary of the discovery of the DNA double helix. The project incurred a total cost of around three billion US dollars, initially drawing criticism but ultimately proving to be justified due to its extensive impact.. The completion of the Human Genome Project marked a shift from gene-by-gene analysis to genome-wide approaches, redefining how biological research is conducted.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Objectives of the Human Genome Project",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "The Human Genome Project was guided by several clearly defined objectives. Its primary goal was to determine the complete nucleotide sequence of human DNA and to identify all genes present in the human genome. In addition to sequencing, the project aimed to develop high-resolution genetic and physical maps that would enable researchers to locate genes associated with inherited diseases. Another key objective was to store genomic data in publicly accessible databases, ensuring that researchers worldwide could benefit from the information generated by the project.[1]",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Beyond scientific goals, the Human Genome Project also prioritized technological innovation. The development of faster, more accurate, and more cost-effective sequencing methods was essential to achieving the project’s aims. Equally important was the inclusion of a dedicated program to examine the ethical, legal, and social implications (ELSI) of genomic research. By addressing issues such as genetic privacy, discrimination, and informed consent, the project acknowledged that advances in genomics carry profound societal consequences.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Methodological Overview",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "The Human Genome Project employed a combination of experimental and computational strategies to sequence and assemble the human genome. The primary approach used by the public consortium was known as clone-by-clone sequencing. In this method, the genome was first divided into large, manageable fragments that were cloned into bacterial artificial chromosomes. These fragments were then individually sequenced and assembled based on overlapping regions, allowing researchers to reconstruct the complete genome with high accuracy.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Bioinformatics played a critical role throughout the project. Sophisticated computational tools were required to assemble billions of DNA base pairs, identify genes, and annotate functional elements within the genome. Advances in data storage, algorithm development, and sequence alignment techniques were essential to managing the vast quantities of data generated. The integration of biology and computation during the Human Genome Project established bioinformatics as a central discipline in modern life sciences.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Major Findings and Scientific Contributions",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "One of the most significant findings of the Human Genome Project was the realization that humans possess far fewer genes than previously expected. Early estimates suggested that the human genome might contain over one hundred thousand genes; however, the project revealed that humans have approximately twenty thousand to twenty-five thousand protein-coding genes. This discovery challenged traditional assumptions about genetic complexity and highlighted the importance of gene regulation and non-coding DNA.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        },
+        {
+          "type": "hardBreak"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "content": [
+        {
+          "type": "tableRow",
+          "content": [
+            {
+              "type": "tableHeader",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "year",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableHeader",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "date",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableHeader",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "event",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "tableRow",
+          "content": [
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "2022",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "the whole genome project escalated to include the use of sra toolkit ",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "this was a great oppotinuty for the HGS people",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "tableRow",
+          "content": [
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "2025",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "the major advancement in the HGS has become vey compitend to the extend that eveything has become very useful",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "this event has been very useful and people admired it ",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -276,48 +690,16 @@
       },
       "content": [
         {
-          "text": ". This transition accelerated significantly during global disruptions, forcing companies to adopt remote work policies at scale. As organizations continue to evaluate long-term remote and hybrid models, understanding their impact on employee productivity and well-being has become increasingly important.(Chaolin Huang, Ye-ming Wang, Xing-wang Li, L. Ren, Jianping Zhao, Y. Hu, Li Zhang, Guohui Fan, Jiuyang Xu, Xiaoying Gu, Zhenshun Cheng, Ting Yu, Jia’an Xia, Yuan Wei, Wenjuan Wu, Xuelei Xie, Wen Yin, Hui Li, Min Liu, Yan Xiao, Hong Gao, Li Guo, Jungang Xie, Guangfa Wang, R. Jiang, Zhancheng Gao, Q. Jin, Jianwei Wang, B. Cao, 2020)",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Productivity has traditionally been associated with structured office environments, direct supervision, and standardized workflows. Remote work challenges these assumptions by emphasizing autonomy and outcome-based performance. At the same time, employees face new stressors such as social isolation, blurred work-life boundaries, and increased reliance on digital communication.(Chaolin Huang et al. 2020)(Chaolin Huang et al.)",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "horizontalRule"
-    },
-    {
-      "type": "heading",
-      "attrs": {
-        "level": 2,
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Methodology",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "This study adopts a qualitative analytical approach based on synthesized observations from organizational reports, employee surveys, and workplace behavior analyses. Rather than relying on experimental data, the paper focuses on identifying common patterns and themes observed in remote work environments. The methodology emphasizes comparative evaluation of employee experiences before and after transitioning to remote work.",
-          "type": "text"
+          "text": "The project also demonstrated that the vast majority of human DNA does not encode proteins. Although once considered “junk DNA,” many non-coding regions are now known to play crucial roles in regulating gene expression and maintaining genomic stability. Additionally, the Human Genome Project revealed that genetic variation between individuals is relatively small, with more than ninety-nine percent of DNA sequences shared among all humans. This finding has important implications for understanding human evolution, diversity, and disease susceptibility.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
         },
         {
           "type": "hardBreak"
@@ -325,14 +707,81 @@
       ]
     },
     {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Impact on Medicine and Biotechnology",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "type": "paragraph",
       "attrs": {
         "textAlign": null
       },
       "content": [
         {
-          "text": "Key variables examined include perceived productivity, task completion efficiency, work-life balance, communication effectiveness, and psychological well-being. These variables are analyzed to identify recurring trends and organizational implications.(Chaolin Huang, Ye-ming Wang, Xing-wang Li, L. Ren, Jianping Zhao, Y. Hu, Li Zhang, Guohui Fan, Jiuyang Xu, Xiaoying Gu, Zhenshun Cheng, Ting Yu, Jia’an Xia, Yuan Wei, Wenjuan Wu, Xuelei Xie, Wen Yin, Hui Li, Min Liu, Yan Xiao, Hong Gao, Li Guo, Jungang Xie, Guangfa Wang, R. Jiang, Zhancheng Gao, Q. Jin, Jianwei Wang, B. Cao, 2020)(Chaolin Huang, Ye-ming Wang, Xing-wang Li, L. Ren, Jianping Zhao, Y. Hu, Li Zhang, Guohui Fan, Jiuyang Xu, Xiaoying Gu, Zhenshun Cheng, Ting Yu, Jia’an Xia, Yuan Wei, Wenjuan Wu, Xuelei Xie, Wen Yin, Hui Li, Min Liu, Yan Xiao, Hong Gao, Li Guo, Jungang Xie, Guangfa Wang, R. Jiang, Zhancheng Gao, Q. Jin, Jianwei Wang, B. Cao 2020)",
-          "type": "text"
+          "text": "The completion of the Human Genome Project transformed medical research and clinical practice. By identifying genes associated with inherited disorders, the project enabled more accurate diagnosis of genetic diseases and improved understanding of disease mechanisms. Genomic information has become a cornerstone of personalized medicine, allowing treatments to be tailored based on an individual’s genetic profile.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        },
+        {
+          "type": "hardBreak"
+        }
+      ]
+    },
+    {
+      "type": "imageExtension",
+      "attrs": {
+        "alt": "Image from URL",
+        "src": "https://www.nature.com/scitable/content/ne0000/ne0000/ne0000/ne0000/99642/v409_p861_409860a0-f4_MID_1.jpg",
+        "align": "left",
+        "title": null,
+        "width": 323,
+        "height": 193,
+        "rotate": 0
+      }
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Pharmacogenomics, a field that examines how genetic variation influences drug response, has benefited directly from the Human Genome Project. Knowledge of genetic differences helps predict drug efficacy and adverse reactions, improving patient safety and treatment outcomes. In biotechnology, genomic data have accelerated the development of diagnostic tools, targeted therapies, and gene-based interventions, underscoring the project’s lasting impact on innovation and healthcare.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
         }
       ]
     },
@@ -347,8 +796,16 @@
       },
       "content": [
         {
-          "text": "Results",
-          "type": "text"
+          "text": "Ethical, Legal, and Social Implications",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
         }
       ]
     },
@@ -359,8 +816,16 @@
       },
       "content": [
         {
-          "text": "The analysis indicates that remote work can enhance productivity for employees who benefit from flexible schedules and reduced commuting time. Many individuals report improved concentration and greater control over their work environment. Productivity gains are most evident in roles that require independent task execution and minimal synchronous collaboration.",
-          "type": "text"
+          "text": "From its inception, the Human Genome Project recognized that genomic research raises significant ethical, legal, and social concerns. One major issue involves genetic privacy and the potential misuse of genetic information by employers, insurers, or governments. Concerns about genetic discrimination led to the development of protective legislation in several countries, including laws that restrict the use of genetic data.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
         }
       ]
     },
@@ -371,8 +836,16 @@
       },
       "content": [
         {
-          "text": "However, the results also reveal challenges. Employees frequently experience difficulties in maintaining clear work-life boundaries, leading to extended working hours. Communication delays and reduced informal interaction contribute to feelings of disconnection from colleagues. Over time, these factors may negatively affect morale and job satisfaction.",
-          "type": "text"
+          "text": "Another ethical challenge relates to informed consent and data ownership. As genomic databases expand, questions arise regarding who controls genetic information and how it may be used in future research. Additionally, disparities in access to genomic technologies raise concerns about equity and social justice. While genomic medicine holds great promise, its benefits may not be equally distributed, potentially exacerbating existing healthcare inequalities.(Kenneth I. Berns)",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
         }
       ]
     },
@@ -387,8 +860,16 @@
       },
       "content": [
         {
-          "text": "Discussion",
-          "type": "text"
+          "text": "Limitations and Criticisms",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
         }
       ]
     },
@@ -399,8 +880,16 @@
       },
       "content": [
         {
-          "text": "The findings suggest that remote work productivity is highly context-dependent. Individual work styles, job roles, and organizational support mechanisms play a significant role in determining outcomes. Employees with strong self-management skills tend to thrive, while others struggle without structured oversight.",
-          "type": "text"
+          "text": "Despite its achievements, the Human Genome Project has faced criticism and limitations. Sequencing the genome did not immediately translate into a complete understanding of gene function or disease mechanisms. Many complex diseases are influenced by interactions between multiple genes and environmental factors, highlighting the limitations of a purely genetic approach. Furthermore, the project initially focused on a limited number of reference genomes, which did not fully represent global genetic diversity.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
         }
       ]
     },
@@ -411,8 +900,80 @@
       },
       "content": [
         {
-          "text": "Well-being concerns emerge primarily from social isolation and constant digital engagement. Organizations that fail to address these issues risk long-term declines in employee engagement. Implementing structured communication practices, encouraging regular breaks, and fostering virtual social interaction can mitigate negative effects.",
-          "type": "text"
+          "text": "Some critics also argued that the emphasis on large-scale sequencing diverted resources from other areas of biological research. While these concerns are valid, subsequent projects have built upon the foundation established by the Human Genome Project, addressing many of these limitations through functional genomics and population-based studies.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Future Directions in Genomic Research",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "The legacy of the Human Genome Project continues to shape contemporary research initiatives. Projects such as the Encyclopedia of DNA Elements (ENCODE) seek to identify functional elements within the genome, while precision medicine programs aim to integrate genomic data into routine healthcare. Advances in artificial intelligence and machine learning are further enhancing the analysis of complex genomic datasets.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Emerging technologies, including CRISPR-based genome editing, have expanded the practical applications of genomic knowledge. These developments underscore the enduring relevance of the Human Genome Project and its role as a foundation for future scientific breakthroughs.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
         }
       ]
     },
@@ -428,7 +989,15 @@
       "content": [
         {
           "text": "Conclusion",
-          "type": "text"
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
         }
       ]
     },
@@ -439,8 +1008,237 @@
       },
       "content": [
         {
-          "text": "Remote work represents a fundamental shift in how organizations operate and how employees engage with their work. While it offers clear productivity advantages in certain contexts, it also introduces challenges that can impact employee well-being. Organizations must adopt intentional strategies to balance flexibility with support, ensuring sustainable performance and healthy work environments. Future research should explore long-term outcomes of hybrid work models and their implications for organizational culture.",
-          "type": "text"
+          "text": "The Human Genome Project stands as a landmark achievement in the history of science, fundamentally altering our understanding of human biology. By providing a comprehensive map of the human genome, the project enabled unprecedented insights into genetic structure, function, and variation. Its contributions extend beyond science, influencing medicine, biotechnology, ethics, and public policy. Although challenges and limitations remain, the Human Genome Project established the framework for modern genomics and continues to shape the future of biological and medical research.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Works Cited",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Collins, Francis S. ",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        },
+        {
+          "text": "The Language of Life: DNA and the Revolution in Personalized Medicine",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            },
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ". HarperCollins, 2010.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Lander, Eric S., et al. “Initial Sequencing and Analysis of the Human Genome.” ",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        },
+        {
+          "text": "Nature",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            },
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", vol. 409, 2001, pp. 860–921.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "National Human Genome Research Institute. “Human Genome Project.” ",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        },
+        {
+          "text": "Genome.gov",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "http://Genome.gov",
+                "class": null,
+                "target": "_blank"
+              }
+            },
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            },
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", www.genome.gov/human-genome-project.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Watson, James D., et al. ",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        },
+        {
+          "text": "Molecular Biology of the Gene",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            },
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ". 7th ed., Pearson, 2014.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
         }
       ]
     },
@@ -453,111 +1251,12 @@
       "content": [
         {
           "text": "References",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Fei Zhou, Ting Yu, Ronghui Du, Guohui Fan, Ying Liu, Zhibo Liu, Jie Xiang, Yeming Wang, Bin Song, Xiaoying Gu, Lulu Guan, Yuan Wei, Hui Li, Xudong Wu, Jiuyang Xu, Shengjin Tu, Yi Zhang, Hua Chen, Bin Cao. 2020. \"Clinical course and risk factors for mortality of adult inpatients with COVID-19 in Wuhan, China: a retrospective cohort study.\" .",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "[1] Fei Zhou, Ting Yu, Ronghui Du, Guohui Fan, Ying Liu, Zhibo Liu, Jie Xiang, Yeming Wang, Bin Song, Xiaoying Gu, Lulu Guan, Yuan Wei, Hui Li, Xudong Wu, Jiuyang Xu, Shengjin Tu, Yi Zhang, Hua Chen, Bin Cao, \"Clinical course and risk factors for mortality of adult inpatients with COVID-19 in Wuhan, China: a retrospective cohort study,\" 2020.",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Chaolin Huang, Ye-ming Wang, Xing-wang Li, L. Ren, Jianping Zhao, Y. Hu, Li Zhang, Guohui Fan, Jiuyang Xu, Xiaoying Gu, Zhenshun Cheng, Ting Yu, Jia’an Xia, Yuan Wei, Wenjuan Wu, Xuelei Xie, Wen Yin, Hui Li, Min Liu, Yan Xiao, Hong Gao, Li Guo, Jungang Xie, Guangfa Wang, R. Jiang, Zhancheng Gao, Q. Jin, Jianwei Wang, B. Cao (2020). [Asymptomatic infection of COVID-19 and its challenge to epidemic prevention and control].. .",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Chaolin Huang, Ye-ming Wang, Xing-wang Li, L. Ren, Jianping Zhao, Y. Hu, Li Zhang, Guohui Fan, Jiuyang Xu, Xiaoying Gu, Zhenshun Cheng, Ting Yu, Jia’an Xia, Yuan Wei, Wenjuan Wu, Xuelei Xie, Wen Yin, Hui Li, Min Liu, Yan Xiao, Hong Gao, Li Guo, Jungang Xie, Guangfa Wang, R. Jiang, Zhancheng Gao, Q. Jin, Jianwei Wang, B. Cao. 2020. \"[Asymptomatic infection of COVID-19 and its challenge to epidemic prevention and control]..\" .",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Chaolin Huang, Ye-ming Wang, Xing-wang Li, L. Ren, Jianping Zhao, Y. Hu, Li Zhang, et al.. 2020. \"[Asymptomatic infection of COVID-19 and its challenge to epidemic prevention and control]..\" .",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Chaolin Huang et al.. \"[Asymptomatic infection of COVID-19 and its challenge to epidemic prevention and control]..\"  2020.",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "[1] Fei Zhou, Ting Yu, Ronghui Du, Guohui Fan, Ying Liu, Zhibo Liu, Jie Xiang, Yeming Wang, Bin Song, Xiaoying Gu, Lulu Guan, Yuan Wei, Hui Li, Xudong Wu, Jiuyang Xu, Shengjin Tu, Yi Zhang, Hua Chen, and Bin Cao, \"Clinical course and risk factors for mortality of adult inpatients with COVID-19 in Wuhan, China: a retrospective cohort study,\" 2020.",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "https://vignan.ac.in/newvignan/assets/images/Logo%20with%20Deemed.svg",
           "type": "text",
           "marks": [
             {
-              "type": "link",
+              "type": "textStyle",
               "attrs": {
-                "rel": "noopener noreferrer",
-                "href": "https://vignan.ac.in/newvignan/assets/images/Logo%20with%20Deemed.svg",
-                "class": null,
-                "target": "_blank"
+                "fontFamily": "Times New Roman"
               }
             }
           ]
@@ -568,7 +1267,45 @@
       "type": "paragraph",
       "attrs": {
         "textAlign": null
-      }
+      },
+      "content": [
+        {
+          "text": "Francis S. Collins et al.. \"New Goals for the U.S. Human Genome Project: 1998-2003.\"  1998.",
+          "type": "text",
+          "marks": [
+            {
+              "type": "textStyle",
+              "attrs": {
+                "fontFamily": "Times New Roman"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Kenneth I. Berns. \"<i>The Language of Life</i> by Francis S. Collins (2010) HarperCollins, New York.\"  2010.",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "[1] Lincoln Stein, Chris Mungall, Shengqiang Shu, Michael Caudy, Marco Mangone, Allen Day, Elizabeth Nickerson, Jason Stajich, Todd Harris, Adrian Arva, and Suzanna Lewis, \"The Generic Genome Browser: A Building Block for a Model Organism System Database,\" 2002.",
+          "type": "text"
+        }
+      ]
     }
   ]
 }

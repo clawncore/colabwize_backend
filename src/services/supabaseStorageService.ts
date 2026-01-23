@@ -246,12 +246,19 @@ export class SupabaseStorageService {
    */
   static async createSignedUrl(
     filePath: string,
-    expiresIn: number = 60
+    expiresIn: number = 60,
+    options?: { download?: string | boolean } // Add options parameter
   ): Promise<string> {
     const client = await this.getSupabaseClient();
+
+    const signedUrlOptions: any = {};
+    if (options?.download) {
+      signedUrlOptions.download = options.download;
+    }
+
     const { data, error } = await client.storage
       .from("uploads")
-      .createSignedUrl(filePath, expiresIn);
+      .createSignedUrl(filePath, expiresIn, signedUrlOptions);
 
     if (error) {
       logger.error("Error creating signed URL", { error, filePath });

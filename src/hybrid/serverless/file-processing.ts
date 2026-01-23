@@ -187,7 +187,8 @@ async function generatePDFExport(fileData: any, userId: string) {
     const { SupabaseStorageService } =
       await import("../../services/supabaseStorageService");
 
-    const { publicUrl: downloadUrl } = await SupabaseStorageService.uploadFile(
+    // Upload file
+    const uploadResult = await SupabaseStorageService.uploadFile(
       exportResult.buffer,
       `${project.title}.pdf`,
       "application/pdf",
@@ -200,6 +201,16 @@ async function generatePDFExport(fileData: any, userId: string) {
         projectId: fileData.projectId,
         createdAt: new Date(),
       }
+    );
+
+    // Sanitize filename for download
+    const sanitizedTitle = project.title.replace(/[^a-zA-Z0-9-_]/g, "_");
+
+    // Generate a signed URL for secure download (valid for 1 hour)
+    const downloadUrl = await SupabaseStorageService.createSignedUrl(
+      uploadResult.path,
+      3600, // 1 hour expiration
+      { download: `${sanitizedTitle}.pdf` } // Force download with correct filename
     );
 
     // Store export record in database
@@ -311,7 +322,8 @@ async function generateDOCXExport(fileData: any, userId: string) {
     const { SupabaseStorageService } =
       await import("../../services/supabaseStorageService");
 
-    const { publicUrl: downloadUrl } = await SupabaseStorageService.uploadFile(
+    // Upload file
+    const uploadResult = await SupabaseStorageService.uploadFile(
       exportResult.buffer,
       `${project.title}.docx`,
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -324,6 +336,16 @@ async function generateDOCXExport(fileData: any, userId: string) {
         projectId: fileData.projectId,
         createdAt: new Date(),
       }
+    );
+
+    // Sanitize filename for download
+    const sanitizedTitle = project.title.replace(/[^a-zA-Z0-9-_]/g, "_");
+
+    // Generate a signed URL for secure download (valid for 1 hour)
+    const downloadUrl = await SupabaseStorageService.createSignedUrl(
+      uploadResult.path,
+      3600, // 1 hour expiration
+      { download: `${sanitizedTitle}.docx` } // Force download with correct filename
     );
 
     // Store export record in database
@@ -434,7 +456,8 @@ async function generateTXTExport(fileData: any, userId: string) {
     const { SupabaseStorageService } =
       await import("../../services/supabaseStorageService");
 
-    const { publicUrl: downloadUrl } = await SupabaseStorageService.uploadFile(
+    // Upload file
+    const uploadResult = await SupabaseStorageService.uploadFile(
       exportResult.buffer,
       `${project.title}.txt`,
       "text/plain",
@@ -447,6 +470,16 @@ async function generateTXTExport(fileData: any, userId: string) {
         projectId: fileData.projectId,
         createdAt: new Date(),
       }
+    );
+
+    // Sanitize filename for download
+    const sanitizedTitle = project.title.replace(/[^a-zA-Z0-9-_]/g, "_");
+
+    // Generate a signed URL for secure download
+    const downloadUrl = await SupabaseStorageService.createSignedUrl(
+      uploadResult.path,
+      3600,
+      { download: `${sanitizedTitle}.txt` }
     );
 
     // Store export record in database
@@ -557,7 +590,8 @@ async function generateLaTeXExport(fileData: any, userId: string) {
     const { SupabaseStorageService } =
       await import("../../services/supabaseStorageService");
 
-    const { publicUrl: downloadUrl } = await SupabaseStorageService.uploadFile(
+    // Upload file
+    const uploadResult = await SupabaseStorageService.uploadFile(
       exportResult.buffer,
       `${project.title}.tex`,
       "text/plain",
@@ -570,6 +604,16 @@ async function generateLaTeXExport(fileData: any, userId: string) {
         projectId: fileData.projectId,
         createdAt: new Date(),
       }
+    );
+
+    // Sanitize filename for download
+    const sanitizedTitle = project.title.replace(/[^a-zA-Z0-9-_]/g, "_");
+
+    // Generate a signed URL for secure download
+    const downloadUrl = await SupabaseStorageService.createSignedUrl(
+      uploadResult.path,
+      3600,
+      { download: `${sanitizedTitle}.tex` }
     );
 
     // Store export record in database
@@ -680,7 +724,8 @@ async function generateRTFExport(fileData: any, userId: string) {
     const { SupabaseStorageService } =
       await import("../../services/supabaseStorageService");
 
-    const { publicUrl: downloadUrl } = await SupabaseStorageService.uploadFile(
+    // Upload file
+    const uploadResult = await SupabaseStorageService.uploadFile(
       exportResult.buffer,
       `${project.title}.rtf`,
       "text/rtf", // Use text/rtf to bypass Supabase mime type restriction
@@ -693,6 +738,16 @@ async function generateRTFExport(fileData: any, userId: string) {
         projectId: fileData.projectId,
         createdAt: new Date(),
       }
+    );
+
+    // Sanitize filename for download
+    const sanitizedTitle = project.title.replace(/[^a-zA-Z0-9-_]/g, "_");
+
+    // Generate a signed URL for secure download
+    const downloadUrl = await SupabaseStorageService.createSignedUrl(
+      uploadResult.path,
+      3600,
+      { download: `${sanitizedTitle}.rtf` }
     );
 
     // Store export record in database

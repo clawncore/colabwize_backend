@@ -133,12 +133,13 @@ export class HtmlExportService {
       /* Table support */
       table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: collapse !important;
         margin: 1em 0;
         page-break-inside: avoid;
+        border: 1px solid #000 !important;
       }
       th, td {
-        border: 1px solid #000;
+        border: 1px solid #000 !important;
         padding: 0.25em 0.5em;
         text-align: left;
         vertical-align: top;

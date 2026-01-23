@@ -13,6 +13,9 @@ import {
   WidthType,
   VerticalAlign,
   AlignmentType,
+  BorderStyle,
+  TableOfContents,
+  StyleLevel,
 } from "docx";
 import { PublicationService } from "./publicationService";
 
@@ -21,6 +24,7 @@ interface PublicationExportOptions {
   citationStyle?: "apa" | "mla" | "chicago";
   includeCoverPage: boolean;
   coverPageStyle: "apa" | "mla";
+  template?: string; // e.g., "ieee", "acm"
   includeTOC: boolean;
   includeAuthorshipCertificate?: boolean;
   performStructuralAudit: boolean;
@@ -131,18 +135,27 @@ export class PublicationExportService {
         });
       }
 
-      // 5. Extract TOC if requested
-      let tocParagraphs: Paragraph[] | undefined;
+      // 5. Native TOC Generation
+      let tocParagraphs: (Paragraph | TableOfContents)[] | undefined;
       if (options.includeTOC) {
-        const headings = PublicationService.extractTOC(project.content);
-        if (headings.length > 0) {
-          tocParagraphs = PublicationService.generateTOCParagraphs(headings);
-          logger.debug("Generated TOC", { headingCount: headings.length });
-        } else {
-          logger.warn("TOC requested but no headings found in document", {
-            projectId,
-          });
-        }
+        // Using Native Word TOC instead of manual paragraphs
+        // This allows Word to handle page numbers and updates
+        tocParagraphs = [
+          new Paragraph({
+            text: "Table of Contents",
+            heading: HeadingLevel.HEADING_1,
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 400 },
+          }),
+          new TableOfContents("Summary", {
+            hyperlink: true,
+            headingStyleRange: "1-3",
+          }),
+          new Paragraph({
+            text: "",
+            pageBreakBefore: true,
+          }),
+        ];
       }
 
       // 6. Convert body content to paragraphs
@@ -311,8 +324,85 @@ export class PublicationExportService {
           referencesParagraphs.length > 0 ? referencesParagraphs : undefined,
       });
 
-      // 9. Create DOCX document
+      // 9. Create DOCX document with Template-Aware Styles
+      const isIEEE = options.template?.toLowerCase().includes("ieee");
+      const baseFont = isIEEE ? "Times New Roman" : "Calibri";
+      const baseSize = isIEEE ? 20 : 24; // 10pt vs 12pt
+
+      const defaultStyles = {
+        paragraphStyles: [
+          {
+            id: "Normal",
+            name: "Normal",
+            run: {
+              size: baseSize,
+              font: baseFont,
+            },
+            paragraph: {
+              spacing: { line: 360, after: 100 },
+              alignment: isIEEE ? AlignmentType.JUSTIFIED : AlignmentType.LEFT,
+            },
+          },
+          {
+            id: "Heading1",
+            name: "Heading 1",
+            basedOn: "Normal",
+            next: "Normal",
+            quickFormat: true,
+            run: {
+              size: isIEEE ? 24 : 32, // 12pt vs 16pt
+              bold: true,
+              font: baseFont,
+              color: "000000",
+              allCaps: isIEEE, // IEEE often uses all caps for H1
+            },
+            paragraph: {
+              spacing: { before: 240, after: 120 },
+              alignment: isIEEE ? AlignmentType.CENTER : AlignmentType.LEFT,
+            },
+          },
+          {
+            id: "Heading2",
+            name: "Heading 2",
+            basedOn: "Normal",
+            next: "Normal",
+            quickFormat: true,
+            run: {
+              size: isIEEE ? 20 : 28, // 10pt vs 14pt
+              bold: true,
+              font: baseFont,
+              color: "000000",
+              italics: isIEEE, // IEEE H2 often italics
+            },
+            paragraph: {
+              spacing: { before: 240, after: 120 },
+              alignment: AlignmentType.LEFT,
+            },
+          },
+          {
+            id: "Caption",
+            name: "Caption",
+            basedOn: "Normal",
+            next: "Normal",
+            run: {
+              italics: true,
+              size: baseSize - 4, // Smaller caption
+              color: "404040",
+              font: baseFont,
+            },
+            paragraph: {
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 200 },
+            },
+          },
+        ],
+      };
+
       const doc = new Document({
+        styles: defaultStyles,
+        features: {
+          updateFields: true, // Forces TOC update on open
+        },
         sections: [
           {
             properties: {},
@@ -365,8 +455,8 @@ export class PublicationExportService {
    */
   private static async convertTipTapToDOCXParagraphs(
     content: any
-  ): Promise<Paragraph[]> {
-    const paragraphs: Paragraph[] = [];
+  ): Promise<(Paragraph | Table)[]> {
+    const paragraphs: (Paragraph | Table)[] = [];
 
     if (!content || !content.content) {
       return paragraphs;
@@ -488,7 +578,7 @@ export class PublicationExportService {
             }
           }
 
-          if (data && data.length > 0) {
+          if (data && data.length > 100) {
             // --- MAGIC BYTE VALIDATION ---
             // Prevent embedding HTML (like 404 pages) or text as images, which crashes Word
             let detectedType: "png" | "jpeg" | "gif" | "bmp" | "svg" | null = null;
@@ -515,12 +605,11 @@ export class PublicationExportService {
               detectedType = "svg";
             }
 
-            if (!detectedType) {
-              logger.warn("Invalid image data detected (unknown signature), skipping to prevent corruption.", {
-                firstBytes: data.subarray(0, 8).toString('hex')
+            if (!detectedType || detectedType === "svg") {
+              logger.warn("Invalid or unsupported image data detected (unknown signature or SVG), skipping to prevent corruption.", {
+                firstBytes: data.subarray(0, 8).toString('hex'),
+                detected: detectedType
               });
-              // Insert a placeholder to indicate missing image?
-              // paragraphs.push(new Paragraph({ text: "[Image Unavailable]", color: "red" }));
               continue;
             }
 
@@ -632,14 +721,10 @@ export class PublicationExportService {
 
           if (tableRows.length > 0) {
             paragraphs.push(
-              new Paragraph({
-                children: [
-                  new Table({
-                    rows: tableRows,
-                    width: { size: 100, type: WidthType.PERCENTAGE },
-                    borders: { top: { style: "none" }, bottom: { style: "none" }, left: { style: "none" }, right: { style: "none" }, insideHorizontal: { style: "none" }, insideVertical: { style: "none" } },
-                  }),
-                ] as any,
+              new Table({
+                rows: tableRows,
+                width: { size: 5000, type: WidthType.PERCENTAGE },
+                borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE } },
               })
             );
           }
@@ -652,6 +737,9 @@ export class PublicationExportService {
             if (row.type === "tableRow") {
               const cells = [];
               if (row.content) {
+                const colCount = row.content.length;
+                const cellWidth = Math.floor(5000 / Math.max(colCount, 1));
+
                 for (const cell of row.content) {
                   const isHeader = cell.type === "tableHeader";
                   const cellParagraphs = cell.content
@@ -672,19 +760,23 @@ export class PublicationExportService {
                   cells.push(
                     new TableCell({
                       children: cellParagraphs,
+                      width: {
+                        size: cellWidth,
+                        type: WidthType.PERCENTAGE,
+                      },
                       shading: isHeader
                         ? {
                           fill: "D9D9D9",
                           color: "auto",
                         }
                         : undefined,
-                      borders: {
-                        top: { style: "single", size: 1, color: "000000" },
-                        bottom: { style: "single", size: 1, color: "000000" },
-                        left: { style: "single", size: 1, color: "000000" },
-                        right: { style: "single", size: 1, color: "000000" },
+                      margins: {
+                        top: 100,
+                        bottom: 100,
+                        left: 100,
+                        right: 100,
                       },
-                      verticalAlign: VerticalAlign.TOP,
+                      verticalAlign: VerticalAlign.CENTER,
                     })
                   );
                 }
@@ -697,16 +789,13 @@ export class PublicationExportService {
         }
         if (tableRows.length > 0) {
           paragraphs.push(
-            new Paragraph({
-              children: [
-                new Table({
-                  rows: tableRows,
-                  width: {
-                    size: 100,
-                    type: WidthType.PERCENTAGE,
-                  },
-                }),
-              ] as any,
+            new Table({
+              rows: tableRows,
+              style: "TableGrid",
+              width: {
+                size: 5000,
+                type: WidthType.PERCENTAGE,
+              },
             })
           );
         }

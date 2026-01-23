@@ -576,17 +576,7 @@ export class AuthorshipCertificateGenerator {
   static async convertHTMLToPDF(html: string): Promise<Buffer> {
     let browser;
     try {
-      browser = await puppeteer.launch({
-        headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-gpu",
-          "--font-render-hinting=none"
-        ],
-      });
+      browser = await this.launchBrowser();
 
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: "networkidle0" });
@@ -642,17 +632,7 @@ export class AuthorshipCertificateGenerator {
   static async generatePreviewImage(html: string): Promise<Buffer> {
     let browser;
     try {
-      browser = await puppeteer.launch({
-        headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage", // Fix for shared memory issues in Docker/Render
-          "--disable-gpu",
-          "--font-render-hinting=none"
-        ],
-      });
+      browser = await this.launchBrowser();
 
       const page = await browser.newPage();
 
@@ -678,6 +658,66 @@ export class AuthorshipCertificateGenerator {
       }
       logger.error("Error generating preview image", { error: error.message });
       throw error;
+    }
+  }
+
+
+  /**
+   * Helper to launch browser with fallbacks
+   */
+  private static async launchBrowser() {
+    const launchArgs = [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--font-render-hinting=none"
+    ];
+
+    try {
+      // 1. Try default bundled path or ENV
+      return await puppeteer.launch({
+        headless: true,
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
+        args: launchArgs,
+      });
+    } catch (error) {
+      logger.warn("Default Puppeteer launch failed, checking system paths...", { error });
+
+      // 2. Try common system paths (Windows)
+      const fs = require('fs');
+      const systemPaths = [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Users\\' + (process.env.USERNAME || 'Admin') + '\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe'
+      ];
+
+      for (const path of systemPaths) {
+        if (fs.existsSync(path)) {
+          logger.info(`Found system Chrome at ${path}, attempting launch...`);
+          try {
+            return await puppeteer.launch({
+              headless: true,
+              executablePath: path,
+              args: launchArgs,
+            });
+          } catch (e) {
+            logger.warn(`Failed to launch system Chrome at ${path}`, e);
+          }
+        }
+      }
+
+      // 3. Try without executablePath (let Puppeteer search in path)
+      try {
+        logger.info("Retrying with auto-detected path...");
+        return await puppeteer.launch({
+          headless: true,
+          args: launchArgs,
+        });
+      } catch (finalError) {
+        logger.error("All browser launch attempts failed.");
+        throw finalError;
+      }
     }
   }
 }

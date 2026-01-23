@@ -158,7 +158,8 @@ export class DocumentUploadService {
     title: string,
     description: string,
     content: any,
-    wordCount: number
+    wordCount: number,
+    citationStyle?: string
   ) {
     // Update project record
     const updatedProject = await prisma.project.update({
@@ -171,6 +172,7 @@ export class DocumentUploadService {
         description,
         content,
         word_count: wordCount,
+        citation_style: citationStyle, // Pass directly (Prisma handles undefined gracefully often, or use conditional spread)
         updated_at: new Date(),
       },
       include: {

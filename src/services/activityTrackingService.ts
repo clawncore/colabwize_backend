@@ -17,6 +17,7 @@ export interface ActivityData {
   writingPatternScore?: number; // Score representing consistency of writing patterns
   cognitiveLoad?: number; // Estimated cognitive load based on edit patterns
   sessionType?: "writing" | "editing" | "reviewing" | "ai-assisted";
+  isDelta?: boolean; // Flag to indicate if values are deltas (increments) or absolute totals
 }
 
 export interface ActivitySummary {
@@ -61,28 +62,52 @@ export class ActivityTrackingService {
 
       // If we found a recent session AND the new timeSpent is greater (continuation), update it
       // If timeSpent is lower, it means the user refreshed the page (new session start), so we create new
-      if (recentActivity && data.timeSpent > recentActivity.time_spent) {
-        await prisma.authorshipActivity.update({
-          where: { id: recentActivity.id },
-          data: {
-            time_spent: data.timeSpent,
-            edit_count: data.editCount,
-            keystrokes: data.keystrokes || 0,
-            word_count: data.wordCount || 0,
-            session_end: new Date(),
-            ai_assisted_edits: data.aiAssistedEdits || 0,
-            manual_edits: data.manualEdits || 0,
-            // Keep other fields or update if needed
-          },
-        });
+      // Logic update: Support both Delta updates (increments) and Absolute updates (replace)
+
+      // If we found a recent session, update it
+      if (recentActivity) {
+        if (data.isDelta) {
+          // DELTA LOGIC: Increment existing values
+          await prisma.authorshipActivity.update({
+            where: { id: recentActivity.id },
+            data: {
+              time_spent: { increment: data.timeSpent },
+              edit_count: { increment: data.editCount },
+              keystrokes: { increment: data.keystrokes || 0 },
+              // word_count is usually absolute state, so we replace it unless specified otherwise
+              word_count: data.wordCount,
+              session_end: new Date(),
+              ai_assisted_edits: { increment: data.aiAssistedEdits || 0 },
+              manual_edits: { increment: data.manualEdits || 0 },
+            },
+          });
+        } else if (data.timeSpent > recentActivity.time_spent) {
+          // LEGACY/ABSOLUTE LOGIC: Replace with new total (if greater)
+          await prisma.authorshipActivity.update({
+            where: { id: recentActivity.id },
+            data: {
+              time_spent: data.timeSpent,
+              edit_count: data.editCount,
+              keystrokes: data.keystrokes || 0,
+              word_count: data.wordCount || 0,
+              session_end: new Date(),
+              ai_assisted_edits: data.aiAssistedEdits || 0,
+              manual_edits: data.manualEdits || 0,
+            },
+          });
+        }
 
         logger.info("Activity session updated", {
           projectId: data.projectId,
-          timeSpent: data.timeSpent,
+          mode: data.isDelta ? "DELTA" : "ABSOLUTE",
           id: recentActivity.id,
         });
       } else {
         // Create new session
+        // If delta, we start with the delta values. If absolute, we start with the absolute values.
+        // NOTE: If absolute and very large (e.g. 1 hour) but creating NEW session, it implies double counting risk.
+        // But with isDelta=true, this risk is eliminated.
+
         await prisma.authorshipActivity.create({
           data: {
             project_id: data.projectId,
@@ -357,7 +382,7 @@ export class ActivityTrackingService {
         const daysSpan =
           (new Date(activities[activities.length - 1].session_start).getTime() -
             new Date(activities[0].session_start).getTime()) /
-            (1000 * 60 * 60 * 24) +
+          (1000 * 60 * 60 * 24) +
           1;
         const sessionsPerDay = activities.length / daysSpan;
 
@@ -424,9 +449,8 @@ export class ActivityTrackingService {
     const minutes = Math.floor((seconds % 3600) / 60);
 
     if (hours > 0) {
-      return `${hours} hour${hours !== 1 ? "s" : ""} ${minutes} minute${
-        minutes !== 1 ? "s" : ""
-      }`;
+      return `${hours} hour${hours !== 1 ? "s" : ""} ${minutes} minute${minutes !== 1 ? "s" : ""
+        }`;
     }
     return `${minutes} minute${minutes !== 1 ? "s" : ""}`;
   }
@@ -540,7 +564,7 @@ export class ActivityTrackingService {
     const activeRatio =
       metrics.totalActiveTime > 0
         ? metrics.totalActiveTime /
-          (metrics.totalActiveTime + metrics.totalIdleTime || 1)
+        (metrics.totalActiveTime + metrics.totalIdleTime || 1)
         : 0;
     score += activeRatio * 20; // Up to +20 points
 
@@ -743,8 +767,8 @@ export class ActivityTrackingService {
       const totalDurationMs =
         realTimeActivities.length > 1
           ? realTimeActivities[
-              realTimeActivities.length - 1
-            ].timestamp.getTime() - realTimeActivities[0].timestamp.getTime()
+            realTimeActivities.length - 1
+          ].timestamp.getTime() - realTimeActivities[0].timestamp.getTime()
           : 0;
       const totalDurationMinutes = Math.max(
         0.01,

@@ -1,5 +1,5 @@
 import logger from "../monitoring/logger";
-import { Paragraph, TextRun, HeadingLevel, AlignmentType } from "docx";
+import { Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableOfContents } from "docx";
 
 // Interface for document metadata used in cover pages
 interface DocumentMetadata {
@@ -131,11 +131,11 @@ export class PublicationService {
     if (metadata.course) headerLines.push(metadata.course);
     headerLines.push(
       metadata.date ||
-        new Date().toLocaleDateString("en-US", {
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        })
+      new Date().toLocaleDateString("en-US", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
     );
 
     headerLines.forEach((line) => {
@@ -347,13 +347,16 @@ export class PublicationService {
   /**
    * Merge document components (Cover + TOC + Body + References)
    */
+  /**
+   * Merge document components (Cover + TOC + Body + References)
+   */
   static mergeDocumentComponents(components: {
     coverPage?: Paragraph[];
-    toc?: Paragraph[];
-    body: Paragraph[];
+    toc?: (Paragraph | TableOfContents)[];
+    body: (Paragraph | Table)[];
     references?: Paragraph[];
-  }): Paragraph[] {
-    const merged: Paragraph[] = [];
+  }): (Paragraph | Table | TableOfContents)[] {
+    const merged: (Paragraph | Table | TableOfContents)[] = [];
 
     // Add cover page
     if (components.coverPage) {
@@ -369,14 +372,7 @@ export class PublicationService {
 
     // Add TOC
     if (components.toc && components.toc.length > 0) {
-      merged.push(
-        new Paragraph({
-          text: "Table of Contents",
-          heading: HeadingLevel.HEADING_1,
-          alignment: AlignmentType.CENTER,
-          spacing: { after: 400 },
-        })
-      );
+      // Header is now handled by the caller (PublicationExportService) or included in the array
       merged.push(...components.toc);
       // Page break after TOC
       merged.push(

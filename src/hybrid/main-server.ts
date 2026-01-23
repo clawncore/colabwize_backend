@@ -33,6 +33,7 @@ import onboardingRouter from "../api/onboarding/index";
 import chatRouter from "../api/chat/index";
 import waitlistRouter from "../api/waitlist/index";
 import imageRouter from "../api/images/upload";
+import templatesRouter from "../api/templates/index";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 
 const app: Application = express();
@@ -270,6 +271,9 @@ app.use("/api/onboarding", authMiddleware, onboardingRouter);
 
 // AI Chat API (Authentication required)
 app.use("/api/chat", authMiddleware, chatRouter);
+
+// Templates API (Authentication required)
+app.use("/api/templates", authMiddleware, templatesRouter);
 
 // 404 handler
 app.use((req, res) => {

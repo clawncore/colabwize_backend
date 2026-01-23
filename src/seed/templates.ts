@@ -5,130 +5,222 @@ async function seedTemplates() {
     // Create sample templates
     const templates = [
       {
-        name: "Premium Research Proposal (Grant Focus)",
-        description:
-          "A professionally formatted template for high-stakes research proposals, grants, or academic funding applications.",
+        name: "Research Paper",
+        description: "Structure for a standard research paper.",
         type: "research-paper",
-        tags: ["research", "proposal", "funding", "premium", "institutional"],
-        is_public: true,
+        tags: ["research", "paper", "academic"],
+        is_mvp_enabled: true,
         content: [
           {
-            type: "cover-page",
-            attrs: { style: "premium-academic" },
-            content: [
-              { type: "visual-element", element: "Gold Bar Header" },
-              {
-                type: "heading",
-                attrs: {
-                  level: 1,
-                  color: "deep-blue",
-                  font: "Montserrat-Bold",
-                },
-                content: [
-                  {
-                    type: "text",
-                    text: "PROJECT TITLE: Addressing Fragmentation with AI-Powered Ecosystems",
-                  },
-                ],
-              },
-              {
-                type: "heading",
-                attrs: { level: 3 },
-                content: [
-                  {
-                    type: "text",
-                    text: "Principal Investigator: [Researcher Name]",
-                  },
-                ],
-              },
-              {
-                type: "heading",
-                attrs: { level: 3 },
-                content: [
-                  {
-                    type: "text",
-                    text: "Institution: [University/Research Lab Name]",
-                  },
-                ],
-              },
-              {
-                type: "paragraph",
-                content: [{ type: "text", text: "Submission Date: [Date]" }],
-              },
-              { type: "visual-element", element: "Teal Wave Graphic Footer" },
-            ],
+            type: "heading",
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "Research Paper" }],
           },
           {
             type: "heading",
-            attrs: { level: 2, number: "1.0", color: "deep-blue" },
-            content: [{ type: "text", text: "Executive Summary (The Hook)" }],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Introduction" }],
           },
           {
             type: "paragraph",
             content: [
               {
                 type: "text",
-                text: "[AI Prompt: Generate a concise, 250-word summary of the project's goal, methodology, and expected impact. Focus on the novelty and funding requirement.]",
+                text: " *Describe the background and purpose of the study.*",
               },
             ],
           },
           {
             type: "heading",
-            attrs: { level: 2, number: "2.0", color: "deep-blue" },
-            content: [
-              { type: "text", text: "Problem Statement and Significance" },
-            ],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Methods" }],
           },
           {
             type: "paragraph",
             content: [
               {
                 type: "text",
-                text: "Detail the specific research gap the project addresses. Include citations showing a strong literature foundation. (Use the integrated **AI Summarization** tool for quick context.)",
+                text: " *Explain the research design and data collection procedures.*",
               },
             ],
           },
           {
             type: "heading",
-            attrs: { level: 2, number: "3.0", color: "deep-blue" },
-            content: [
-              { type: "text", text: "Project Methodology and Work Plan" },
-            ],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Results" }],
           },
           {
             type: "paragraph",
             content: [
               {
                 type: "text",
-                text: "Break the project into clear phases (e.g., Phase 1: Data Collection, Phase 2: Analysis). This section should easily integrate with the **Project Dashboard** for tracking.",
+                text: " *Present the findings of the study.*",
               },
             ],
           },
           {
-            type: "table",
-            attrs: { style: "two-tone-blue" },
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Discussion" }],
+          },
+          {
+            type: "paragraph",
             content: [
-              { row: ["Milestone", "Timeline", "Responsible Party"] },
               {
-                row: [
-                  "[AI Milestones]",
-                  "[AI Timeline]",
-                  "[Collaborator Name]",
-                ],
+                type: "text",
+                text: " *Interpret the results and discuss implications.*",
               },
             ],
           },
           {
             type: "heading",
-            attrs: { level: 2, number: "4.0", color: "deep-blue" },
-            content: [{ type: "text", text: "Budget and Justification" }],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "References" }],
+          },
+        ],
+      },
+      {
+        name: "Literature Review",
+        description: "Analyze and synthesize existing research on a topic.",
+        type: "literature-review",
+        tags: ["research", "review", "academic"],
+        is_mvp_enabled: true,
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "Literature Review" }],
           },
           {
             type: "heading",
-            attrs: { level: 2, number: "5.0", color: "deep-blue" },
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Introduction" }],
+          },
+          {
+            type: "paragraph",
             content: [
-              { type: "text", text: "Expected Outcomes and Dissemination" },
+              {
+                type: "text",
+                text: " *Define the topic and the scope of the review.*",
+              },
             ],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Thematic Review" }],
+          },
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: " *Discuss themes, trends, and gaps in the literature.*",
+              },
+            ],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Conclusion" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "References" }],
+          },
+        ],
+      },
+      {
+        name: "Research Proposal",
+        description: "Outline your proposed research project and methodology.",
+        type: "research-proposal",
+        tags: ["research", "proposal", "academic"],
+        is_mvp_enabled: true,
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "Research Proposal" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Introduction & Problem Statement" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Objectives" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Methodology" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Significance" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Timeline" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "References" }],
+          },
+        ],
+      },
+      {
+        name: "Thesis",
+        description: "Full structure for a master's thesis or dissertation.",
+        type: "thesis",
+        tags: ["research", "thesis", "dissertation", "academic"],
+        is_mvp_enabled: true,
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "Thesis Title" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Abstract" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Chapter 1: Introduction" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Chapter 2: Literature Review" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Chapter 3: Methodology" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Chapter 4: Results" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Chapter 5: Discussion" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "References" }],
           },
         ],
       },
@@ -139,6 +231,7 @@ async function seedTemplates() {
         type: "lab-report",
         tags: ["academic", "science", "technical", "experiment", "student"],
         is_public: true,
+        is_mvp_enabled: true,
         content: [
           {
             type: "cover-page",
@@ -642,6 +735,7 @@ async function seedTemplates() {
         type: "annotated-bibliography",
         tags: ["research", "academic", "citation", "analysis", "student"],
         is_public: true,
+        is_mvp_enabled: true,
         content: [
           {
             type: "heading",
@@ -768,6 +862,7 @@ async function seedTemplates() {
         type: "essay",
         tags: ["academic", "student", "essay", "argumentative", "beginner"],
         is_public: true,
+        is_mvp_enabled: true,
         content: [
           {
             type: "cover-page",
@@ -1869,354 +1964,186 @@ async function seedTemplates() {
         ],
       },
       {
-        name: "Premium Research Proposal (Grant/Funding Focus)",
-        description:
-          "A rigorously formatted template for high-stakes grant applications, institutional funding requests, or advanced academic research proposals. Includes dedicated sections for budget and work plan.",
+        name: "Research Proposal",
+        description: "Structure for a standard research proposal.",
         type: "research-proposal",
-        tags: [
-          "research",
-          "proposal",
-          "funding",
-          "premium",
-          "institutional",
-          "grant",
-        ],
-        is_public: true,
+        tags: ["research", "proposal", "academic"],
+        is_mvp_enabled: true,
         content: [
-          // --- Premium Cover Page ---
-          {
-            type: "cover-page",
-            attrs: { style: "gold-academic-band", background: "white" },
-            content: [
-              { type: "visual-element", element: "Deep Blue Header Bar" },
-              {
-                type: "heading",
-                attrs: {
-                  level: 1,
-                  color: "deep-blue",
-                  font: "Montserrat-Bold",
-                },
-                content: [
-                  {
-                    type: "text",
-                    text: "PROJECT TITLE: [Bold, Centered Title Here]",
-                  },
-                ],
-              },
-              { type: "visual-element", element: "Gold Accent Line Divider" },
-              {
-                type: "heading",
-                attrs: { level: 3 },
-                content: [
-                  {
-                    type: "text",
-                    text: "Principal Investigator: [Researcher Name] \n Institution: [University/Research Lab Name]",
-                  },
-                ],
-              },
-              {
-                type: "paragraph",
-                content: [
-                  {
-                    type: "text",
-                    text: "Funding Request: [Amount] | Submission Date: [Date]",
-                  },
-                ],
-              },
-            ],
-          },
-
-          // --- Section 1: Executive Summary ---
           {
             type: "heading",
-            attrs: {
-              level: 2,
-              number: "1.0",
-              color: "deep-blue",
-              style: "full-width",
-            },
-            content: [{ type: "text", text: "Executive Summary (The Hook)" }],
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "Research Proposal" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Problem Statement" }],
           },
           {
             type: "paragraph",
             content: [
               {
                 type: "text",
-                text: "[AI Prompt: Generate a concise, 250-word summary of the project's goal, methodology, and expected impact. Focus on the novelty and funding requirement. This section determines the success of the application.]",
+                text: " *Define the research problem.*",
               },
             ],
           },
-
-          // --- Section 2: Problem & Significance ---
           {
             type: "heading",
-            attrs: { level: 2, number: "2.0", color: "deep-blue" },
-            content: [
-              { type: "text", text: "Problem Statement and Significance" },
-            ],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Significance" }],
           },
           {
             type: "paragraph",
             content: [
               {
                 type: "text",
-                text: "Detail the specific, urgent research gap this project addresses. Use the integrated **AI Summarization** feature [cite: 31] to efficiently reference key background literature. All citations must be auto-formatted (APA/MLA/Chicago)[cite: 46].",
+                text: " *Explain why this research is important.*",
               },
             ],
           },
-
-          // --- Section 3: Methodology & Work Plan ---
           {
             type: "heading",
-            attrs: { level: 2, number: "3.0", color: "deep-blue" },
-            content: [
-              {
-                type: "text",
-                text: "Project Methodology and Detailed Work Plan",
-              },
-            ],
-          },
-          {
-            type: "table",
-            attrs: { style: "timeline-blue-header" },
-            content: [
-              {
-                row: [
-                  "Phase",
-                  "Milestone & Deliverable",
-                  "Timeline (Months)",
-                  "Status (Dashboard Link)",
-                ],
-              },
-              {
-                row: [
-                  "Phase 1",
-                  "[e.g., Data Collection]",
-                  "[Month 1-3]",
-                  "[View Live Dashboard]",
-                ],
-              },
-            ],
-          },
-
-          // --- Section 4: Budget and Justification ---
-          {
-            type: "heading",
-            attrs: { level: 2, number: "4.0", color: "deep-blue" },
-            content: [
-              { type: "text", text: "Budget Request and Justification" },
-            ],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Methodology" }],
           },
           {
             type: "paragraph",
             content: [
               {
                 type: "text",
-                text: "Provide a clear breakdown of all costs. Ensure the justification ties each expenditure directly to a project goal.",
+                text: " *Outline the proposed methods.*",
               },
             ],
           },
           {
             type: "heading",
-            attrs: { level: 2, number: "5.0", color: "deep-blue" },
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Timeline" }],
+          },
+          {
+            type: "paragraph",
             content: [
-              { type: "text", text: "Expected Outcomes and Dissemination" },
+              {
+                type: "text",
+                text: " *Proposed project schedule.*",
+              },
             ],
           },
         ],
       },
       {
-        name: "Literature Review (Thematic Synthesis Focus)",
-        description:
-          "A comprehensive template for organizing, summarizing, and synthesizing existing academic literature, designed to clearly identify the research gap and justify a new study.",
+        name: "Literature Review",
+        description: "Structure for a comprehensive literature review.",
         type: "literature-review",
-        tags: ["research", "academic", "synthesis", "gap-analysis", "phd"],
-        is_public: true,
+        tags: ["research", "academic", "synthesis"],
+        is_mvp_enabled: true,
         content: [
           {
             type: "heading",
-            attrs: { level: 1, color: "deep-blue", font: "Sans-Serif-Bold" },
-            content: [
-              { type: "text", text: "CHAPTER 2: REVIEW OF RELATED LITERATURE" },
-            ],
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "Literature Review" }],
           },
-          {
-            type: "paragraph",
-            attrs: { style: "chapter-intro" },
-            content: [
-              {
-                type: "text",
-                text: "This chapter systematically reviews key theoretical and empirical literature relevant to [Your Research Topic], identifying major themes, points of consensus, and critical gaps.",
-              },
-            ],
-          },
-          {
-            type: "visual-element",
-            element: "Deep Blue Separator Bar",
-          },
-
-          // --- Section 1: Introduction ---
           {
             type: "heading",
-            attrs: { level: 2, number: "2.1", color: "deep-blue" },
-            content: [{ type: "text", text: "Introduction and Scope" }],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Introduction" }],
           },
           {
             type: "paragraph",
             content: [
               {
                 type: "text",
-                text: "[AI Tip: Define the inclusion/exclusion criteria for the literature surveyed. State the organizational structure of this chapter.]",
-              },
-            ],
-          },
-
-          // --- Section 2: Thematic Review (e.g., 2.2) ---
-          {
-            type: "heading",
-            attrs: { level: 2, number: "2.2", color: "deep-blue" },
-            content: [
-              {
-                type: "text",
-                text: "Theme 1: Conceptual Frameworks of Workflow Fragmentation",
+                text: " *Outline the scope and structure of the review.*",
               },
             ],
           },
           {
             type: "heading",
-            attrs: { level: 3, number: "2.2.1" },
-            content: [
-              {
-                type: "text",
-                text: "Sub-Theme: The Impact of AI on Tool Adoption",
-              },
-            ],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Thematic Areas" }],
           },
           {
             type: "paragraph",
             content: [
               {
                 type: "text",
-                text: "Discuss and synthesize findings from 3-4 key studies (e.g., Smith, 2022; Jones, 2023). Use the **In-line Citation** feature to ensure accurate referencing.",
+                text: " *Group literature by themes or concepts.*",
               },
             ],
           },
-
-          // --- Section 3: Synthesis and Gap Analysis (The Crux) ---
           {
             type: "heading",
-            attrs: { level: 2, number: "2.3", color: "deep-blue" },
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Gap Analysis" }],
+          },
+          {
+            type: "paragraph",
             content: [
               {
                 type: "text",
-                text: "Synthesis and Identification of the Research Gap",
+                text: " *Identify gaps in existing research.*",
               },
             ],
           },
           {
-            type: "callout-block",
-            attrs: { style: "highlight-teal-gap-box" },
-            content: [
-              {
-                type: "heading",
-                attrs: { level: 3, color: "bright-green" },
-                content: [
-                  { type: "text", text: "The Synthesis: Unifying Threads" },
-                ],
-              },
-              {
-                type: "paragraph",
-                content: [
-                  {
-                    type: "text",
-                    text: "Synthesize the common findings and major debates identified in the previous thematic sections.",
-                  },
-                ],
-              },
-              {
-                type: "heading",
-                attrs: { level: 3, color: "deep-blue" },
-                content: [{ type: "text", text: "The Research Gap" }],
-              },
-              {
-                type: "paragraph",
-                content: [
-                  {
-                    type: "text",
-                    text: "Clearly state the gap in the literature that this current study will address. **This must directly link to your research questions.**",
-                  },
-                ],
-              },
-            ],
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "References" }],
           },
         ],
       },
       {
-        name: "Academic Thesis Chapter (Formal Submission)",
-        description:
-          "A rigorously formatted template for writing a Master's Thesis or Doctoral Dissertation, adhering to strict academic standards for structure, numbering, and citation.",
+        name: "Thesis",
+        description: "Structure for a thesis or dissertation.",
         type: "thesis",
-        tags: ["thesis", "dissertation", "academic", "graduate", "research"],
-        is_public: true,
+        tags: ["thesis", "academic", "graduate"],
+        is_mvp_enabled: true,
         content: [
-          // --- Chapter Header ---
           {
             type: "heading",
-            attrs: {
-              level: 1,
-              color: "deep-blue",
-              font: "Times New Roman-Bold",
-              style: "centered-chapter",
-            },
-            content: [{ type: "text", text: "CHAPTER 3: METHODOLOGY" }],
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "Thesis" }],
           },
-          {
-            type: "paragraph",
-            attrs: { style: "chapter-opener-indent" },
-            content: [
-              {
-                type: "text",
-                text: "This chapter outlines the research design, data collection instruments, and analytical approach utilized to address the central research questions. The design is a [Qualitative/Quantitative/Mixed-Methods] approach...",
-              },
-            ],
-          },
-
-          // --- Section 1 ---
           {
             type: "heading",
-            attrs: { level: 2, number: "3.1", color: "deep-blue" },
-            content: [{ type: "text", text: "Research Design" }],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Abstract" }],
           },
           {
             type: "paragraph",
             content: [
               {
                 type: "text",
-                text: "The study employs a [Specific Design] framework to investigate [Topic]. Justification for this choice is based on the ability of this design to [Specific Reason].",
+                text: " *Summary of the thesis.*",
               },
             ],
           },
-
-          // --- Section 2 ---
           {
             type: "heading",
-            attrs: { level: 2, number: "3.2", color: "deep-blue" },
-            content: [{ type: "text", text: "Data Collection and Sampling" }],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Chapter 1: Introduction" }],
           },
-          {
-            type: "table",
-            attrs: { style: "plain-academic" },
-            content: [
-              { row: ["Variable", "Measurement Tool", "Data Source"] },
-              { row: ["[AI Metrics]", "[AI Tool]", "[AI Source]"] },
-            ],
-          },
-
-          // --- Section 3 ---
           {
             type: "heading",
-            attrs: { level: 2, number: "3.3", color: "deep-blue" },
-            content: [{ type: "text", text: "Ethical Considerations" }],
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Chapter 2: Literature Review" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Chapter 3: Methodology" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Chapter 4: Results" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: "Chapter 5: Discussion" }],
           },
         ],
       },

@@ -230,6 +230,7 @@ model Project {
   word_count            Int                  @default(0)
   file_path             String?
   file_type             String?
+  citation_style        String?
   created_at            DateTime             @default(now())
   updated_at            DateTime             @updatedAt
   analytics_events      AnalyticsEvent[]
