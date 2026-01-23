@@ -17,7 +17,7 @@ async function verifyTemplates() {
         });
 
         let output = `Found templates: ${templates.length}\n`;
-        templates.forEach(t => {
+        templates.forEach((t: any) => {
             output += `Template: ${t.name} (${t.type})\n`;
             output += `Content type: ${Array.isArray(t.content) ? "Array" : typeof t.content}\n`;
             if (Array.isArray(t.content)) {
