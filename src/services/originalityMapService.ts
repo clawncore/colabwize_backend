@@ -47,28 +47,52 @@ export class OriginalityMapService {
   }
 
   /**
-   * Process Async Result from Webhook
+   * Alias for startScan to support API expectations
    */
-  static async processCopyleaksResult(scanId: string, payload: any) {
-    // Assume payload contains the report or we verify it
-    // Copyleaks webhook usually just says "completed". We need to download report or parsed results.
-    // For "true mapping", we need the exact matches.
+  static async scanDocument(projectId: string, userId: string, content: string, plan: string = "free") {
+    return this.startScan(projectId, userId, content);
+  }
 
-    // 1. Fetch details (if payload doesn't have them)
-    // Note: Copyleaks results/details usually require a separate 'export' call or are in the 'results' webhook
-    // Let's assume we can fetch or use the payload details if available.
-
-    // Mocking the mapping logic for "True Mapping":
-    // We would map Copyleaks 'target' (scanned doc) positions to our document.
-
-    logger.info("Processing Copyleaks results for true mapping", { scanId });
-
-    // Example: Update DB with high-confidence Copyleaks matches
-    // Ideally we merge these with existing matches
-
-    await prisma.originalityScan.update({
-      where: { id: scanId },
-      data: { scan_status: "completed" }
+  /**
+   * Get results for a specific scan
+   */
+  static async getScanResults(scanId: string, userId: string) {
+    const scan = await prisma.originalityScan.findFirst({
+      where: {
+        id: scanId,
+        user_id: userId
+      },
+      include: {
+        matches: true
+      }
     });
+
+    if (!scan) {
+      throw new Error("Scan not found or access denied");
+    }
+
+    return scan;
+  }
+
+  /**
+   * Get all scans for a project
+   */
+  static async getProjectScans(projectId: string, userId: string) {
+    return prisma.originalityScan.findMany({
+      where: {
+        project_id: projectId,
+        user_id: userId
+      },
+      orderBy: {
+        created_at: "desc"
+      }
+    });
+  }
+
+  /**
+   * Helper for similarity calculation (proxies to Enhanced Service)
+   */
+  static async calculateSimilarity(text1: string, text2: string): Promise<number> {
+    return EnhancedOriginalityDetectionService.calculateEnhancedSimilarity(text1, text2);
   }
 }

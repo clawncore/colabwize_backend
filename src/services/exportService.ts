@@ -824,7 +824,9 @@ export class ExportService {
               format: "docx",
               citationStyle: project.citation_style || "apa",
               includeCoverPage: true,
-              includeTOC: false
+              coverPageStyle: "apa",
+              includeTOC: false,
+              performStructuralAudit: false
             }
           );
 
