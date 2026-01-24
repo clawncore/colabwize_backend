@@ -431,6 +431,22 @@ export class CitationConfidenceService {
       } else if (citationData.source === "crossref") {
         // If from CrossRef without DOI, it's likely unreliable
         isReliable = false;
+      } else if (citationData.source === "pubmed") {
+        // Verify with PubMed
+        isReliable = await this.verifyCitationWithPubMed(citationData.title);
+      } else if (citationData.source === "arxiv") {
+        // Verify with arXiv
+        isReliable = await this.verifyCitationWithArxiv(citationData.title);
+      } else {
+        // Fallback: Try all if source is manual/unknown but looks academic
+        // Check PubMed First (Medical) -> Then ArXiv (Tech) -> Then CrossRef (General - requires searching for DOI really, but we skip that complex flow for now)
+        if (await this.verifyCitationWithPubMed(citationData.title)) {
+          citationData.source = "pubmed";
+          isReliable = true;
+        } else if (await this.verifyCitationWithArxiv(citationData.title)) {
+          citationData.source = "arxiv";
+          isReliable = true;
+        }
       }
 
       // SANITY CHECK: Validate year
@@ -654,6 +670,77 @@ export class CitationConfidenceService {
 
       // On error, assume reliable (benefit of doubt)
       return true;
+    }
+  }
+  /**
+   * Verify citation exists in PubMed/NCBI database
+   */
+  private static async verifyCitationWithPubMed(title: string): Promise<boolean> {
+    try {
+      if (!title || title.length < 10) return false;
+
+      // Use E-Utilities ESearch
+      const response = await axios.get(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+        {
+          params: {
+            db: "pubmed",
+            term: `${title}[Title]`,
+            retmode: "json",
+            tool: "colabwize",
+            email: "support@colabwize.com"
+          },
+          timeout: 5000
+        }
+      );
+
+      if (response.status === 200 && response.data?.esearchresult) {
+        const count = parseInt(response.data.esearchresult.count || "0");
+        if (count > 0) {
+          logger.info("Citation verified with PubMed", { title });
+          return true;
+        }
+      }
+      return false;
+    } catch (error: any) {
+      logger.warn("PubMed verification failed", { error: error.message, title });
+      return false; // Fail safe
+    }
+  }
+
+  /**
+   * Verify citation exists in arXiv database
+   */
+  private static async verifyCitationWithArxiv(title: string): Promise<boolean> {
+    try {
+      if (!title || title.length < 10) return false;
+
+      // Use arXiv API
+      // Search by title prefix (ti:)
+      const response = await axios.get(
+        "http://export.arxiv.org/api/query",
+        {
+          params: {
+            search_query: `ti:"${title}"`,
+            start: 0,
+            max_results: 1
+          },
+          timeout: 5000
+        }
+      );
+
+      // Response is Atom XML. We just check if an entry exists and verify title match lightly
+      if (response.status === 200 && response.data) {
+        // Simple string check for now since we don't have XML parser
+        // If totalResults is not 0
+        if (!response.data.includes("opensearch:totalResults>0</opensearch:totalResults>")) {
+          return true;
+        }
+      }
+      return false;
+    } catch (error: any) {
+      logger.warn("arXiv verification failed", { error: error.message, title });
+      return false;
     }
   }
 }

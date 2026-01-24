@@ -1,0 +1,55 @@
+
+============================================================
+Test Query: "Stuart Russell et al., 1995"
+============================================================
+Starting search via AcademicDatabaseService...
+---------------------------------------------------
+Found 0 results:
+No results found. Verification would FAIL.
+---------------------------------------------------
+
+============================================================
+Test Query: "Lee, Kevin, Maria Gonzalez, and Ahmed Khan. "Deep Learning in Radiology." Journal of Medical Imaging 12, no. 4 (2020): 233–247"
+============================================================
+Starting search via AcademicDatabaseService...
+---------------------------------------------------
+Found 2 results:
+
+[1] Source: CROSSREF
+    Title: From deep learning to dark fields—medical imaging physics in ECR 2020
+    Year: 2020
+    URL: https://doi.org/10.1007/s00330-020-07045-8
+    Similarity Score: 40.0%
+
+[2] Source: CROSSREF
+    Title: The Importance of Image Resolution in Building Deep Learning Models for Medical Imaging
+    Year: 2020
+    URL: https://doi.org/10.1148/ryai.2019190177
+    Similarity Score: 40.7%
+---------------------------------------------------
+
+============================================================
+Test Query: "Deep Learning in Radiology Lee 2020"
+============================================================
+Starting search via AcademicDatabaseService...
+---------------------------------------------------
+Found 3 results:
+
+[1] Source: CROSSREF
+    Title: Deep Learning in Radiology: Getting Hands Dirty
+    Year: 2020
+    URL: https://doi.org/10.26226/morressier.5e5e708f00701ceba4a26da2
+    Similarity Score: 64.7%
+
+[2] Source: CROSSREF
+    Title: Diagnostic Performance of Deep Learning–augmented Radiology                    Residents
+    Year: 2020
+    URL: https://doi.org/10.1148/radiol.2020200227
+    Similarity Score: 42.2%
+
+[3] Source: CROSSREF
+    Title: Basics of Deep Learning: A Radiologist's Guide to Understanding Published Radiology Articles on Deep Learning
+    Year: 2020
+    URL: https://doi.org/10.3348/kjr.2019.0312
+    Similarity Score: 38.0%
+---------------------------------------------------

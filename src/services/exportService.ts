@@ -810,12 +810,33 @@ export class ExportService {
     }
 
     // 2. Projects
+    // 2. Projects (Export as DOCX)
     if (userData.projects && Array.isArray(userData.projects)) {
-      userData.projects.forEach((project: any) => {
-        const safeTitle = this.sanitizeFilename(project.title || "untitled");
-        const filename = `projects/${safeTitle}_${project.id}.json`;
-        archive.append(JSON.stringify(project, null, 2), { name: filename });
-      });
+      for (const project of userData.projects) {
+        try {
+          const safeTitle = this.sanitizeFilename(project.title || "untitled");
+          // Generate DOCX buffer for the project
+          // We need userId, but userData usually contains it or we infer from project.user_id
+          const result = await PublicationExportService.exportPublicationReady(
+            project.id,
+            project.user_id,
+            {
+              format: "docx",
+              citationStyle: project.citation_style || "apa",
+              includeCoverPage: true,
+              includeTOC: false
+            }
+          );
+
+          archive.append(result.buffer, { name: `projects/${safeTitle}.docx` });
+        } catch (err) {
+          logger.warn(`Failed to export project ${project.id} to DOCX inside zip`, err);
+          // Fallback to JSON if DOCX fails?
+          archive.append(JSON.stringify(project, null, 2), {
+            name: `projects/${this.sanitizeFilename(project.title)}_fallback.json`
+          });
+        }
+      }
     }
 
     // 3. Citations
@@ -852,18 +873,22 @@ export class ExportService {
         try {
           // Check if file exists
           if (file.file_path) {
-            const fileContent = await fs.readFile(file.file_path);
-            const safeFileName = this.sanitizeFilename(
-              file.file_name || "document"
-            );
-            const ext =
-              path.extname(file.file_path) ||
-              path.extname(file.file_name) ||
-              "";
+            // Resolve path: if absolute, use it. If relative, prepend uploads dir?
+            // The error suggests it's looking in backend root. 
+            // Let's check if the file exists before reading.
+            try {
+              // If fs.access throws, file doesn't exist
+              await fs.access(file.file_path);
+              const fileContent = await fs.readFile(file.file_path);
+              const safeFileName = this.sanitizeFilename(file.file_name || "document");
+              const ext = path.extname(file.file_path) || path.extname(file.file_name) || "";
 
-            archive.append(fileContent, {
-              name: `documents/${safeFileName}${ext}`,
-            });
+              archive.append(fileContent, {
+                name: `documents/${safeFileName}${ext}`,
+              });
+            } catch (e) {
+              logger.warn(`File not found for zip export: ${file.file_path}`);
+            }
           }
         } catch (error) {
           logger.warn(`Failed to add file to export zip: ${file.id}`, error);
@@ -876,15 +901,18 @@ export class ExportService {
       for (const cert of userData.certificates) {
         try {
           if (cert.file_path) {
-            const certContent = await fs.readFile(cert.file_path);
-            const safeCertName = this.sanitizeFilename(
-              cert.title || cert.file_name || "certificate"
-            );
-            const ext = path.extname(cert.file_path) || ".pdf";
+            try {
+              await fs.access(cert.file_path);
+              const certContent = await fs.readFile(cert.file_path);
+              const safeCertName = this.sanitizeFilename(cert.title || cert.file_name || "certificate");
+              const ext = path.extname(cert.file_path) || ".pdf";
 
-            archive.append(certContent, {
-              name: `certificates/${safeCertName}${ext}`,
-            });
+              archive.append(certContent, {
+                name: `certificates/${safeCertName}${ext}`,
+              });
+            } catch (e) {
+              logger.warn(`Certificate file not found: ${cert.file_path}`);
+            }
           }
         } catch (error) {
           logger.warn(

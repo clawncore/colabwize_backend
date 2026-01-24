@@ -2,106 +2,70 @@ import axios from "axios";
 import { SecretsService } from "./secrets-service";
 import logger from "../monitoring/logger";
 
-export interface CopyleaksConfig {
-    apiKey?: string;
-    email?: string;
-    sandbox?: boolean;
-}
-
 export class CopyleaksService {
-    private static readonly API_URL = "https://api.copyleaks.com/v3";
-    private static readonly ID_SERVER_URL = "https://id.copyleaks.com/v3";
+    private static AUTH_URL = "https://id.copyleaks.com/v3/account/login/api";
+    private static API_URL = "https://api.copyleaks.com/v3";
 
-    private static authToken: string | null = null;
-    private static tokenExpiresAt: number = 0;
+    private static token: string | null = null;
+    private static tokenExpiry: Date | null = null;
 
     /**
-     * Get Authentication Token (Cached)
+     * authenticate with Copyleaks V3
      */
-    private static async getToken(): Promise<string> {
-        // Return cached token if valid (with 5 min buffer)
-        if (this.authToken && Date.now() < this.tokenExpiresAt - 5 * 60 * 1000) {
-            return this.authToken;
+    private static async authenticate() {
+        // Check if token is valid
+        if (this.token && this.tokenExpiry && this.tokenExpiry > new Date()) {
+            return this.token;
         }
 
-        const apiKey = await SecretsService.getCopyLeaksApiKey();
-        const email = await SecretsService.getCopyLeaksEmail();
+        const email = await SecretsService.getSecret("COPYLEAKS_EMAIL");
+        const key = await SecretsService.getSecret("COPYLEAKS_API_KEY");
 
-        if (!apiKey || !email) {
-            throw new Error("Copyleaks API credentials not configured");
+        if (!email || !key) {
+            throw new Error("Copyleaks credentials not configured");
         }
 
         try {
-            const response = await axios.post(`${this.ID_SERVER_URL}/account/login/api`, {
+            const response = await axios.post(this.AUTH_URL, {
                 email,
-                key: apiKey,
+                key,
             });
 
-            this.authToken = response.data.access_token;
-            // Set expiration (issued at + expires in * 1000)
-            const expiresIn = response.data.expires_in || 3600; // Default 1 hour
-            this.tokenExpiresAt = Date.now() + expiresIn * 1000;
+            this.token = response.data.access_token;
+            // Expires in seconds, usually 48 hours
+            const expiresIn = response.data.expires_in || 172800;
+            this.tokenExpiry = new Date(Date.now() + (expiresIn - 300) * 1000); // Buffer 5m
 
-            return this.authToken!;
+            return this.token;
         } catch (error: any) {
-            logger.error("Copyleaks Authentication Failed", { error: error.message });
-            throw new Error(`Copyleaks Login Failed: ${error.message}`);
+            logger.error("Copyleaks authentication failed", { error: error.message });
+            throw new Error("Failed to authenticate with Copyleaks");
         }
     }
 
     /**
-     * Submit Text for Scanning
-     * @param scanId Unique ID for this scan
-     * @param content Text content to scan
-     * @param sandbox Use sandbox mode (no credits used)
+     * Submit text for scanning
      */
-    static async submitTextScan(scanId: string, content: string, sandbox: boolean = true): Promise<void> {
+    static async submitScan(
+        scanId: string,
+        content: string,
+        webhookResultUrl: string
+    ): Promise<void> {
         try {
-            const token = await this.getToken();
+            const token = await this.authenticate();
 
-            // Determine endpoint based on type (education vs business - prioritizing education for this use case)
-            // and method (submit/file or submit/ocr). for text we use 'submit/text'?? 
-            // Actually Copyleaks documentation says PUT /downloads/{scanId} for file or similar structure.
-            // Standard Education Submit: /education/submit/file/{scanId}
-
-            // We will use the 'Education' product family for student checks89
-            const endpoint = `${this.API_URL}/education/submit/text/${scanId}`;
-
-            const webhookUrl = await SecretsService.getSecret("COPYLEAKS_WEBHOOK_URL");
-
-            // If we are developing locally, we might not have a public webhook. 
-            // For MVP "Hybrid", we might use polling if webhook is strictly required. 
-            // But Copyleaks REQUIRES a webhook to return results. 
-            // We'll set a placeholder if missing, but it will fail to return results if not reachable.
-            const validWebhook = webhookUrl || "https://api.colabwize.com/api/originality/webhook/copyleaks";
-
+            // Submit to file endpoint (text mode)
             await axios.put(
-                endpoint,
+                `${this.API_URL}/scans/submit/file/${scanId}`,
                 {
                     base64: Buffer.from(content).toString("base64"),
-                    filename: "submission.txt",
+                    filename: "document.txt",
                     properties: {
-                        sandbox: sandbox, // CRITICAL: Sandbox mode for development
                         webhooks: {
-                            status: `${validWebhook}/{STATUS}`,
+                            status: `${webhookResultUrl}/{STATUS}` // e.g. /copyleaks/completed
                         },
-                        action: 0, // 0 = Scan 
-                        includeHtml: false,
-                        developerPayload: JSON.stringify({ scanId }),
-                        // Education specific settings
-                        scanning: {
-                            internet: true,
-                            copyleaksDb: {
-                                includeMySubmissions: true,
-                                includeOthersSubmissions: true
-                            }
-                        },
-                        sensitiveDataProtection: {
-                            driversLicense: false,
-                            credentials: false,
-                            passport: false
-                        }
-                    },
+                        sandbox: process.env.NODE_ENV === "development" // Use sandbox in dev
+                    }
                 },
                 {
                     headers: {
@@ -111,21 +75,33 @@ export class CopyleaksService {
                 }
             );
 
-            logger.info(`Copyleaks scan submitted: ${scanId}`, { sandbox });
+            logger.info("Submitted Copyleaks scan", { scanId });
         } catch (error: any) {
-            logger.error("Copyleaks Submit Failed", { error: error.message, details: error.response?.data });
-            throw new Error(`Copyleaks Submit Failed: ${error.message}`);
+            logger.error("Failed to submit Copyleaks scan", { error: error.message });
+            throw error;
         }
     }
 
     /**
-      * Get Exported Result (Simulates retrieval if doing polling/export download)
-      * Note: Copyleaks results are pushed via Webhook usually.
-      * But we can also 'Export' them. 
-      */
-    static async getResultDetails(scanId: string): Promise<any> {
-        // Check status first?
-        // For this MVP, we might rely on the DB being updated by the webhook.
-        return null;
+     * Export full report (after completion)
+     */
+    static async getReport(scanId: string): Promise<any> {
+        try {
+            const token = await this.authenticate();
+
+            // Get the specific report (crawled version vs text)
+            // Usually we export the completion report or crawled results
+            // For simplicity, let's assume we want the full report export structure
+            const response = await axios.get(
+                `${this.API_URL}/downloads/${scanId}/export/completion`, // Simplified endpoint concept
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+            return response.data;
+        } catch (error: any) {
+            logger.warn("Failed to get Copyleaks report", { error: error.message });
+            return null;
+        }
     }
 }

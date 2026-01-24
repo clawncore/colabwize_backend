@@ -1,0 +1,12 @@
+DEBUG: CrossRef Response Status: 200
+DEBUG: CrossRef Response Data Keys: status,message-type,message-version,message
+DEBUG: CrossRef Raw Request URL: https://api.crossref.org/works?query=Attention Is All You Need Vaswani 2017
+DEBUG: CrossRef Response Status: 200
+DEBUG: CrossRef Response Data Keys: status,message-type,message-version,message
+DEBUG: CrossRef Raw Request URL: https://api.crossref.org/works?query=Attention Is All You Need Vaswani 2017
+DEBUG: Items Length: 5
+DEBUG: Checking Item: "Attention Is All You Need" | Score: 0.05168986083499006
+DEBUG: Checking Item: "Attention Is All You Need" | Score: 0.05168986083499006
+DEBUG: Checking Item: "Attention Is All You Need" | Score: 0.05168986083499006
+DEBUG: Checking Item: "Attention Is All You Need" | Score: 0.05168986083499006
+DEBUG: Checking Item: "Attention Is All You Need" | Score: 0.05168986083499006

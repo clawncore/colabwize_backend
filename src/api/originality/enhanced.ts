@@ -77,12 +77,13 @@ router.post(
       // Get user's plan to determine scan depth (Basic vs Full)
       const plan = await SubscriptionService.getActivePlan(userId);
 
-      // Perform enhanced scan with academic database integration
-      const result = await EnhancedOriginalityDetectionService.scanDocument(
+      // Perform enhanced scan with academic database integration + Copyleaks
+      // Use OriginalityMapService to orchestrate both
+      const { OriginalityMapService } = await import("../../services/originalityMapService");
+      const result = await OriginalityMapService.startScan(
         projectId,
         userId,
-        content,
-        plan
+        content
       );
 
       // Increment usage counter after successful scan

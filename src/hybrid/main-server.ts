@@ -48,6 +48,7 @@ const allowedOrigins = [
   "https://app.colabwize.com",
   "https://api.colabwize.com",
   "http://localhost:3000",
+  "http://localhost:3001",
   "http://localhost:5173",
   /\.vercel\.app$/
 ];

@@ -57,12 +57,15 @@ export async function POST(request: Request) {
       userData.projects = await prisma.project.findMany({
         where: { user_id: user.id },
         include: {
-          document_versions: true,
           citations: true,
-          collaborators: true,
-          footnotes: true,
           exports: true,
-          share_settings: true,
+          files: true,
+          originality_scans: true,
+          chat_sessions: true,
+          certificates: true,
+          analytics_events: true,
+          authorship_activities: true,
+          real_time_activities: true,
         },
       });
     }
@@ -73,17 +76,9 @@ export async function POST(request: Request) {
       });
     }
 
-    if (include.comments !== false) {
-      userData.comments = await prisma.comment.findMany({
-        where: { project: { user_id: user.id } },
-      });
-    }
 
-    if (include.activityHistory !== false) {
-      userData.activityHistory = await prisma.activityLog.findMany({
-        where: { user_id: user.id },
-      });
-    }
+
+
 
     if (include.deletedItems !== false) {
       userData.deletedItems = await prisma.recycledItem.findMany({
