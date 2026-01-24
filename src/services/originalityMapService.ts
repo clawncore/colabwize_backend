@@ -90,6 +90,18 @@ export class OriginalityMapService {
   }
 
   /**
+   * Process Async Result from Webhook
+   */
+  static async processCopyleaksResult(scanId: string, payload: any) {
+    logger.info("Processing Copyleaks results for true mapping", { scanId });
+
+    await prisma.originalityScan.update({
+      where: { id: scanId },
+      data: { scan_status: "completed" }
+    });
+  }
+
+  /**
    * Helper for similarity calculation (proxies to Enhanced Service)
    */
   static async calculateSimilarity(text1: string, text2: string): Promise<number> {
