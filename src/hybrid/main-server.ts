@@ -90,7 +90,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   (req as any).authTime = 0; // Will be populated by auth middleware
 
   // Log request start
-  // console.log(`[REQ] ${req.method} ${req.url}`);
+  console.log(`[ENTRY] ${req.method} ${req.url}`);
 
   // Log response time on finish
   res.on("finish", () => {

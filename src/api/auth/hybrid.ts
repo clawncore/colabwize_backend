@@ -1,6 +1,7 @@
 import express from "express";
 import { HybridAuthService } from "../../services/hybridAuthService";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
+import { TwoFactorService } from "../../services/TwoFactorService";
 
 const router = express.Router();
 
@@ -106,6 +107,16 @@ router.put("/signin", async (req, res) => {
     const result = await HybridAuthService.syncUserSession(idToken);
 
     if (result.success) {
+      // 2FA Check
+      if (result.user && result.user.two_factor_enabled) {
+        return res.status(200).json({
+          success: true,
+          requires_2fa: true,
+          userId: result.user.id,
+          message: "Two-factor authentication required"
+        });
+      }
+
       return res.status(200).json(result);
     } else {
       return res
@@ -120,6 +131,38 @@ router.put("/signin", async (req, res) => {
     return res
       .status(500)
       .json({ success: false, message: "Server error during signin" });
+  }
+});
+
+/**
+ * POST /api/auth/hybrid/verify-2fa
+ * Verify TOTP code during login
+ */
+router.post("/verify-2fa", async (req, res) => {
+  try {
+    const { userId, token } = req.body;
+
+    if (!userId || !token) {
+      return res.status(400).json({ success: false, message: "User ID and code required" });
+    }
+
+    const isValid = await TwoFactorService.validateLogin(userId, token);
+
+    if (isValid) {
+      // Fetch fresh user data to return, similar to syncUserSession
+      // We can reuse a service method or just return basic success
+      // Ideally we return the full user object expected by frontend
+      return res.status(200).json({
+        success: true,
+        message: "2FA verified",
+        // We assume user is already synced via the initial signin call
+      });
+    } else {
+      return res.status(401).json({ success: false, message: "Invalid authentication code" });
+    }
+  } catch (error) {
+    console.error("2FA verify error:", error);
+    return res.status(500).json({ success: false, message: "Verification failed" });
   }
 });
 

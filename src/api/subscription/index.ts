@@ -39,8 +39,8 @@ router.get("/plans", async (req, res) => {
  * HARDENED: Strict timeouts, parallel execution, fail-safe fallback
  */
 router.get("/current", authenticateHybridRequest, async (req, res) => {
-  const DB_TIMEOUT_MS = 2000; // 2 seconds strict budget for DB
-  const TOTAL_TIMEOUT_MS = 5000; // 5 seconds hard cap for entire request
+  const DB_TIMEOUT_MS = 15000; // 15 seconds strict budget for DB
+  const TOTAL_TIMEOUT_MS = 30000; // 30 seconds hard cap for entire request
   const start = Date.now();
 
   try {

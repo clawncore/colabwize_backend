@@ -746,14 +746,13 @@ export class EmailService {
                 ${message}
               </p>
               
-              ${
-                data
-                  ? `<div style="background-color: #f1f5f9; padding: 20px; border-radius: 8px; margin: 30px 0; text-align: left;">
+              ${data
+            ? `<div style="background-color: #f1f5f9; padding: 20px; border-radius: 8px; margin: 30px 0; text-align: left;">
                   <h2 style="color: #1e40af; margin-top: 0;">Analytics Data</h2>
                   <pre style="white-space: pre-wrap; word-wrap: break-word; background-color: #fff; padding: 10px; border-radius: 4px; font-size: 14px;">${JSON.stringify(data, null, 2)}</pre>
                 </div>`
-                  : ""
-              }
+            : ""
+          }
               
               <p style="color: #666666; font-size: 14px; line-height: 1.6; border-top: 1px solid #eeeeee; padding-top: 20px; margin-top: 20px;">
                 You're receiving this email because you have analytics notifications enabled in your ColabWize settings. Your academic integrity is important to us.
@@ -859,6 +858,80 @@ export class EmailService {
       return true;
     } catch (error) {
       console.error("Error sending analytics report email via Resend:", error);
+      return false;
+    }
+  }
+
+  // Send 2FA Enabled Email
+  static async send2FAEnabledEmail(
+    to: string,
+    fullName: string = ""
+  ): Promise<boolean> {
+    try {
+      if (!resend) {
+        console.error("Resend client not initialized");
+        return false;
+      }
+      const { data, error } = await resend.emails.send({
+        from: "ColabWize <security@email.colabwize.com>",
+        to,
+        subject: "🔒 Two-Factor Authentication Enabled",
+        html: `
+          <div style="font-family: Arial, sans-serif; background-color: #f4f4f5; ">
+            <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 20px 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+              <div style="margin-bottom: 30px;">
+                <img src="https://image2url.com/r2/bucket2/images/1767558424944-e48e15a4-5587-40ac-99b0-ee82c5d68042.png" alt="ColabWize Logo" style="width: 100%; height: 120px; max-height: 200px; margin-bottom: 5px;">
+                <h1 style="color: #1e40af; font-size: 24px; margin: 10px 0;">2FA Successfully Enabled</h1>
+              </div>
+              
+              <p style="color: #666666; font-size: 16px; line-height: 1.6;">
+                Hello ${fullName || "there"},
+              </p>
+              
+              <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <p style="color: #065f46; font-size: 16px; margin: 0; font-weight: bold;">
+                  ✅ Two-factor authentication (2FA) is now active for your account.
+                </p>
+              </div>
+
+              <p style="color: #666666; font-size: 16px; line-height: 1.6;">
+                Your account is now more secure. When you sign in, you'll be required to enter a code from your authenticator app.
+              </p>
+
+              <h3 style="color: #1e40af; font-size: 18px; margin-top: 30px;">🔐 Important: Keep it Secure</h3>
+              <ul style="color: #666666; font-size: 15px; line-height: 1.6; padding-left: 20px;">
+                <li style="margin-bottom: 10px;"><strong>Backup Codes:</strong> Ensure you have saved your recovery codes in a safe place (like a password manager). These are the only way to access your account if you lose your phone.</li>
+                <li style="margin-bottom: 10px;"><strong>Lost Device:</strong> If you lose your device, use a backup code to login immediately and disable 2FA, then re-enable it on a new device.</li>
+                <li style="margin-bottom: 10px;"><strong>Don't Share:</strong> Never share your verification codes with anyone, even support agents.</li>
+              </ul>
+              
+              <div style="margin: 35px 0; text-align: center;">
+                <a href="${await SecretsService.getFrontendUrl()}/dashboard/settings" style="background-color: #1e40af; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px -1px rgba(30, 64, 175, 0.2);">
+                  Manage Security Settings
+                </a>
+              </div>
+              
+              <p style="color: #666666; font-size: 14px; line-height: 1.6; border-top: 1px solid #eeeeee; padding-top: 20px; margin-top: 20px;">
+                You received this email because 2FA was enabled on your ColabWize account.
+              </p>
+
+              <p style="color: #999999; font-size: 13px; margin-top: 40px; margin-bottom: 5px;">
+                ColabWize Security Team
+              </p>
+            </div>
+          </div>
+        `,
+      });
+
+      if (error) {
+        console.error("Resend 2FA enabled email error:", error);
+        return false;
+      }
+
+      console.log("2FA enabled email sent successfully via Resend");
+      return true;
+    } catch (error) {
+      console.error("Error sending 2FA enabled email via Resend:", error);
       return false;
     }
   }
@@ -1058,20 +1131,18 @@ export class EmailService {
                 <p style="color: #666666; font-size: 16px; margin: 10px 0;">
                   <strong>Estimated Users:</strong> ${estimatedUsers}
                 </p>
-                ${
-                  department
-                    ? `<p style="color: #666666; font-size: 16px; margin: 10px 0;">
+                ${department
+            ? `<p style="color: #666666; font-size: 16px; margin: 10px 0;">
                   <strong>Department:</strong> ${department}
                 </p>`
-                    : ""
-                }
-                ${
-                  message
-                    ? `<p style="color: #666666; font-size: 16px; margin: 10px 0;">
+            : ""
+          }
+                ${message
+            ? `<p style="color: #666666; font-size: 16px; margin: 10px 0;">
                   <strong>Message:</strong> ${message}
                 </p>`
-                    : ""
-                }
+            : ""
+          }
               </div>
               
               <p style="color: #666666; font-size: 14px; line-height: 1.6; border-top: 1px solid #eeeeee; padding-top: 20px; margin-top: 20px;">
@@ -1688,4 +1759,5 @@ export class EmailService {
       return false;
     }
   }
+
 }

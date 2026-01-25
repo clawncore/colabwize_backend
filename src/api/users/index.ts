@@ -5,7 +5,6 @@ import {
   DELETE,
   updateProfileWithOTP,
   changePassword,
-  enable2FA,
   getAccountUsage,
   updateAccountPreferences,
   hasFeatureAccess,
@@ -96,25 +95,6 @@ router.post("/change-password", async (req, res) => {
   }
 });
 
-// Enable 2FA
-router.post("/enable-2fa", async (req, res) => {
-  try {
-    // Create a mock request object that matches the Edge function signature
-    const mockRequest = {
-      json: async () => req.body,
-      headers: {
-        get: (name: string) => req.headers[name.toLowerCase()],
-      },
-    };
-
-    const response = await enable2FA(mockRequest as any);
-    const data = await response.json();
-
-    return res.status(response.status).json(data);
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
-});
 
 // Request OTP for profile update
 router.post("/request-otp", async (req, res) => {
@@ -158,12 +138,12 @@ router.post("/export-data", async (req, res) => {
     } else {
       // Handle binary data (like ZIP files)
       const buffer = await response.arrayBuffer();
-      
+
       // Forward headers
       response.headers.forEach((value, key) => {
         res.setHeader(key, value);
       });
-      
+
       return res.status(response.status).send(Buffer.from(buffer));
     }
   } catch (error: any) {

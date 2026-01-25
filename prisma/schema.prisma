@@ -23,7 +23,10 @@ model User {
   created_at            DateTime             @default(now())
   updated_at            DateTime             @updatedAt
   avatar_url            String?
-  two_factor_enabled    Boolean              @default(false)
+  two_factor_enabled       Boolean              @default(false)
+  two_factor_secret        String?
+  two_factor_backup_codes  String[]
+  two_factor_confirmed_at  DateTime?
   bio                   String?
   institution           String?
   location              String?
