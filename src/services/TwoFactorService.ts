@@ -1,10 +1,12 @@
-// Use require() to load CommonJS build of otplib (avoids ES Module issues)
-const { generateSecret, generateURI, verifySync } = require("otplib");
+import { authenticator } from "otplib";
 import QRCode from "qrcode";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { EmailService } from "./emailService";
+
+// Configure authenticator window for time tolerance (otplib v12)
+authenticator.options = { ...authenticator.options, window: 1 };
 
 // AES-256-GCM Encryption Configuration
 const ALGORITHM = "aes-256-gcm";
@@ -87,9 +89,9 @@ export class TwoFactorService {
      * Phase 1: Safe, Pure, No DB Writes
      */
     static async generateSecret(email: string, userId: string) {
-        const secret = generateSecret();
+        const secret = authenticator.generateSecret();
         // Use "ColabWize" as the issuer name for the Authenticator app
-        const otpauth = generateURI({ secret, label: email, issuer: "ColabWize" });
+        const otpauth = authenticator.keyuri(email, "ColabWize", secret);
         // Generate Data URI directly
         const qrCodeUrl = await QRCode.toDataURL(otpauth);
 
@@ -106,10 +108,7 @@ export class TwoFactorService {
      * Verify a TOTP token (works for both setup and login)
      */
     static verifyToken(token: string, secret: string): boolean {
-        const result: any = verifySync({ token, secret, window: 1 } as any);
-        // otplib verifySync can return an object { valid: boolean } or boolean depending on version/config
-        if (typeof result === 'boolean') return result;
-        return result && result.valid === true;
+        return authenticator.verify({ token, secret });
     }
 
     /**
