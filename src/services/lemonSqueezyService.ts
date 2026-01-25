@@ -157,6 +157,38 @@ export class LemonSqueezyService {
   }
 
   /**
+   * Create a customer
+   */
+  static async createCustomer(email: string, name: string) {
+    await this.initialize();
+
+    if (!this.storeId) {
+      throw new Error("LemonSqueezy store ID not configured");
+    }
+
+    const customerData = {
+      data: {
+        type: "customers",
+        attributes: {
+          name,
+          email,
+        },
+        relationships: {
+          store: {
+            data: {
+              type: "stores",
+              id: this.storeId,
+            },
+          },
+        },
+      },
+    };
+
+    const response = await this.makeRequest("customers", "POST", customerData);
+    return response.data;
+  }
+
+  /**
    * Get customer details
    */
   static async getCustomer(customerId: string) {
@@ -183,11 +215,24 @@ export class LemonSqueezyService {
 
   /**
    * Get customer portal URL
+   * Tries to get a specific signed URL from the customer object, falls back to generic.
    */
   static async getCustomerPortalUrl(customerId: string): Promise<string> {
-    // LemonSqueezy doesn't have a direct customer portal API
-    // Return the account page URL
-    return `https://app.lemonsqueezy.com/my-orders`;
+    try {
+      // Try to fetch customer to see if there's a specific portal URL
+      // (Note: LS API behavior varies, but this is the robust way)
+      const customer = await this.getCustomer(customerId);
+
+      if (customer.attributes?.urls?.customer_portal) {
+        return customer.attributes.urls.customer_portal;
+      }
+
+      // Fallback: The generic my-orders page
+      return "https://app.lemonsqueezy.com/my-orders";
+    } catch (error) {
+      logger.warn("Failed to fetch customer for portal URL, using fallback", { customerId, error: JSON.stringify(error, Object.getOwnPropertyNames(error)) });
+      return "https://app.lemonsqueezy.com/my-orders";
+    }
   }
 
   /**

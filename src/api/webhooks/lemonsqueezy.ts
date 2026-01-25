@@ -235,8 +235,8 @@ async function handleSubscriptionCancelled(data: any) {
   }
 
   await SubscriptionService.upsertSubscription(userId, {
-    plan: data.attributes.custom_data?.plan || "free",
-    status: "canceled",
+    plan: data.attributes.custom_data?.plan || "student", // Keep the plan! Don't degrade to free yet.
+    status: data.attributes.status, // Trust LS status (should be 'active' or 'on_trial')
     cancel_at_period_end: true,
     ends_at: data.attributes.ends_at ? new Date(data.attributes.ends_at) : undefined,
   });

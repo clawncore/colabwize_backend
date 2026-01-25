@@ -494,7 +494,9 @@ export class SubscriptionService {
       where: { user_id: userId },
       data: {
         cancel_at_period_end: true,
-        status: "canceled",
+        // CRITICAL: Do NOT set status to "canceled" here. 
+        // User retains access until period end.
+        // Status updates to "expired" via webhook when period actually ends.
       },
     });
 
@@ -586,5 +588,51 @@ export class SubscriptionService {
         limits: PLAN_LIMITS.researcher,
       },
     ];
+  }
+
+  /**
+   * Ensure user has a Lemon Squeezy customer ID
+   * Creates one silently if missing
+   */
+  static async ensureLemonCustomer(user: { id: string; email: string; name?: string | null }): Promise<string> {
+    try {
+      // 1. Get current subscription
+      const subscription = await this.getUserSubscription(user.id);
+
+      // 2. If already has customer ID, return it
+      if (subscription?.lemonsqueezy_customer_id) {
+        return subscription.lemonsqueezy_customer_id;
+      }
+
+      // 3. Create new customer in Lemon Squeezy
+      logger.info("Initializing Lemon Squeezy customer for user", { userId: user.id });
+
+      const newCustomer = await LemonSqueezyService.createCustomer(
+        user.email,
+        user.name || "Customer"
+      );
+
+      // 4. Update/Create subscription record with new customer ID
+      await this.upsertSubscription(user.id, {
+        plan: subscription?.plan || "free",
+        status: subscription?.status || "inactive",
+        lemonsqueezy_customer_id: newCustomer.id,
+        // Preserve existing fields
+        lemonsqueezy_subscription_id: subscription?.lemonsqueezy_subscription_id,
+        variant_id: subscription?.variant_id,
+        current_period_start: subscription?.current_period_start,
+        current_period_end: subscription?.current_period_end,
+      });
+
+      logger.info("Created Lemon Squeezy customer successfully", {
+        userId: user.id,
+        customerId: newCustomer.id
+      });
+
+      return newCustomer.id;
+    } catch (error) {
+      logger.error("Failed to ensure Lemon Squeezy customer:", error);
+      throw new Error("Billing initialization failed. Please try again later.");
+    }
   }
 }

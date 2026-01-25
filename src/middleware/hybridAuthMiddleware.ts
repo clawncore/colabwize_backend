@@ -89,10 +89,11 @@ export async function authenticateHybridRequest(
   } catch (error) {
     logger.error("Authentication error", {
       error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
     });
     res.status(500).json({
       success: false,
-      message: "Authentication error",
+      message: "Internal authentication error",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }

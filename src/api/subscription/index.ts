@@ -53,6 +53,9 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       });
     }
 
+    // Ensure Lemon Squeezy customer exists silently (no-op if already exists)
+    await SubscriptionService.ensureLemonCustomer(user);
+
     // Helper for timeout wrapping
     const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | "TIMEOUT"> => {
       let timeoutId: NodeJS.Timeout;
@@ -440,6 +443,10 @@ router.get("/payment-methods", authenticateHybridRequest, async (req, res) => {
       });
     }
 
+    // Ensure customer exists before fetching methods (though methods come from our DB, 
+    // it's good practice to ensure the link exists if we wanted to fetch from LS)
+    await SubscriptionService.ensureLemonCustomer(user);
+
     // Fetch payment methods from database
     const paymentMethods = await prisma.paymentMethod.findMany({
       where: {
@@ -489,6 +496,9 @@ router.get("/invoices", authenticateHybridRequest, async (req, res) => {
       });
     }
 
+    // Ensure customer exists so we don't have dangling users without billing profiles
+    await SubscriptionService.ensureLemonCustomer(user);
+
     // Fetch invoices from database
     const invoices = await prisma.paymentHistory.findMany({
       where: {
@@ -502,13 +512,13 @@ router.get("/invoices", authenticateHybridRequest, async (req, res) => {
 
     // Transform to match frontend interface
     const transformedInvoices = invoices.map((invoice: any) => ({
-      id: invoice.id,
-      date: invoice.created_at.toISOString(),
-      description:
-        invoice.description || `Payment for ${invoice.amount / 100} USD`,
+      invoice_id: invoice.id,
+      issued_at: invoice.created_at.toISOString(),
       amount: invoice.amount / 100, // Convert from cents
-      status: invoice.status as "paid" | "pending" | "failed",
-      receiptUrl: invoice.receipt_url || undefined,
+      currency: "USD",
+      status: invoice.status as "paid" | "pending" | "failed" | "refunded",
+      hosted_invoice_url: invoice.receipt_url || undefined,
+      pdf_url: undefined, // Not currently stored
     }));
 
     return res.status(200).json({
@@ -536,7 +546,8 @@ router.get("/invoices", authenticateHybridRequest, async (req, res) => {
 
 /**
  * POST /api/subscription/payment-methods/update
- * Update payment method
+ * Update payment method (Get Portal URL)
+ * Refactored to support streamlined pipeline (Create Customer if missing)
  */
 router.post(
   "/payment-methods/update",
@@ -552,32 +563,12 @@ router.post(
         });
       }
 
-      // Get user's subscription to find customer ID
-      const subscription = await SubscriptionService.getUserSubscription(
-        user.id
-      );
+      // 1. Ensure Lemon Customer Exists using the shared helper
+      const customerId = await SubscriptionService.ensureLemonCustomer(user);
 
-      if (!subscription || !subscription.lemonsqueezy_customer_id) {
-        // If no subscription/customer ID, we can't get a portal URL
-        // Fallback or error - maybe user has no payment method yet?
-        return res.status(400).json({
-          success: false,
-          message:
-            "No active subscription found to update payment method. Please add a payment method directly or subscribe first.",
-        });
-      }
-
-      // Get Update Payment Method URL from LemonSqueezy (prefer specific subscription update URL)
-      let redirectUrl;
-      if (subscription.lemonsqueezy_subscription_id) {
-        redirectUrl = await LemonSqueezyService.getUpdatePaymentMethodUrl(
-          subscription.lemonsqueezy_subscription_id
-        );
-      } else {
-        redirectUrl = await LemonSqueezyService.getCustomerPortalUrl(
-          subscription.lemonsqueezy_customer_id
-        );
-      }
+      // 2. Generate Portal URL
+      // We prioritize the Customer Portal URL which handles all billing needs
+      const redirectUrl = await LemonSqueezyService.getCustomerPortalUrl(customerId);
 
       return res.status(200).json({
         success: true,
@@ -592,6 +583,135 @@ router.post(
     }
   }
 );
+
+/**
+ * GET /api/subscription/billing/overview
+ * Get comprehensive billing overview with metrics and trends
+ * Single source of truth for billing page
+ */
+router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
+  try {
+    const user = (req as any).user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated",
+      });
+    }
+
+    // Fetch all data in parallel
+    const [subscription, usage, paymentMethods, documentsThisMonth, documentsLastMonth, dailyTrend] = await Promise.all([
+      SubscriptionService.getUserSubscription(user.id),
+      UsageService.getCurrentUsage(user.id),
+      prisma.paymentMethod.findMany({
+        where: { user_id: user.id },
+        orderBy: { created_at: "desc" },
+        take: 1,
+      }),
+      // Get documents processed this month
+      prisma.document.count({
+        where: {
+          user_id: user.id,
+          uploaded_at: {
+            gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+          },
+        },
+      }),
+      // Get documents processed last month
+      prisma.document.count({
+        where: {
+          user_id: user.id,
+          uploaded_at: {
+            gte: new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1),
+            lt: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+          },
+        },
+      }),
+      // Get daily document count for last 30 days
+      (async () => {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const documents = await prisma.document.findMany({
+          where: {
+            user_id: user.id,
+            uploaded_at: { gte: thirtyDaysAgo },
+          },
+          select: { uploaded_at: true },
+        });
+
+        // Group by day
+        const dailyCounts: number[] = Array(30).fill(0);
+        documents.forEach((doc: { uploaded_at: Date }) => {
+          const daysDiff = Math.floor(
+            (Date.now() - new Date(doc.uploaded_at).getTime()) / (1000 * 60 * 60 * 24)
+          );
+          if (daysDiff >= 0 && daysDiff < 30) {
+            dailyCounts[29 - daysDiff]++;
+          }
+        });
+
+        return dailyCounts;
+      })(),
+    ]);
+
+    // Get plan info
+    const plan = subscription && ["active", "trialing"].includes(subscription.status)
+      ? subscription.plan
+      : "free";
+    const limits = SubscriptionService.getPlanLimits(plan);
+
+    // Build response matching professional SaaS pattern
+    return res.status(200).json({
+      success: true,
+      plan: {
+        name: plan.charAt(0).toUpperCase() + plan.slice(1),
+        price: plan === "free" ? 0 : plan === "student" ? 4.99 : 12.99,
+        interval: subscription?.current_period_start ? "month" : undefined,
+        status: subscription?.status || "active",
+        renewsAt: subscription?.current_period_end || null,
+      },
+      usage: {
+        monthlyScans: {
+          used: usage?.scan || 0,
+          limit: limits.scans_per_month === -1 ? null : limits.scans_per_month,
+        },
+        originalityScans: {
+          used: usage?.originality_scan || 0,
+          limit: limits.originality_scan === -1 ? null : limits.originality_scan,
+        },
+        citationChecks: {
+          used: usage?.citation_check || 0,
+          limit: limits.citation_check === -1 ? null : limits.citation_check,
+        },
+        certificates: {
+          used: usage?.certificate || 0,
+          limit: limits.certificate === -1 ? null : limits.certificate,
+        },
+      },
+      metrics: {
+        documentsThisMonth,
+        documentsLastMonth,
+      },
+      trends: {
+        documentsDaily: dailyTrend,
+      },
+      paymentMethod: paymentMethods.length > 0
+        ? {
+          brand: paymentMethods[0].type,
+          last4: paymentMethods[0].last_four || "",
+        }
+        : null,
+    });
+  } catch (error) {
+    console.error("Get billing overview error:", error);
+    return res.status(200).json({
+      success: false,
+      message: "Service temporarily unavailable. Please try again later.",
+    });
+  }
+});
 
 /**
  * GET /api/subscription/features/:feature
