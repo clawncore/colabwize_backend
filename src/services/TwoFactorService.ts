@@ -1,4 +1,5 @@
-import { generateSecret, generateURI, verifySync } from "otplib";
+// Use require() to load CommonJS build of otplib (avoids ES Module issues)
+const { generateSecret, generateURI, verifySync } = require("otplib");
 import QRCode from "qrcode";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
