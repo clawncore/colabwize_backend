@@ -207,7 +207,9 @@ export class LemonSqueezyService {
   /**
    * Verify webhook signature
    */
-  static verifyWebhookSignature(payload: string, signature: string): boolean {
+  static async verifyWebhookSignature(payload: string, signature: string): Promise<boolean> {
+    await this.initialize(); // Ensure webhook secret is loaded from SecretsService
+
     if (!this.webhookSecret) {
       logger.warn("Webhook secret not configured, skipping verification");
       return true; // Allow in development
@@ -218,7 +220,17 @@ export class LemonSqueezyService {
       .update(payload)
       .digest("hex");
 
-    return hmac === signature;
+    const isValid = hmac === signature;
+
+    if (!isValid) {
+      logger.warn("Webhook signature mismatch", {
+        receivedSignature: signature,
+        computedHmac: hmac,
+        hasSecret: !!this.webhookSecret
+      });
+    }
+
+    return isValid;
   }
 
   /**

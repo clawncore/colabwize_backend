@@ -85,7 +85,16 @@ app.use(cors(corsOptions));
 // Explicitly handle OPTIONS preflight for all routes
 app.options("*", cors(corsOptions));
 
-app.use(express.json({ limit: "50mb" }));
+// Webhooks MUST be registered BEFORE global express.json to get raw body
+// Important for signature verification (LemonSqueezy, etc.)
+app.use("/api/webhooks", webhookRouter);
+
+app.use(express.json({
+  limit: "50mb",
+  verify: (req: any, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
 // Debug middleware
 // Request Instrumentation Middleware
@@ -258,8 +267,9 @@ app.use("/api/behavioral-tracking", authMiddleware, behavioralTrackingRouter);
 // Users API (Authentication required)
 app.use("/api/users", authMiddleware, usersRouter);
 
-// Webhooks (no auth)
-app.use("/api/webhooks", webhookRouter);
+// Webhooks moved to before global express.json middleware
+// Moved to line ~88 to support raw body parsing
+// app.use("/api/webhooks", webhookRouter);
 
 app.use("/api/projects", authMiddleware, projectsRouter);
 

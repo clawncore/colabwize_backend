@@ -14,10 +14,10 @@ const router = express.Router();
 router.post("/lemonsqueezy", express.raw({ type: "application/json" }), async (req, res) => {
   try {
     const signature = req.headers["x-signature"] as string;
-    const payload = req.body.toString();
+    const payload = (req as any).rawBody ? (req as any).rawBody.toString() : req.body.toString();
 
     // Verify webhook signature
-    const isValid = LemonSqueezyService.verifyWebhookSignature(payload, signature);
+    const isValid = await LemonSqueezyService.verifyWebhookSignature(payload, signature);
 
     if (!isValid) {
       logger.warn("Invalid webhook signature");
