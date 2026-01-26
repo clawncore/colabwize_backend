@@ -130,9 +130,23 @@ export class SubscriptionService {
   static async getActivePlan(userId: string, existingSubscription?: any): Promise<string> {
     const subscription = existingSubscription ?? await this.getUserSubscription(userId);
 
-    // Allow both active and trialing/on_trial statuses
+    if (!subscription) {
+      return "free";
+    }
+
+    // 1. Entitlement Expiry (New "Bulletproof" Check)
+    // If we have an explicit expiry date, trust it above all else.
+    if (subscription.entitlement_expires_at) {
+      const now = new Date();
+      if (now > subscription.entitlement_expires_at) {
+        return "free";
+      }
+      return subscription.plan;
+    }
+
+    // 2. Legacy Status Check (Fallback)
+    // Allow active, trialing, on_trial, and past_due (grace period)
     if (
-      !subscription ||
       !["active", "trialing", "on_trial", "past_due"].includes(subscription.status)
     ) {
       return "free";
@@ -454,6 +468,7 @@ export class SubscriptionService {
       renews_at?: Date;
       ends_at?: Date;
       cancel_at_period_end?: boolean;
+      entitlement_expires_at?: Date | null;
     }
   ) {
     const subscription = await prisma.subscription.upsert({

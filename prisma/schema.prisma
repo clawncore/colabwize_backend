@@ -58,6 +58,7 @@ model User {
   feedback              UserFeedback[]
   user_metrics          UserMetrics?
   user_sessions         UserSession[]
+  policy_accepted_at    DateTime?
   survey                UserSurvey?
   credit_balance        CreditBalance?
   credit_transactions   CreditTransaction[]
@@ -305,6 +306,7 @@ model Subscription {
   ends_at                      DateTime?
   trial_ends_at                DateTime?
   cancel_at_period_end         Boolean   @default(false)
+  entitlement_expires_at       DateTime? 
   created_at                   DateTime  @default(now())
   updated_at                   DateTime  @updatedAt
   user                         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)

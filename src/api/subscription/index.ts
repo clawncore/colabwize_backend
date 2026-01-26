@@ -80,13 +80,14 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     const executeLogic = async () => {
       // EXECUTE IN PARALLEL
       // We avoid calling SubscriptionService.getActivePlan() afterwards to prevent 2nd DB call
-      const [subResult, usageResult, creditResult] = await Promise.all([
+      const [subResult, usageResult, creditResult, totalResult] = await Promise.all([
         withTimeout(SubscriptionService.getUserSubscription(user.id), DB_TIMEOUT_MS),
         withTimeout(UsageService.getCurrentUsage(user.id), DB_TIMEOUT_MS),
-        withTimeout(CreditService.getBalance(user.id), DB_TIMEOUT_MS)
+        withTimeout(CreditService.getBalance(user.id), DB_TIMEOUT_MS),
+        withTimeout(prisma.originalityScan.count({ where: { user_id: user.id } }), DB_TIMEOUT_MS)
       ]);
 
-      return { subResult, usageResult, creditResult };
+      return { subResult, usageResult, creditResult, totalResult };
     };
 
     // RACE AGAINST HARD HTTP TIMEOUT
@@ -95,7 +96,7 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       new Promise((_, reject) => setTimeout(() => reject(new Error("HTTP_HARD_TIMEOUT")), TOTAL_TIMEOUT_MS))
     ]);
 
-    const { subResult, usageResult, creditResult } = result as any;
+    const { subResult, usageResult, creditResult, totalResult } = result as any;
 
     // DERIVE STATE
     const isTimeout = subResult === "TIMEOUT";
@@ -137,6 +138,9 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     // Is credits timed out?
     const creditBalance = creditResult === "TIMEOUT" ? 0 : creditResult;
 
+    // Is total documents timed out?
+    const totalDocuments = totalResult === "TIMEOUT" ? 0 : totalResult;
+
     const responseDuration = Date.now() - start;
     if (responseDuration > 1000) {
       console.warn(`[SLOW RESPONSE] /subscription/current took ${responseDuration}ms`);
@@ -149,6 +153,7 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       limits,
       usage,
       creditBalance,
+      totalDocuments,
       source,
       generatedAt,
       // Keep legacy fields for backward compatibility if needed, but prefer flat structure above
@@ -167,6 +172,7 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       limits: SubscriptionService.getPlanLimits("free"),
       usage: {},
       creditBalance: 0,
+      totalDocuments: 0,
       source: isHardTimeout ? "fallback_timeout" : "fallback_error",
       generatedAt: new Date().toISOString()
     });
@@ -180,7 +186,7 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
 router.post("/checkout", authenticateHybridRequest, async (req, res) => {
   try {
     const user = (req as any).user;
-    const { plan, billingPeriod = "monthly" } = req.body;
+    const { plan, billingPeriod = "monthly", policyAccepted } = req.body;
 
     if (!user) {
       return res.status(401).json({
@@ -188,6 +194,39 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
         message: "Not authenticated",
       });
     }
+    // 1. DUPLICATE SUBSCRIPTION CHECK (Strict Policy)
+    const currentSubscription = await SubscriptionService.getUserSubscription(user.id);
+    if (currentSubscription &&
+      ["active", "trialing", "past_due", "on_trial"].includes(currentSubscription.status) &&
+      !currentSubscription.cancel_at_period_end
+    ) {
+      // Allow ONLY if it's a credit purchase (PAYG / Credits)
+      // If plan is 'credits_XX' or 'payg' it is allowed as an add-on.
+      // But if plan is 'student' or 'researcher' -> BLOCK
+      if (!plan.startsWith("credits_") && plan !== "payg") {
+        return res.status(409).json({
+          success: false,
+          message: "You already have an active subscription. Please manage your existing plan to upgrade or switch.",
+          error_code: "DUPLICATE_SUBSCRIPTION"
+        });
+      }
+    }
+
+    // 2. POLICY ACCEPTANCE CHECK (Legal Requirement)
+    if (policyAccepted !== true) {
+      return res.status(400).json({
+        success: false,
+        message: "You must accept the Refund Policy and Terms of Service to proceed.",
+        error_code: "POLICY_NOT_ACCEPTED"
+      });
+    }
+
+    // 3. PERSIST POLICY ACCEPTANCE
+    // Always update to latest timestamp to prove acceptance of current terms
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { policy_accepted_at: new Date() }
+    });
 
     // Validate plan - accept subscription plans and credit packages
     const validPlans = [

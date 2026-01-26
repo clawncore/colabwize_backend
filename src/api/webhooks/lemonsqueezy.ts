@@ -157,6 +157,7 @@ async function handleSubscriptionCreated(event: any) {
     current_period_start: new Date(data.attributes.created_at),
     current_period_end: new Date(data.attributes.renews_at),
     renews_at: new Date(data.attributes.renews_at),
+    entitlement_expires_at: new Date(data.attributes.renews_at), // Access valid until renewal
   });
 
   console.log('[WEBHOOK_APPLY_SUBSCRIPTION]', {
@@ -211,6 +212,10 @@ async function handleSubscriptionUpdated(event: any) {
     variant_id: data.attributes.variant_id.toString(),
     renews_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
     ends_at: data.attributes.ends_at ? new Date(data.attributes.ends_at) : undefined,
+    // If renewing, entitlement extends to renews_at. If ending, extends to ends_at.
+    entitlement_expires_at: data.attributes.ends_at
+      ? new Date(data.attributes.ends_at)
+      : new Date(data.attributes.renews_at),
   });
 
   console.log('[WEBHOOK_APPLY_SUBSCRIPTION]', {
@@ -259,11 +264,19 @@ async function handleSubscriptionCancelled(event: any) {
     return;
   }
 
+  // Determine if immediate or scheduled
+  // attributes.cancelled = true -> Immediate cancellation (e.g. by admin or refunded)
+  // attributes.cancelled = false -> Scheduled at period end
+  const isImmediate = data.attributes.cancelled === true;
+  const periodEnd = data.attributes.ends_at ? new Date(data.attributes.ends_at) : new Date();
+
   await SubscriptionService.upsertSubscription(userId, {
-    plan: customData?.plan || "student", // Keep the plan! Don't degrade to free yet.
-    status: data.attributes.status, // Trust LS status (should be 'active' or 'on_trial')
-    cancel_at_period_end: true,
+    plan: customData?.plan || "student",
+    status: data.attributes.status,
+    cancel_at_period_end: !isImmediate,
     ends_at: data.attributes.ends_at ? new Date(data.attributes.ends_at) : undefined,
+    // Hardening: If immediate, expire NOW. If scheduled, keep access until period end.
+    entitlement_expires_at: isImmediate ? new Date() : periodEnd,
   });
 
   logger.info("Subscription cancelled", { userId });
@@ -286,6 +299,8 @@ async function handleSubscriptionResumed(event: any) {
     plan: customData?.plan || "student",
     status: "active",
     cancel_at_period_end: false,
+    // Resuming usually means extending to the next renewal date
+    entitlement_expires_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
   });
 
   logger.info("Subscription resumed", { userId });
@@ -304,9 +319,22 @@ async function handleSubscriptionExpired(event: any) {
     return;
   }
 
+  // Hardening: Replay Protection
+  // If we receive an expiry hook, but the DB says entitlement is still valid (e.g. user resubscribed recently),
+  // IGNORE this hook to prevent accidental downgrade.
+  const currentSub = await SubscriptionService.getUserSubscription(userId);
+  if (currentSub && currentSub.entitlement_expires_at && currentSub.entitlement_expires_at > new Date()) {
+    logger.warn("Ignoring subscription_expired hook: User entitlement is still valid (Replay protection)", {
+      userId,
+      expiresAt: currentSub.entitlement_expires_at
+    });
+    return;
+  }
+
   await SubscriptionService.upsertSubscription(userId, {
     plan: "free",
     status: "expired",
+    entitlement_expires_at: null, // Clear entitlement
   });
 
   logger.info("Subscription expired", { userId });
