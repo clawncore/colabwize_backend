@@ -154,7 +154,7 @@ export class SourceIntegrationService {
             const redFlags: SourceIntegrationReport['redFlags'] = [];
             const readingAuditTrail: SourceIntegrationReport['readingAuditTrail'] = [];
 
-            interactions.forEach((interaction) => {
+            interactions.forEach((interaction: any) => {
                 // Build audit trail
                 readingAuditTrail.push({
                     sourceId: interaction.source_id,
@@ -185,10 +185,10 @@ export class SourceIntegrationService {
             // Calculate authenticity score
             const totalSources = interactions.length;
             const sourcesWithAdequateReading = interactions.filter(
-                (i) => i.total_reading_time_ms >= 30000
+                (i: any) => i.total_reading_time_ms >= 30000
             ).length;
             const sourcesWithProperTiming = interactions.filter(
-                (i) => i.citation_preceded_by_reading
+                (i: any) => i.citation_preceded_by_reading
             ).length;
 
             const authenticityScore = totalSources > 0
