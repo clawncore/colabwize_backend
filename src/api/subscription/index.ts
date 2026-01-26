@@ -108,7 +108,14 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     let subscriptionData = subResult === "TIMEOUT" ? null : subResult;
 
     // Resolve Plan from Subscription (No extra DB call)
-    if (subscriptionData && ["active", "trialing"].includes(subscriptionData.status)) {
+    console.log('[SUBSCRIPTION_RESOLVE]', {
+      userId: user.id,
+      dbPlan: subscriptionData?.plan,
+      dbStatus: subscriptionData?.status,
+      isTimeout
+    });
+
+    if (subscriptionData && ["active", "trialing", "on_trial", "past_due"].includes(subscriptionData.status)) {
       plan = subscriptionData.plan;
     } else if (isTimeout) {
       status = "unknown"; // UI should show warning/cached state
@@ -657,7 +664,7 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
     ]);
 
     // Get plan info
-    const plan = subscription && ["active", "trialing"].includes(subscription.status)
+    const plan = subscription && ["active", "trialing", "on_trial", "past_due"].includes(subscription.status)
       ? subscription.plan
       : "free";
     const limits = SubscriptionService.getPlanLimits(plan);

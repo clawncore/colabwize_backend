@@ -130,10 +130,10 @@ export class SubscriptionService {
   static async getActivePlan(userId: string, existingSubscription?: any): Promise<string> {
     const subscription = existingSubscription ?? await this.getUserSubscription(userId);
 
-    // Allow both active and trialing statuses
+    // Allow both active and trialing/on_trial statuses
     if (
       !subscription ||
-      !["active", "trialing"].includes(subscription.status)
+      !["active", "trialing", "on_trial", "past_due"].includes(subscription.status)
     ) {
       return "free";
     }
@@ -420,7 +420,7 @@ export class SubscriptionService {
     // 4. If Plan Exhausted / Unavailable / -2 -> Check Credits
 
     // STRICT RULE: Student/Researcher plans do NOT use credits as fallback.
-    if (["student", "researcher"].includes(plan)) {
+    if (["student", "researcher", "student pro"].includes(plan.toLowerCase())) {
       return { allowed: false, source: "BLOCKED", message: "Plan limit reached. Please upgrade your plan." };
     }
 
@@ -469,6 +469,13 @@ export class SubscriptionService {
       userId,
       plan: data.plan,
       status: data.status,
+    });
+
+    console.log('[DB_SUBSCRIPTION_WRITE]', {
+      userId,
+      plan: data.plan,
+      status: data.status,
+      ls_sub_id: data.lemonsqueezy_subscription_id
     });
 
     return subscription;
@@ -625,9 +632,16 @@ export class SubscriptionService {
       }
 
       // 5. Update/Create subscription record with customer ID
+      // CAUTION: Only set defaults if subscription is truly missing, not if it timed out
+      if (subscription === null) {
+        // Check if user exists first to satisfy FK
+        const userExists = await prisma.user.findUnique({ where: { id: user.id } });
+        if (!userExists) throw new Error("User does not exist");
+      }
+
       await this.upsertSubscription(user.id, {
         plan: subscription?.plan || "free",
-        status: subscription?.status || "inactive",
+        status: subscription?.status || "active", // Default to active for free plan
         lemonsqueezy_customer_id: customerId,
         // Preserve existing fields
         lemonsqueezy_subscription_id: subscription?.lemonsqueezy_subscription_id,
@@ -644,7 +658,8 @@ export class SubscriptionService {
       return customerId;
     } catch (error) {
       logger.error("Failed to ensure Lemon Squeezy customer:", error);
-      throw new Error("Billing initialization failed. Please try again later.");
+      // If it's a timeout error from getUserSubscription, we should probably not throw but return gracefully or handle it
+      throw error;
     }
   }
 }

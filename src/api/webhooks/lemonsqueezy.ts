@@ -33,39 +33,39 @@ router.post("/lemonsqueezy", express.raw({ type: "application/json" }), async (r
     // Handle different event types
     switch (eventName) {
       case "order_created":
-        await handleOrderCreated(data);
+        await handleOrderCreated(event);
         break;
 
       case "subscription_created":
-        await handleSubscriptionCreated(data);
+        await handleSubscriptionCreated(event);
         break;
 
       case "subscription_updated":
-        await handleSubscriptionUpdated(data);
+        await handleSubscriptionUpdated(event);
         break;
 
       case "subscription_cancelled":
-        await handleSubscriptionCancelled(data);
+        await handleSubscriptionCancelled(event);
         break;
 
       case "subscription_resumed":
-        await handleSubscriptionResumed(data);
+        await handleSubscriptionResumed(event);
         break;
 
       case "subscription_expired":
-        await handleSubscriptionExpired(data);
+        await handleSubscriptionExpired(event);
         break;
 
       case "subscription_paused":
-        await handleSubscriptionPaused(data);
+        await handleSubscriptionPaused(event);
         break;
 
       case "subscription_unpaused":
-        await handleSubscriptionUnpaused(data);
+        await handleSubscriptionUnpaused(event);
         break;
 
       case "subscription_payment_success":
-        await handleSubscriptionPaymentSuccess(data);
+        await handleSubscriptionPaymentSuccess(event);
         break;
 
       default:
@@ -82,14 +82,16 @@ router.post("/lemonsqueezy", express.raw({ type: "application/json" }), async (r
 /**
  * Handle order created event
  */
-async function handleOrderCreated(data: any) {
-  const userId = data.attributes.custom_data?.user_id;
+async function handleOrderCreated(event: any) {
+  const data = event.data;
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const userId = customData?.user_id;
   const orderId = data.id;
   const amount = data.attributes.total;
   const currency = data.attributes.currency;
 
   if (!userId) {
-    logger.warn("Order created without user_id");
+    logger.warn("Order created without user_id", { eventMeta: event.meta });
     return;
   }
 
@@ -109,7 +111,7 @@ async function handleOrderCreated(data: any) {
   logger.info("Payment history created", { userId, orderId });
 
   // Handle Credit Purchases
-  const plan = data.attributes.custom_data?.plan;
+  const plan = customData?.plan;
   if (plan && plan.startsWith("credits_")) {
     // Parse credit amount from plan ID (e.g. "credits_25" -> 25)
     const baseAmount = parseInt(plan.replace("credits_", ""), 10);
@@ -135,12 +137,14 @@ async function handleOrderCreated(data: any) {
 /**
  * Handle subscription created event
  */
-async function handleSubscriptionCreated(data: any) {
-  const userId = data.attributes.custom_data?.user_id;
-  const plan = data.attributes.custom_data?.plan || "student";
+async function handleSubscriptionCreated(event: any) {
+  const data = event.data;
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const userId = customData?.user_id;
+  const plan = customData?.plan || "student";
 
   if (!userId) {
-    logger.warn("Subscription created without user_id");
+    logger.warn("Subscription created without user_id", { eventMeta: event.meta });
     return;
   }
 
@@ -153,6 +157,14 @@ async function handleSubscriptionCreated(data: any) {
     current_period_start: new Date(data.attributes.created_at),
     current_period_end: new Date(data.attributes.renews_at),
     renews_at: new Date(data.attributes.renews_at),
+  });
+
+  console.log('[WEBHOOK_APPLY_SUBSCRIPTION]', {
+    event: 'subscription_created',
+    userId,
+    plan,
+    status: data.attributes.status,
+    variant: data.attributes.variant_name || data.attributes.variant_id,
   });
 
   logger.info("Subscription created", { userId, plan });
@@ -181,21 +193,32 @@ async function handleSubscriptionCreated(data: any) {
 /**
  * Handle subscription updated event
  */
-async function handleSubscriptionUpdated(data: any) {
+async function handleSubscriptionUpdated(event: any) {
+  const data = event.data;
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
   const subscriptionId = data.id;
-  const userId = data.attributes.custom_data?.user_id;
+  const userId = customData?.user_id;
+  const plan = customData?.plan || "student";
 
   if (!userId) {
-    logger.warn("Subscription updated without user_id");
+    logger.warn("Subscription updated without user_id", { eventMeta: event.meta });
     return;
   }
 
   await SubscriptionService.upsertSubscription(userId, {
-    plan: data.attributes.custom_data?.plan || "student",
+    plan,
     status: data.attributes.status,
     variant_id: data.attributes.variant_id.toString(),
     renews_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
     ends_at: data.attributes.ends_at ? new Date(data.attributes.ends_at) : undefined,
+  });
+
+  console.log('[WEBHOOK_APPLY_SUBSCRIPTION]', {
+    event: 'subscription_updated',
+    userId,
+    plan,
+    status: data.attributes.status,
+    variant: data.attributes.variant_name || data.attributes.variant_id,
   });
 
   logger.info("Subscription updated", { userId, subscriptionId });
@@ -226,16 +249,18 @@ async function handleSubscriptionUpdated(data: any) {
 /**
  * Handle subscription cancelled event
  */
-async function handleSubscriptionCancelled(data: any) {
-  const userId = data.attributes.custom_data?.user_id;
+async function handleSubscriptionCancelled(event: any) {
+  const data = event.data;
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn("Subscription cancelled without user_id");
+    logger.warn("Subscription cancelled without user_id", { eventMeta: event.meta });
     return;
   }
 
   await SubscriptionService.upsertSubscription(userId, {
-    plan: data.attributes.custom_data?.plan || "student", // Keep the plan! Don't degrade to free yet.
+    plan: customData?.plan || "student", // Keep the plan! Don't degrade to free yet.
     status: data.attributes.status, // Trust LS status (should be 'active' or 'on_trial')
     cancel_at_period_end: true,
     ends_at: data.attributes.ends_at ? new Date(data.attributes.ends_at) : undefined,
@@ -247,16 +272,18 @@ async function handleSubscriptionCancelled(data: any) {
 /**
  * Handle subscription resumed event
  */
-async function handleSubscriptionResumed(data: any) {
-  const userId = data.attributes.custom_data?.user_id;
+async function handleSubscriptionResumed(event: any) {
+  const data = event.data;
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn("Subscription resumed without user_id");
+    logger.warn("Subscription resumed without user_id", { eventMeta: event.meta });
     return;
   }
 
   await SubscriptionService.upsertSubscription(userId, {
-    plan: data.attributes.custom_data?.plan || "student",
+    plan: customData?.plan || "student",
     status: "active",
     cancel_at_period_end: false,
   });
@@ -267,11 +294,13 @@ async function handleSubscriptionResumed(data: any) {
 /**
  * Handle subscription expired event
  */
-async function handleSubscriptionExpired(data: any) {
-  const userId = data.attributes.custom_data?.user_id;
+async function handleSubscriptionExpired(event: any) {
+  const data = event.data;
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn("Subscription expired without user_id");
+    logger.warn("Subscription expired without user_id", { eventMeta: event.meta });
     return;
   }
 
@@ -286,16 +315,18 @@ async function handleSubscriptionExpired(data: any) {
 /**
  * Handle subscription paused event
  */
-async function handleSubscriptionPaused(data: any) {
-  const userId = data.attributes.custom_data?.user_id;
+async function handleSubscriptionPaused(event: any) {
+  const data = event.data;
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn("Subscription paused without user_id");
+    logger.warn("Subscription paused without user_id", { eventMeta: event.meta });
     return;
   }
 
   await SubscriptionService.upsertSubscription(userId, {
-    plan: data.attributes.custom_data?.plan || "student",
+    plan: customData?.plan || "student",
     status: "paused",
   });
 
@@ -305,16 +336,18 @@ async function handleSubscriptionPaused(data: any) {
 /**
  * Handle subscription unpaused event
  */
-async function handleSubscriptionUnpaused(data: any) {
-  const userId = data.attributes.custom_data?.user_id;
+async function handleSubscriptionUnpaused(event: any) {
+  const data = event.data;
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn("Subscription unpaused without user_id");
+    logger.warn("Subscription unpaused without user_id", { eventMeta: event.meta });
     return;
   }
 
   await SubscriptionService.upsertSubscription(userId, {
-    plan: data.attributes.custom_data?.plan || "student",
+    plan: customData?.plan || "student",
     status: "active",
   });
 
@@ -327,21 +360,14 @@ import { prisma } from "../../lib/prisma";
 /**
  * Handle subscription payment success event (Renewals)
  */
-async function handleSubscriptionPaymentSuccess(data: any) {
-  const userId = data.attributes.custom_data?.user_id;
+async function handleSubscriptionPaymentSuccess(event: any) {
+  const data = event.data;
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const userId = customData?.user_id;
   const subscriptionId = data.attributes.subscription_id;
 
-  // Note: payment_success event ID might be different from order ID, 
-  // but usually related to an invoice.
-  // LemonSqueezy payload has 'subscription_invoice_id' or similar?
-  // Actually, let's look at the docs or standard payload.
-  // data.id is usually the ID of the event object (subscription-invoice).
-  // data.attributes.total is amount.
-
   if (!userId) {
-    // Try to find user by subscription ID if custom_data is missing (recurring payments might lose custom_data in some old webhook versions, but usually it persists)
-    // For now, log warning.
-    logger.warn("Subscription payment success without user_id", { subscriptionId });
+    logger.warn("Subscription payment success without user_id", { subscriptionId, eventMeta: event.meta });
     return;
   }
 
