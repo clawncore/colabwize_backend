@@ -159,10 +159,11 @@ export class DocumentUploadService {
     description: string,
     content: any,
     wordCount: number,
-    citationStyle?: string
+    citationStyle?: string,
+    outline?: any
   ) {
     // Update project record
-    const updatedProject = await prisma.project.update({
+    const updatedProject = await (prisma.project as any).update({
       where: {
         id: projectId,
         user_id: userId,
@@ -171,6 +172,7 @@ export class DocumentUploadService {
         title,
         description,
         content,
+        outline,
         word_count: wordCount,
         citation_style: citationStyle, // Pass directly (Prisma handles undefined gracefully often, or use conditional spread)
         updated_at: new Date(),
@@ -240,10 +242,11 @@ export class DocumentUploadService {
     userId: string,
     title: string,
     description: string,
-    content: any
+    content: any,
+    outline: any = null
   ) {
     // Create project record in the database
-    const project = await prisma.project.create({
+    const project = await (prisma.project as any).create({
       data: {
         user_id: userId,
         title,
@@ -256,6 +259,7 @@ export class DocumentUploadService {
             },
           ],
         },
+        outline: outline,
         word_count: content ? this.countWords(JSON.stringify(content)) : 0,
       },
       include: {

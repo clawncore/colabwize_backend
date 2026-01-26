@@ -40,14 +40,46 @@ export class OpenAlexService {
             title: work.title,
             authors: work.authorships?.map((a: any) => a.author.display_name) || [],
             year: work.publication_year,
-            // OpenAlex abstract is inverted index, tough to reconstruct. 
-            // We'll skip abstract for OpenAlex fallback or use simple description methods if available.
-            abstract: undefined,
-            url: work.doi || work.id,
+            abstract: this.reconstructAbstract(work.abstract_inverted_index),
+            url: (work.open_access?.is_oa && work.open_access.oa_url) ? work.open_access.oa_url : (work.doi || work.id),
             citationCount: work.cited_by_count || 0,
             openAccessPdf: work.open_access?.is_oa ? work.open_access.oa_url : undefined,
             venue: work.primary_location?.source?.display_name,
             source: "openalex"
         };
+    }
+
+    /**
+     * Reconstruct abstract from OpenAlex's inverted index
+     */
+    private static reconstructAbstract(invertedIndex: Record<string, number[]> | null | undefined): string | undefined {
+        if (!invertedIndex) return undefined;
+
+        try {
+            // Create an array to hold words at their respective positions
+            const wordMap: Record<number, string> = {};
+            let maxIndex = 0;
+
+            // Iterate over the inverted index
+            Object.entries(invertedIndex).forEach(([word, positions]) => {
+                positions.forEach((pos) => {
+                    wordMap[pos] = word;
+                    if (pos > maxIndex) maxIndex = pos;
+                });
+            });
+
+            // Reconstruct the string
+            const words: string[] = [];
+            for (let i = 0; i <= maxIndex; i++) {
+                if (wordMap[i]) {
+                    words.push(wordMap[i]);
+                }
+            }
+
+            return words.join(" ");
+        } catch (error) {
+            logger.warn("Failed to reconstruct abstract from inverted index", { error });
+            return undefined;
+        }
     }
 }

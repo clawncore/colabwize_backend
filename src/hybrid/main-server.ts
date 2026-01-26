@@ -15,8 +15,10 @@ import authRouter from "../api/auth/index";
 import surveyRouter from "../api/survey/index";
 import originalityRouter from "../api/originality/index";
 import citationsRouter from "../api/citations/index";
+import annotationsRouter from "../api/annotations/index";
 
 import authorshipRouter from "../api/authorship/index";
+import aiDetectionRouter from "../api/ai-detection/index";
 import analyticsRouter from "../api/analytics/index";
 import subscriptionRouter from "../api/subscription/index";
 import webhookRouter from "../api/webhooks/lemonsqueezy";
@@ -34,6 +36,9 @@ import chatRouter from "../api/chat/index";
 import waitlistRouter from "../api/waitlist/index";
 import imageRouter from "../api/images/upload";
 import templatesRouter from "../api/templates/index";
+import behavioralTrackingRouter from "../api/behavioral-tracking/index";
+import proxyRouter from "../api/proxy/index";
+import sourcesRouter from "../api/sources/index";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 
 const app: Application = express();
@@ -223,8 +228,14 @@ app.use("/api/originality", authMiddleware, originalityRouter);
 // Citations API (MVP Feature #2 - Citation Confidence + Missing Link)
 app.use("/api/citations", authMiddleware, citationsRouter);
 
+// Annotations API (Feature 2: PDF Annotator)
+app.use("/api/annotations", authMiddleware, annotationsRouter);
+
 // Authorship Certificate API (MVP Feature #4)
 app.use("/api/authorship", authMiddleware, authorshipRouter);
+
+// AI Detection API
+app.use("/api/ai-detection", authMiddleware, aiDetectionRouter);
 
 // Analytics API
 app.use("/api/analytics", authMiddleware, analyticsRouter);
@@ -240,6 +251,9 @@ app.use("/api/files", authMiddleware, fileProcessingRouter);
 
 // Images API (Upload to Supabase)
 app.use("/api/images", authMiddleware, imageRouter);
+
+// Behavioral Tracking API
+app.use("/api/behavioral-tracking", authMiddleware, behavioralTrackingRouter);
 
 // Users API (Authentication required)
 app.use("/api/users", authMiddleware, usersRouter);
@@ -275,6 +289,12 @@ app.use("/api/chat", authMiddleware, chatRouter);
 
 // Templates API (Authentication required)
 app.use("/api/templates", authMiddleware, templatesRouter);
+
+// Proxy API (Authentication required)
+app.use("/api/proxy", authMiddleware, proxyRouter);
+
+// Sources API (Authentication required - Source Integration Verification)
+app.use("/api/sources", authMiddleware, sourcesRouter);
 
 // 404 handler
 app.use((req, res) => {

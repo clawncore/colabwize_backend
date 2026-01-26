@@ -604,19 +604,31 @@ export class SubscriptionService {
         return subscription.lemonsqueezy_customer_id;
       }
 
-      // 3. Create new customer in Lemon Squeezy
-      logger.info("Initializing Lemon Squeezy customer for user", { userId: user.id });
+      // 3. Check if customer already exists in Lemon Squeezy by email
+      logger.info("Checking for existing Lemon Squeezy customer by email", { email: user.email });
+      const existingCustomers = await LemonSqueezyService.getCustomersByEmail(user.email);
 
-      const newCustomer = await LemonSqueezyService.createCustomer(
-        user.email,
-        user.name || "Customer"
-      );
+      let customerId: string;
 
-      // 4. Update/Create subscription record with new customer ID
+      if (existingCustomers && existingCustomers.length > 0) {
+        customerId = existingCustomers[0].id;
+        logger.info("Found existing Lemon Squeezy customer", { email: user.email, customerId });
+      } else {
+        // 4. Create new customer in Lemon Squeezy
+        logger.info("Initializing new Lemon Squeezy customer for user", { userId: user.id });
+
+        const newCustomer = await LemonSqueezyService.createCustomer(
+          user.email,
+          user.name || "Customer"
+        );
+        customerId = newCustomer.id;
+      }
+
+      // 5. Update/Create subscription record with customer ID
       await this.upsertSubscription(user.id, {
         plan: subscription?.plan || "free",
         status: subscription?.status || "inactive",
-        lemonsqueezy_customer_id: newCustomer.id,
+        lemonsqueezy_customer_id: customerId,
         // Preserve existing fields
         lemonsqueezy_subscription_id: subscription?.lemonsqueezy_subscription_id,
         variant_id: subscription?.variant_id,
@@ -624,12 +636,12 @@ export class SubscriptionService {
         current_period_end: subscription?.current_period_end,
       });
 
-      logger.info("Created Lemon Squeezy customer successfully", {
+      logger.info("Linked Lemon Squeezy customer successfully", {
         userId: user.id,
-        customerId: newCustomer.id
+        customerId
       });
 
-      return newCustomer.id;
+      return customerId;
     } catch (error) {
       logger.error("Failed to ensure Lemon Squeezy customer:", error);
       throw new Error("Billing initialization failed. Please try again later.");

@@ -23,7 +23,7 @@ router.post(
       }
 
       const { projectId } = req.params;
-      const { title, author, year, type, doi, url, source, formatted_citations } = req.body as any;
+      const { title, author, year, type, doi, url, source, abstract, formatted_citations } = req.body as any;
 
       if (!projectId) {
         return res.status(400).json({

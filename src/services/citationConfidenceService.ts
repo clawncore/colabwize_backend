@@ -378,6 +378,7 @@ export class CitationConfidenceService {
       doi?: string;
       url?: string;
       source?: string;
+      abstract?: string;
       formatted_citations?: any;
     }
   ): Promise<any> {
@@ -475,6 +476,7 @@ export class CitationConfidenceService {
           doi: citationData.doi,
           url: citationData.url,
           source: citationData.source || "manual",
+          abstract: citationData.abstract,
           formatted_citations: citationData.formatted_citations,
           is_reliable: isReliable,
         },

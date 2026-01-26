@@ -12,7 +12,7 @@ export interface AcademicPaper {
     citationCount: number;
     openAccessPdf?: string;
     venue?: string; // Journal or Conference
-    source: "semantic_scholar" | "openalex";
+    source: "semantic_scholar" | "openalex" | "arxiv" | "pubmed" | "ieee" | "doaj" | "crossref";
 }
 
 export class SemanticScholarService {

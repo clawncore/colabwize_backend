@@ -1,46 +1,90 @@
 import { SemanticScholarService, AcademicPaper } from "./semanticScholarService";
 import { OpenAlexService } from "./openAlexService";
+import { ArxivService } from "./arxivService";
+import { PubmedService } from "./pubmedService";
+import { IEEEService } from "./ieeeService";
+import { DOAJService } from "./doajService";
+import { CrossRefService } from "./crossRefService";
 import logger from "../monitoring/logger";
 
 export class AcademicSearchService {
 
     /**
-     * Universal search for academic papers with fallback strategy
-     * Primary: Semantic Scholar
-     * Fallback: OpenAlex
+     * Universal search for academic papers across multiple databases
      */
-    static async searchPapers(query: string, limit: number = 5): Promise<AcademicPaper[]> {
+    static async searchPapers(query: string, limit: number = 8): Promise<AcademicPaper[]> {
         try {
-            // 1. Try Semantic Scholar
-            logger.info("Searching Semantic Scholar", { query });
-            const results = await SemanticScholarService.searchPapers(query, limit);
+            logger.info("Starting multi-source academic search", { query });
 
-            if (results.length > 0) {
-                return results;
-            }
+            // Run searches in parallel for efficiency
+            const searchPromises = [
+                SemanticScholarService.searchPapers(query, 5),
+                OpenAlexService.searchPapers(query, 5),
+                ArxivService.searchPapers(query, 5),
+                PubmedService.searchPapers(query, 5),
+                IEEEService.searchPapers(query, 5),
+                DOAJService.searchPapers(query, 5),
+                CrossRefService.searchPapers(query, 5)
+            ];
 
-            logger.info("Semantic Scholar returned no results, trying OpenAlex...");
-        } catch (error) {
-            logger.warn("Semantic Scholar search failed, trying OpenAlex fallback", { error });
-        }
+            const results = await Promise.allSettled(searchPromises);
 
-        // 2. Fallback to OpenAlex
-        try {
-            logger.info("Searching OpenAlex (Fallback)", { query });
-            return await OpenAlexService.searchPapers(query, limit);
-        } catch (error) {
-            logger.error("All academic search providers failed", { error });
+            const allPapers: AcademicPaper[] = [];
+            results.forEach((result, index) => {
+                if (result.status === "fulfilled") {
+                    allPapers.push(...result.value);
+                } else {
+                    logger.warn(`Search provider ${index} failed`, { error: result.reason });
+                }
+            });
+
+            // Deduplicate and rank
+            return this.deduplicateAndRank(allPapers, limit);
+
+        } catch (error: any) {
+            logger.error("Academic search aggregation failed", { error: error.message });
             return [];
         }
     }
 
+    private static deduplicateAndRank(papers: AcademicPaper[], limit: number): AcademicPaper[] {
+        const uniquePapers: AcademicPaper[] = [];
+        const seenTitles = new Set<string>();
+
+        // Sort by quality/citation count where available
+        const sorted = [...papers].sort((a, b) => (b.citationCount || 0) - (a.citationCount || 0));
+
+        for (const paper of sorted) {
+            const normalizedTitle = paper.title.toLowerCase().trim().replace(/[^\w\s]/g, "");
+
+            // Check for near-duplicates (simple subset check for titles)
+            let isDuplicate = false;
+            if (seenTitles.has(normalizedTitle)) {
+                isDuplicate = true;
+            } else {
+                for (const existing of seenTitles) {
+                    if (normalizedTitle.includes(existing) || existing.includes(normalizedTitle)) {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!isDuplicate) {
+                uniquePapers.push(paper);
+                seenTitles.add(normalizedTitle);
+            }
+
+            if (uniquePapers.length >= limit) break;
+        }
+
+        return uniquePapers;
+    }
+
     /**
      * "Legitimize" a claim: Find a real paper that supports a statement.
-     * This is the "Citation Armor" core function.
      */
     static async findEvidenceForClaim(claim: string): Promise<AcademicPaper[]> {
-        // Basic NLP preprocessing could go here (remove stopwords, focus on nouns/verbs)
-        // For now, passing the full claim works reasonably well with modern semantic search APIs
-        return this.searchPapers(claim, 3);
+        return this.searchPapers(claim, 5);
     }
 }

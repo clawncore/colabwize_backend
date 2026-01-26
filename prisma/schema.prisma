@@ -61,6 +61,8 @@ model User {
   survey                UserSurvey?
   credit_balance        CreditBalance?
   credit_transactions   CreditTransaction[]
+  annotations           Annotation[]
+  source_interactions   SourceInteraction[]
 
   @@index([email])
   @@map("users")
@@ -230,6 +232,7 @@ model Project {
   title                 String
   description           String?
   content               Json?
+  outline               Json?                // To store drag-and-drop structural organization
   word_count            Int                  @default(0)
   file_path             String?
   file_type             String?
@@ -247,6 +250,7 @@ model Project {
   originality_scans     OriginalityScan[]
   user                  User                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
   real_time_activities  RealTimeActivity[]
+  source_interactions   SourceInteraction[]
 
   @@index([user_id])
   @@index([created_at])
@@ -270,7 +274,10 @@ model Citation {
   journal        String?
   citation_count Int?
   source         String?
+  abstract       String?  // Summary of the paper
   formatted_citations Json?
+  themes         Json?    // Array of themes like ["Gap", "Method", "Result"]
+  matrix_notes   String?  // Qualitative notes for the Literature Matrix
   is_reliable    Boolean  @default(true)
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
@@ -375,6 +382,7 @@ model File {
   updated_at  DateTime @updatedAt
   project     Project? @relation(fields: [project_id], references: [id])
   user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  annotations Annotation[]
 
   @@index([user_id])
   @@index([project_id])
@@ -705,4 +713,48 @@ model DocumentTemplate {
   @@index([is_public])
   @@index([user_id])
   @@map("document_templates")
+}
+
+model Annotation {
+  id          String   @id @default(uuid())
+  file_id     String
+  user_id     String
+  content     String?  // For notes/comments
+  type        String   // 'highlight' | 'note'
+  color       String?  // For highlights
+  coordinates Json     // { page: number, area: { x, y, w, h }[] }
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  
+  file        File     @relation(fields: [file_id], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([file_id])
+  @@index([user_id])
+  @@map("annotations")
+}
+
+model SourceInteraction {
+  id                        String   @id @default(uuid())
+  project_id                String
+  user_id                   String
+  source_id                 String // DOI, URL, or Title (or File ID if internal)
+  source_title              String?
+  total_reading_time_ms     Int      @default(0)
+  open_count                Int      @default(0)
+  last_read_at              DateTime @default(now())
+  first_read_at             DateTime @default(now())
+  citation_added_at         DateTime?
+  is_cited                  Boolean  @default(false)
+  citation_preceded_by_reading Boolean @default(true)
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+
+  project Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([project_id, user_id, source_id])
+  @@index([project_id])
+  @@index([user_id])
+  @@map("source_interactions")
 }

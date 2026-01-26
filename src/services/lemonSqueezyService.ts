@@ -189,6 +189,14 @@ export class LemonSqueezyService {
   }
 
   /**
+   * Get customer by email
+   */
+  static async getCustomersByEmail(email: string) {
+    const response = await this.makeRequest(`customers?filter[email]=${encodeURIComponent(email)}`);
+    return response.data;
+  }
+
+  /**
    * Get customer details
    */
   static async getCustomer(customerId: string) {

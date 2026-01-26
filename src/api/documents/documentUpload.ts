@@ -240,7 +240,7 @@ router.put(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { projectId } = req.params;
-      const { title, description, content, word_count } = req.body as any;
+      const { title, description, content, word_count, citation_style } = req.body as any;
       const userId = req.user!.id;
 
       // Validate required fields
@@ -255,7 +255,8 @@ router.put(
         title,
         description || "",
         content,
-        word_count || 0
+        word_count || 0,
+        citation_style
       );
 
       if (!updatedProject) {
