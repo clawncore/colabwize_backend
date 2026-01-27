@@ -471,12 +471,13 @@ const humanizeLimiter = rateLimit({
  * POST /api/originality/humanize
  * Adversarial Humanization (Auto-Humanizer)
  */
+/**
+ * POST /api/originality/humanize
+ * Adversarial Humanization (Auto-Humanizer)
+ */
 router.post(
   "/humanize",
   humanizeLimiter,
-  checkUsageLimit("originality_scan"), // Reuse originality usage or create new feature? Let's reuse for now or just check authentication
-  // Ideally this should consume CREDITS or be PRO only.
-  // For now, we'll gate it behind authentication and general usage.
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
@@ -494,15 +495,30 @@ router.post(
         return res.status(400).json({ success: false, message: "Content too long (max 5000 chars)" });
       }
 
+      // Check Limits
+      const wordCount = content.split(/\s+/).length;
+      const eligibility = await SubscriptionService.checkActionEligibility(userId, "rephrase", { wordCount });
+
+      if (!eligibility.allowed) {
+        let status = 403;
+        if (eligibility.code === "INSUFFICIENT_CREDITS") status = 402;
+
+        return res.status(status).json({
+          error: eligibility.message,
+          code: eligibility.code || "PLAN_LIMIT_REACHED",
+          data: { upgrade_url: "/pricing", limit_info: eligibility }
+        });
+      }
+
       logger.info("Starting text humanization", { userId, length: content.length });
 
-      // Import dynamically to avoid circular issues if any (though services should be fine)
+      // Import dynamically to avoid circular issues
       const { HumanizerService } = await import("../../services/humanizerService");
 
       const result = await HumanizerService.humanizeText(content);
 
-      // Track usage (todo: distinct metric)
-      await incrementFeatureUsage("originality_scan")(req, res, () => { });
+      // Consume now
+      await SubscriptionService.consumeAction(userId, "rephrase", { wordCount });
 
       return res.status(200).json({
         success: true,
@@ -511,7 +527,91 @@ router.post(
 
     } catch (error: any) {
       logger.error("Error in humanize endpoint", { error: error.message });
-      return res.status(500).json({ success: false, message: "Failed to humanize text" });
+
+      const isTimeout = error.message?.includes("timeout") || error.name === "TimeoutError";
+      if (isTimeout) {
+        return res.status(403).json({
+          error: "Generation timed out due to high demand.",
+          code: "PLAN_LIMIT_REACHED",
+          data: { upgrade_url: "/pricing" }
+        });
+      }
+
+      return res.status(500).json({ success: false, message: "Failed to humanize text", code: "GENERATION_FAILED" });
+    }
+  }
+);
+
+/**
+ * POST /api/originality/section-check
+ * Lightweight check for specific section
+ */
+router.post(
+  "/section-check",
+  async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user?.id;
+      const { projectId, content } = req.body;
+
+      if (!content || !projectId) return res.status(400).json({ success: false, message: "Missing info" });
+
+      const result = await OriginalityMapService.checkSectionRisk(projectId, userId || "anonymous", content);
+      return res.status(200).json({ success: true, data: result });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, message: e.message });
+    }
+  }
+);
+
+/**
+ * POST /api/originality/rewrite-selection
+ * Humanize specific selection
+ */
+router.post(
+  "/rewrite-selection",
+  humanizeLimiter,
+  async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "Authentication required" });
+      }
+
+      const { selection, context } = req.body;
+      if (!selection) return res.status(400).json({ success: false, message: "Selection required" });
+
+      const wordCount = selection.split(/\s+/).length;
+      const eligibility = await SubscriptionService.checkActionEligibility(userId, "rephrase", { wordCount });
+
+      if (!eligibility.allowed) {
+        let status = 403;
+        if (eligibility.code === "INSUFFICIENT_CREDITS") status = 402;
+
+        return res.status(status).json({
+          error: eligibility.message,
+          code: eligibility.code || "PLAN_LIMIT_REACHED",
+          data: { upgrade_url: "/pricing", limit_info: eligibility }
+        });
+      }
+
+      // Dynamic import to handle circular deps if any
+      const { HumanizerService } = await import("../../services/humanizerService");
+      const result = await HumanizerService.rewriteSelection(selection, context);
+
+      // Deduct credits/usage after success
+      await SubscriptionService.consumeAction(userId, "rephrase", { wordCount });
+
+      return res.status(200).json({ success: true, data: result });
+    } catch (e: any) {
+      const isTimeout = e.message?.includes("timeout") || e.name === "TimeoutError";
+      if (isTimeout) {
+        return res.status(403).json({
+          error: "Generation timed out. Please try again.",
+          code: "PLAN_LIMIT_REACHED",
+          data: { upgrade_url: "/pricing" }
+        });
+      }
+      return res.status(500).json({ success: false, message: e.message, code: "GENERATION_FAILED" });
     }
   }
 );

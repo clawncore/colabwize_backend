@@ -59,6 +59,7 @@ model User {
   user_metrics          UserMetrics?
   user_sessions         UserSession[]
   policy_accepted_at    DateTime?
+  auto_use_credits      Boolean              @default(true)
   survey                UserSurvey?
   credit_balance        CreditBalance?
   credit_transactions   CreditTransaction[]
@@ -689,6 +690,7 @@ model CreditTransaction {
   created_at   DateTime @default(now())
   user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@unique([reference_id, type])
   @@index([user_id])
   @@index([type])
   @@index([created_at])
@@ -759,4 +761,17 @@ model SourceInteraction {
   @@index([project_id])
   @@index([user_id])
   @@map("source_interactions")
+}
+
+model WebhookEvent {
+  id           String   @id @default(uuid())
+  event_id     String   @unique
+  provider     String
+  event_type   String
+  payload      Json?
+  processed_at DateTime @default(now())
+
+  @@index([event_id])
+  @@index([provider])
+  @@map("webhook_events")
 }

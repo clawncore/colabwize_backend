@@ -96,10 +96,9 @@ export const prisma =
 globalForPrisma.prisma = prisma;
 
 // Add graceful shutdown handler
-process.on("beforeExit", async () => {
-  logger.info("Closing database connections (beforeExit)...");
-  await prisma.$disconnect();
-});
+// [AUDIT] Removed process.on("beforeExit") handler to prevent infinite loop.
+// "beforeExit" triggers when event loop is empty. Scheduling async work ($disconnect)
+// keeps the process alive, emptying the loop again, and re-triggering "beforeExit".
 
 process.on("SIGINT", async () => {
   logger.info("Closing database connections (SIGINT)...");

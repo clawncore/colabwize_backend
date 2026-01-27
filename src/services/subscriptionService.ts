@@ -9,6 +9,7 @@ export type ConsumptionResult = {
   remaining?: number;
   cost?: number;
   message?: string;
+  code?: "PLAN_LIMIT_REACHED" | "INSUFFICIENT_CREDITS" | "FEATURE_NOT_ALLOWED" | "SYSTEM_ERROR";
 };
 
 /**
@@ -19,21 +20,23 @@ const PLAN_LIMITS = {
     // Scan Limits
     scans_per_month: 3,
     originality_scan: 3,
-    citation_check: 0, // NOT AVAILABLE - as per pricing page
-    draft_comparison: false, // NOT AVAILABLE
+    citation_check: 3,
+    draft_comparison: false,
     rephrase_suggestions: 3,
-    paper_search: 3,
-    ai_integrity: 0, // Not available in Free
-    certificate: 10,
-    max_scan_characters: 100000,
+    paper_search: 0,
+    ai_integrity: 0,
+    certificate: 0,
+    max_scan_characters: 20000,
 
     // Feature Flags
     certificate_retention_days: 7,
     watermark: true,
-    export_formats: false, // Only PDF allowed
+    export_formats: false,
     priority_scanning: false,
     advanced_citations: false,
     advanced_analytics: false,
+    research_gaps: false,
+    insight_map: false,
   },
   payg: {
     // Scan Limits (Credit-based)
@@ -48,24 +51,26 @@ const PLAN_LIMITS = {
     max_scan_characters: 300000,
 
     // Feature Flags
-    certificate_retention_days: 0, // Immediate deletion
+    certificate_retention_days: 0,
     watermark: false,
     export_formats: true,
     priority_scanning: false,
     advanced_citations: false,
     advanced_analytics: false,
+    research_gaps: false,
+    insight_map: false,
   },
   student: {
     // Scan Limits
-    scans_per_month: 50,
-    originality_scan: 50,
-    citation_check: 50,
-    draft_comparison: false, // NOT AVAILABLE
-    rephrase_suggestions: 50,
-    paper_search: 50,
-    ai_integrity: 0, // Not available in Student
-    certificate: 50,
-    max_scan_characters: 300000,
+    scans_per_month: 25,
+    originality_scan: 25,
+    citation_check: 25,
+    draft_comparison: false,
+    rephrase_suggestions: 25,
+    paper_search: 25,
+    ai_integrity: 0,
+    certificate: 25,
+    max_scan_characters: 80000,
 
     // Feature Flags
     certificate_retention_days: 30,
@@ -74,26 +79,30 @@ const PLAN_LIMITS = {
     priority_scanning: false,
     advanced_citations: false,
     advanced_analytics: false,
+    research_gaps: false,
+    insight_map: false,
   },
   researcher: {
-    // Scan Limits (Unlimited)
-    scans_per_month: -1,
-    originality_scan: -1,
-    citation_check: -1,
-    draft_comparison: -1, // Available
-    rephrase_suggestions: -1,
-    paper_search: -1,
-    ai_integrity: -1,
-    certificate: -1,
-    max_scan_characters: 500000,
+    // Scan Limits
+    scans_per_month: 100,
+    originality_scan: 100,
+    citation_check: 100,
+    draft_comparison: 100,
+    rephrase_suggestions: 100,
+    paper_search: 100,
+    ai_integrity: 100,
+    certificate: 100,
+    max_scan_characters: 200000,
 
     // Feature Flags
-    certificate_retention_days: -1, // Unlimited retention
+    certificate_retention_days: 90,
     watermark: false,
     export_formats: true,
     priority_scanning: true,
     advanced_citations: true,
     advanced_analytics: true,
+    research_gaps: true,
+    insight_map: true,
   },
 };
 
@@ -201,24 +210,42 @@ export class SubscriptionService {
     feature: string
   ): Promise<number> {
     const now = new Date();
-    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const periodEnd = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59
-    );
+
+    // Fix 3: Billing Cycle Usage Reset
+    // Default to Calendar Month (Free Tier / No Sub)
+    let periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    let periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    // Try to get subscription billing cycle
+    try {
+      const subscription = await this.getUserSubscription(userId);
+      if (subscription && subscription.current_period_start && subscription.current_period_end) {
+        // Use active billing period
+        // We trust current_period_start from LemonSqueezy
+        periodStart = new Date(subscription.current_period_start);
+
+        // Ensure periodEnd covers the full cycle (trusting LS or deriving)
+        // LS current_period_end is the renewal date.
+        periodEnd = new Date(subscription.current_period_end);
+      }
+    } catch (e) {
+      // Fallback to calendar month on error
+      logger.warn("Failed to fetch subscription for usage check, defaulting to calendar month", { userId });
+    }
 
     const usage = await prisma.usageTracking.findFirst({
       where: {
         user_id: userId,
         feature,
-        period_start: periodStart,
-        period_end: periodEnd,
+        // We check for usage records that START on or after the period start
+        // This assumes usage records are created with the correct period_start
+        period_start: { gte: periodStart },
       },
     });
+
+    // Note: The original logic looked for a specific period_start/end pair.
+    // However, if the billing cycle shifts (e.g. renewal), the old record won't match.
+    // The "incrementUsage" method also needs to update to align with this period calculation.
 
     return usage?.count || 0;
   }
@@ -230,62 +257,123 @@ export class SubscriptionService {
    * Check if user can perform an action based on feature limits
    * Canonical Rule: Subscription tier overrides scan limits.
    */
-  static async canPerformAction(
+  /**
+   * Check if user can perform an action based on feature limits
+   * Canonical Rule: Subscription tier overrides scan limits.
+   */
+  /**
+   * Check if user is eligible to perform an action (Dry Run)
+   * Returns detailed result including blocking reason and error code.
+   */
+  static async checkActionEligibility(
     userId: string,
-    feature: string
-  ): Promise<boolean> {
+    feature: string,
+    metadata?: any
+  ): Promise<ConsumptionResult> {
     const plan = await this.getActivePlan(userId);
     const limits = this.getPlanLimits(plan);
     const normalizedPlan = plan.toLowerCase();
-
-    // 1. Authority Check: High-tier plans are UNLIMITED
-    // If user is Researcher, they are allowed. Period.
-    if (normalizedPlan === "researcher" || normalizedPlan.includes("pro")) {
-      logger.info("Entitlement Check: ALLOWED (Tier Override)", { userId, feature, plan });
-      return true;
-    }
 
     // Map feature to limit key
     let limitKey = feature;
     if (feature === "scan") limitKey = "scans_per_month";
 
-    // 2. Limit Check
+    let planLimit = 0;
     if (limitKey in limits) {
-      const limit = limits[limitKey as keyof typeof limits];
+      const val = limits[limitKey as keyof typeof limits];
+      if (typeof val === "number") planLimit = val;
+    }
 
-      // Explicitly handle -1 as unlimited (redundant for Researcher, but safe for others)
-      if (limit === -1) {
-        logger.info("Entitlement Check: ALLOWED (Unlimited Limit)", { userId, feature, limit });
-        return true;
-      }
+    // 1. Unlimited Plan
+    if (planLimit === -1) {
+      return { allowed: true, source: "PLAN" };
+    }
 
-      // Strict Positive Limit Check
-      if (typeof limit === "number" && limit > 0) {
-        const currentUsage = await this.checkMonthlyUsage(userId, feature);
-        if (currentUsage < limit) {
-          logger.info("Entitlement Check: ALLOWED (Within Quota)", { userId, feature, currentUsage, limit });
-          return true;
-        }
-
-        // If 'Student' and limit reached -> BLOCKED (No credits fallback for Student)
-        if (normalizedPlan === "student") {
-          logger.warn("Entitlement Check: DENIED (Quota Exceeded)", { userId, feature, currentUsage, limit, plan });
-          return false;
-        }
+    // 2. Check Plan Usage
+    let planAvailable = false;
+    if (planLimit > 0) {
+      const currentUsage = await this.checkMonthlyUsage(userId, feature);
+      if (currentUsage < planLimit) {
+        planAvailable = true;
       }
     }
 
-    // 3. Fallback: Credits (Free/PAYG only)
-    const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
-    if (cost) {
+    if (planAvailable) {
+      return { allowed: true, source: "PLAN" };
+    }
+
+    // 3. Fallback to Credits (if not allowed by plan)
+
+    // Check if feature is "Plan Restricted" (never allowed on this plan)
+    // Canonical Rule: If limit is 0, it's NOT allowed unless it's a base feature.
+    const isPlanRestricted = planLimit === 0 && !["scan", "rephrase", "citation_audit"].includes(feature);
+
+    if (isPlanRestricted) {
+      return {
+        allowed: false,
+        source: "BLOCKED",
+        code: "FEATURE_NOT_ALLOWED",
+        message: "This feature is not available on your current plan."
+      };
+    }
+
+    // Student Plan: Hard Block if limit reached (No Pay-As-You-Go fallback)
+    if (normalizedPlan === "student") {
+      return {
+        allowed: false,
+        source: "BLOCKED",
+        code: "PLAN_LIMIT_REACHED",
+        message: "Monthly plan limit reached. Upgrade to Researcher for more."
+      };
+    }
+
+    // Check Auto-Use Preference (for others)
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { auto_use_credits: true } });
+    const autoUseEnabled = user?.auto_use_credits ?? true;
+
+    if (!autoUseEnabled) {
+      return {
+        allowed: false,
+        source: "BLOCKED",
+        code: "PLAN_LIMIT_REACHED",
+        message: "Plan limit reached. Enable Auto-Use Credits to continue."
+      };
+    }
+
+    const cost = CreditService.calculateCost(feature, metadata);
+    if (cost > 0) {
       const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
-      logger.info(`Entitlement Check: ${hasCredits ? 'ALLOWED' : 'DENIED'} (Credits)`, { userId, feature, cost, hasCredits });
-      return hasCredits;
+      if (hasCredits) {
+        return { allowed: true, source: "CREDIT", cost };
+      } else {
+        return {
+          allowed: false,
+          source: "BLOCKED",
+          code: "INSUFFICIENT_CREDITS",
+          message: "Plan limit reached and insufficient credits."
+        };
+      }
     }
 
-    // Default Deny
-    logger.warn("Entitlement Check: DENIED (Default)", { userId, feature, plan });
-    return false;
+    return {
+      allowed: false,
+      source: "BLOCKED",
+      code: "PLAN_LIMIT_REACHED",
+      message: "Plan limit reached."
+    };
+  }
+
+  /**
+   * Check if user can perform an action based on feature limits
+   * Wrapper around checkActionEligibility for backward compatibility
+   */
+  static async canPerformAction(
+    userId: string,
+    feature: string,
+    metadata?: any
+  ): Promise<boolean> {
+    const result = await this.checkActionEligibility(userId, feature, metadata);
+    return result.allowed;
   }
 
   /**
@@ -326,15 +414,19 @@ export class SubscriptionService {
 
     if (usePlan) {
       const now = new Date();
-      const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const periodEnd = new Date(
-        now.getFullYear(),
-        now.getMonth() + 1,
-        0,
-        23,
-        59,
-        59
-      );
+      // Fix 3: Usage Increment - Align with Billing Cycle
+      let periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      let periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+      try {
+        const subscription = await this.getUserSubscription(userId);
+        if (subscription && subscription.current_period_start && subscription.current_period_end) {
+          periodStart = new Date(subscription.current_period_start);
+          periodEnd = new Date(subscription.current_period_end);
+        }
+      } catch (e) {
+        // Fallback
+      }
 
       await prisma.usageTracking.upsert({
         where: {
@@ -357,17 +449,13 @@ export class SubscriptionService {
       });
       logger.info("Plan Usage incremented", { userId, feature });
     } else {
-      // Use Credits
-      const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
-      if (cost) {
-        await CreditService.deductCredits(userId, cost, undefined, `Usage: ${feature}`);
-        logger.info("Credit deducted for usage", { userId, feature, cost });
-      } else {
-        logger.warn("Usage increment passed but no plan/credit source found (cost missing?)", { userId, feature });
-        // Fallback: Increment usage anyway? No, strict PAYG means we shouldn't. 
-        // But if we are here, something passed the check. 
-        // Let's assume unlimited or error.
-      }
+      // Use Credits - BUT this method (incrementUsage) is legacy-ish if it assumes flat deduction implicitly.
+      // Better to check context. But for now, let's just log or deduct min cost.
+      // Actually consumeAction handles the deduction. incrementUsage is mostly for PLAN usage.
+      // If we are here, it means we ARE relying on credits, but incrementUsage doesn't know cost.
+      // STRICT RULE: If not using plan, DO NOT increment plan usage.
+      // Credit deduction happens via CreditService.deductCredits, which is called in consumeAction.
+      // So here we do nothing for credits.
     }
   }
 
@@ -394,7 +482,8 @@ export class SubscriptionService {
    */
   static async consumeAction(
     userId: string,
-    feature: string
+    feature: string,
+    metadata?: any
   ): Promise<ConsumptionResult> {
     const plan = await this.getActivePlan(userId);
     const limits = this.getPlanLimits(plan);
@@ -431,25 +520,45 @@ export class SubscriptionService {
       return { allowed: true, source: "PLAN", remaining: planLimit - (await this.checkMonthlyUsage(userId, feature)) };
     }
 
-    // 4. If Plan Exhausted / Unavailable / -2 -> Check Credits
+    // 4. If Plan Exhausted / Unavailable / -2 -> Check Credits (Auto-Fallback)
 
-    // STRICT RULE: Student/Researcher plans do NOT use credits as fallback.
-    if (["student", "researcher", "student pro"].includes(plan.toLowerCase())) {
-      return { allowed: false, source: "BLOCKED", message: "Plan limit reached. Please upgrade your plan." };
+    // Canonical Fallback Logic
+    // Rule: Credits can only be used for features allowed by the plan (or basic features available on Free tier).
+
+    // Check if feature is "Plan Restricted" (never allowed on this plan)
+    // We assume if planLimit is defined and > 0, it is allowed. 
+    // If planLimit is 0 or undefined, effectively "Not Included".
+    // EXCEPTION: "scan", "rephrase", "citation_audit" are generally "Base Features" available to all via credits.
+
+    const isPlanRestricted = planLimit === 0 && !["scan", "rephrase", "citation_audit"].includes(feature);
+
+    if (isPlanRestricted) {
+      return { allowed: false, source: "BLOCKED", message: "This feature is not available on your current plan." };
     }
 
-    const cost = CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS];
-    if (!cost) {
-      // If no credit cost defined, and plan failed, then it's blocked.
-      return { allowed: false, source: "BLOCKED", message: "Limit reached and no credit cost defined." };
+    // Check Auto-Use Preference
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { auto_use_credits: true } });
+    const autoUseEnabled = user?.auto_use_credits ?? true; // Default True
+
+    if (!autoUseEnabled) {
+      return { allowed: false, source: "BLOCKED", message: "Plan limit reached. Enable Auto-Use Credits to continue." };
     }
 
-    try {
-      await CreditService.deductCredits(userId, cost, undefined, `Usage: ${feature}`);
-      return { allowed: true, source: "CREDIT", cost };
-    } catch (error) {
-      return { allowed: false, source: "BLOCKED", message: "Insufficient credits." };
+    const cost = CreditService.calculateCost(feature, metadata);
+    if (cost > 0) {
+      // Check if user has enough credits
+      const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
+
+      if (hasCredits) {
+        // Deduct credits as confirmed usage
+        await CreditService.deductCredits(userId, cost, undefined, `Auto-use: ${feature}`);
+        return { allowed: true, source: "CREDIT", cost };
+      } else {
+        return { allowed: false, source: "BLOCKED", message: "You don't have enough credits." };
+      }
     }
+
+    return { allowed: false, source: "BLOCKED", message: "Plan limit reached and no credits available." };
   }
 
   /**
@@ -676,5 +785,15 @@ export class SubscriptionService {
       // If it's a timeout error from getUserSubscription, we should probably not throw but return gracefully or handle it
       throw error;
     }
+  }
+
+  /**
+   * Update Auto-Use Credits Preference
+   */
+  static async updateAutoUseCredits(userId: string, enabled: boolean): Promise<void> {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { auto_use_credits: enabled },
+    });
   }
 }

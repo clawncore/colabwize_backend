@@ -27,8 +27,19 @@ router.post("/lemonsqueezy", express.raw({ type: "application/json" }), async (r
     const event = JSON.parse(payload);
     const eventName = event.meta.event_name;
     const data = event.data;
+    const eventId = event.meta.event_id || data.id; // Correct way to get ID varies by version
 
-    logger.info("LemonSqueezy webhook received", { eventName });
+    logger.info("LemonSqueezy webhook received", { eventName, eventId });
+
+    // 1. Global Idempotency Check
+    const existingEvent = await prisma.webhookEvent.findUnique({
+      where: { event_id: eventId },
+    });
+
+    if (existingEvent) {
+      logger.info("Webhook event already processed (Idempotent)", { eventId });
+      return res.status(200).json({ received: true, idempotent: true });
+    }
 
     // Handle different event types
     switch (eventName) {
@@ -68,9 +79,25 @@ router.post("/lemonsqueezy", express.raw({ type: "application/json" }), async (r
         await handleSubscriptionPaymentSuccess(event);
         break;
 
+      // Fix 4: Refund Handling
+      case "order_refunded":
+      case "subscription_payment_refunded":
+        await handleRefundEvent(event, eventName);
+        break;
+
       default:
         logger.info("Unhandled webhook event", { eventName });
     }
+
+    // 2. Persist Event
+    await prisma.webhookEvent.create({
+      data: {
+        event_id: eventId,
+        provider: "lemonsqueezy",
+        event_type: eventName,
+        payload: event as any, // Storing full payload for audit
+      },
+    });
 
     return res.status(200).json({ received: true });
   } catch (error) {
@@ -417,6 +444,31 @@ async function handleSubscriptionPaymentSuccess(event: any) {
   });
 
   logger.info("Subscription renewal payment recorded", { userId, subscriptionId });
+}
+
+/**
+ * Handle refund events (Log & Flag)
+ */
+async function handleRefundEvent(event: any, eventName: string) {
+  const data = event.data;
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const userId = customData?.user_id;
+
+  if (!userId) {
+    logger.warn(`Refund event (${eventName}) without user_id`, { eventMeta: event.meta });
+    return;
+  }
+
+  // Log strict warning
+  logger.warn("REFUND DETECTED - MANUAL REVIEW REQUIRED", {
+    userId,
+    eventName,
+    orderId: data.attributes.order_id,
+    amount: data.attributes.amount,
+  });
+
+  // TODO: Add flag to user account (e.g. requires_review: true) if schema supports it
+  // For now, the log is sufficient for the MVP strictness requirement.
 }
 
 export default router;

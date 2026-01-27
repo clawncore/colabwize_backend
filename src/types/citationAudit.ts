@@ -31,6 +31,7 @@ export interface ExtractedPattern {
     start: number;
     end: number;
     section: SectionType;
+    context?: string;
 }
 
 export interface ReferenceEntry {
@@ -94,6 +95,12 @@ export interface VerificationResult {
         year?: number;
         url: string;
         database: string;
+        abstract?: string;
+        isRetracted?: boolean;
+    };
+    semanticSupport?: {
+        status: "SUPPORTED" | "DISPUTED" | "PARTIALLY_SUPPORTED" | "UNRELATED" | "PENDING";
+        reasoning: string;
     };
 }
 

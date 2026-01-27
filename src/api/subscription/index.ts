@@ -154,6 +154,7 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       usage,
       creditBalance,
       totalDocuments,
+      autoUseCredits: user.auto_use_credits ?? true,
       source,
       generatedAt,
       // Keep legacy fields for backward compatibility if needed, but prefer flat structure above
@@ -198,7 +199,8 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
     const currentSubscription = await SubscriptionService.getUserSubscription(user.id);
     if (currentSubscription &&
       ["active", "trialing", "past_due", "on_trial"].includes(currentSubscription.status) &&
-      !currentSubscription.cancel_at_period_end
+      !currentSubscription.cancel_at_period_end &&
+      currentSubscription.plan !== "free"
     ) {
       // Allow ONLY if it's a credit purchase (PAYG / Credits)
       // If plan is 'credits_XX' or 'payg' it is allowed as an add-on.
@@ -629,6 +631,79 @@ router.post(
     }
   }
 );
+
+/**
+ * POST /api/subscription/credits/auto-use
+ * Update auto-use credits preference
+ */
+router.post("/credits/auto-use", authenticateHybridRequest, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const { enabled } = req.body;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated",
+      });
+    }
+
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "Enabled status required (boolean)",
+      });
+    }
+
+    await SubscriptionService.updateAutoUseCredits(user.id, enabled);
+
+    return res.status(200).json({
+      success: true,
+      message: `Auto-use credits ${enabled ? 'enabled' : 'disabled'}`,
+      autoUseCredits: enabled
+    });
+  } catch (error) {
+    console.error("Update auto-use credits error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update preference",
+    });
+  }
+});
+
+/**
+ * GET /api/subscription/credits/history
+ * Get credit transaction history
+ */
+router.get("/credits/history", authenticateHybridRequest, async (req, res) => {
+  try {
+    const user = (req as any).user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated",
+      });
+    }
+
+    const history = await prisma.creditTransaction.findMany({
+      where: { user_id: user.id },
+      orderBy: { created_at: "desc" },
+      take: 50, // Limit to last 50 transactions
+    });
+
+    return res.status(200).json({
+      success: true,
+      history,
+    });
+  } catch (error) {
+    console.error("Get credit history error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch credit history",
+    });
+  }
+});
 
 /**
  * GET /api/subscription/billing/overview

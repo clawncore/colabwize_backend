@@ -10,24 +10,20 @@ import logger from "../monitoring/logger";
 export class AcademicSearchService {
 
     /**
-     * Universal search for academic papers across multiple databases
+     * Search papers across multiple databases and aggregate results
      */
-    static async searchPapers(query: string, limit: number = 8): Promise<AcademicPaper[]> {
+    static async searchPapers(query: string, limit: number = 50): Promise<AcademicPaper[]> {
         try {
-            logger.info("Starting multi-source academic search", { query });
-
-            // Run searches in parallel for efficiency
-            const searchPromises = [
-                SemanticScholarService.searchPapers(query, 5),
-                OpenAlexService.searchPapers(query, 5),
-                ArxivService.searchPapers(query, 5),
-                PubmedService.searchPapers(query, 5),
-                IEEEService.searchPapers(query, 5),
-                DOAJService.searchPapers(query, 5),
-                CrossRefService.searchPapers(query, 5)
-            ];
-
-            const results = await Promise.allSettled(searchPromises);
+            // Search across all providers in parallel
+            const results = await Promise.allSettled([
+                SemanticScholarService.searchPapers(query, 10),
+                OpenAlexService.searchPapers(query, 10),
+                ArxivService.searchPapers(query, 10),
+                PubmedService.searchPapers(query, 10),
+                IEEEService.searchPapers(query, 10),
+                DOAJService.searchPapers(query, 10),
+                CrossRefService.searchPapers(query, 10)
+            ]);
 
             const allPapers: AcademicPaper[] = [];
             results.forEach((result, index) => {

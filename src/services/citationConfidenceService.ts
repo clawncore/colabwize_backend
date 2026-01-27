@@ -745,4 +745,135 @@ export class CitationConfidenceService {
       return false;
     }
   }
+
+  /**
+   * Verify citation exists in OpenAlex database
+   */
+  private static async verifyCitationWithOpenAlex(title: string): Promise<boolean> {
+    try {
+      if (!title || title.length < 10) return false;
+
+      // OpenAlex API free tier
+      const response = await axios.get(
+        "https://api.openalex.org/works",
+        {
+          params: {
+            search: title,
+            per_page: 1,
+            mailto: "support@colabwize.com"
+          },
+          timeout: 5000
+        }
+      );
+
+      if (response.status === 200 && response.data?.results?.length > 0) {
+        const work = response.data.results[0];
+        // Fuzzy title match
+        if (work.title && work.title.toLowerCase().includes(title.toLowerCase().substring(0, 20))) {
+          logger.info("Citation verified with OpenAlex", { title });
+          return true;
+        }
+      }
+      return false;
+    } catch (error: any) {
+      logger.warn("OpenAlex verification failed", { error: error.message, title });
+      // Don't fail the check, just return false for this provider
+      return false;
+    }
+  }
+
+  /**
+   * Real-Time Validation: Check a single citation against ALL databases
+   * Used for the "Integrity Linter" fast feedback loop.
+   */
+  static async verifySingleCitation(citation: {
+    title: string;
+    doi?: string;
+  }): Promise<{ isReliable: boolean; source: string | null }> {
+    // 1. Check CrossRef (Gold Standard for DOIs)
+    if (citation.doi) {
+      const crossRefValid = await this.verifyCitationWithCrossRef(citation.doi, citation.title);
+      if (crossRefValid) return { isReliable: true, source: 'crossref' };
+    }
+
+    // 2. Check PubMed (Medical/Bio)
+    if (await this.verifyCitationWithPubMed(citation.title)) {
+      return { isReliable: true, source: 'pubmed' };
+    }
+
+    // 3. Check arXiv (Preprints/CS/Math)
+    if (await this.verifyCitationWithArxiv(citation.title)) {
+      return { isReliable: true, source: 'arxiv' };
+    }
+
+    // 4. Check OpenAlex (Broad Coverage)
+    if (await this.verifyCitationWithOpenAlex(citation.title)) {
+      return { isReliable: true, source: 'openalex' };
+    }
+
+    // 5. Failed all checks
+    return { isReliable: false, source: null };
+  }
+
+  /**
+   * "Citation Auto-Fixer": Find correct metadata for a fuzzy query
+   * Used when a user types a title and we want to suggest the full citation.
+   */
+  static async findCitationMetadata(query: string): Promise<{
+    title: string;
+    author: string;
+    year: number;
+    doi?: string;
+    source: string;
+  } | null> {
+    try {
+      // 1. Try CrossRef First (Best for academic accuracy)
+      const crossRefResponse = await axios.get(
+        `https://api.crossref.org/works`,
+        {
+          params: { query: query, rows: 1 },
+          timeout: 5000
+        }
+      );
+
+      if (crossRefResponse.data?.message?.items?.length > 0) {
+        const item = crossRefResponse.data.message.items[0];
+        // Check relevance (simple title match check)
+        if (item.title?.[0]) {
+          return {
+            title: item.title[0],
+            author: item.author?.[0]?.family || "Unknown",
+            year: item.issued?.['date-parts']?.[0]?.[0] || new Date().getFullYear(),
+            doi: item.DOI,
+            source: "crossref"
+          };
+        }
+      }
+
+      // 2. Try OpenAlex (Good fallback)
+      const openAlexResponse = await axios.get(
+        "https://api.openalex.org/works",
+        {
+          params: { search: query, per_page: 1, mailto: "support@colabwize.com" },
+          timeout: 5000
+        }
+      );
+
+      if (openAlexResponse.data?.results?.length > 0) {
+        const work = openAlexResponse.data.results[0];
+        return {
+          title: work.title,
+          author: work.authorships?.[0]?.author?.display_name?.split(" ").pop() || "Unknown",
+          year: work.publication_year || new Date().getFullYear(),
+          doi: work.doi ? work.doi.replace("https://doi.org/", "") : undefined,
+          source: "openalex"
+        };
+      }
+
+      return null;
+    } catch (e) {
+      logger.warn("Auto-Fixer search failed", { error: e });
+      return null;
+    }
+  }
 }

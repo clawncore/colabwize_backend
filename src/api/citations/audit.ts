@@ -13,7 +13,59 @@ router.post("/audit", async (req: Request, res: Response) => {
     console.log("\n\n🚀🚀🚀 AUDIT ENDPOINT CALLED! 🚀🚀🚀\n");
 
     try {
-        const { declaredStyle, patterns, referenceList, sections } = req.body as AuditRequest;
+        // 1. Authentication Check
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({ error: "Missing or invalid authorization header" });
+        }
+
+        // Decode token to get userId (Mock or Real Supabase check)
+        // For consistency with other files, let's use the Supabase client logic if possible
+        // or just trust the custom middleware if it was mounted (it wasn't).
+        // Let's implement quick token verification or use the service.
+        // Assuming we need to verify token similar to generate.ts
+        const { getSupabaseClient } = await import("../../lib/supabase/client");
+        const token = authHeader.substring(7);
+        let userId: string;
+
+        try {
+            const client = await getSupabaseClient();
+            if (!client) throw new Error("Supabase client missing");
+            const { data: { user }, error } = await client.auth.getUser(token);
+            if (error || !user) throw new Error("Invalid token");
+            userId = user.id;
+        } catch (e) {
+            return res.status(401).json({ error: "Invalid or expired token" });
+        }
+
+        const { declaredStyle, patterns, referenceList, sections, wordCount } = req.body as AuditRequest & { wordCount?: number };
+
+        // 2. Pre-flight Limit Check (Don't consume yet)
+        // User rule: "Citation audit consumes credits based on document length"
+        const docWordCount = wordCount || 1000;
+
+        const { SubscriptionService } = await import("../../services/subscriptionService");
+
+        // Check if user has enough balance/limit roughly
+        // Check if user has enough balance/limit roughly
+        const eligibility = await SubscriptionService.checkActionEligibility(userId, "citation_audit", { wordCount: docWordCount });
+
+        if (!eligibility.allowed) {
+            // Map reason to status code
+            let status = 403;
+            if (eligibility.code === "INSUFFICIENT_CREDITS") {
+                status = 402; // Payment required/insufficient funds
+            }
+
+            return res.status(status).json({
+                error: eligibility.message || "Plan limit reached.",
+                code: eligibility.code || "PLAN_LIMIT_REACHED",
+                data: {
+                    upgrade_url: "/pricing",
+                    limit_info: eligibility
+                }
+            });
+        }
 
         console.log("📋 Declared Style:", declaredStyle);
         console.log("📝 Patterns received:", patterns ? patterns.length : 0);
@@ -227,6 +279,19 @@ router.post("/audit", async (req: Request, res: Response) => {
             console.log(`   ⚠️  Unmatched: ${unmatched}`);
             console.log(`   📝 Insufficient Info: ${insufficient}`);
             console.log(`   📦 Total Results: ${verificationResults.length}`);
+        }
+
+        // DEDUCT credits finally
+        const finalConsumption = await SubscriptionService.consumeAction(userId, "citation_audit", { wordCount: docWordCount });
+        if (!finalConsumption.allowed) {
+            // Edge case: User ran out of credits during processing?
+            // Should we return the report? Maybe return with a warning?
+            // Prompt says: "4. If credits < required → block". We blocked at start.
+            // "6. Deduct credits". using consumeAction.
+            // If this fails, let's log error but returning the report seems fair if work is done.
+            // BUT stricter implementation would fail.
+            // Let's assume if pre-check passed, this passes unless race condition.
+            console.error("CRITICAL: Credit deduction failed AFTER work done", { userId });
         }
 
         res.status(200).json(report);

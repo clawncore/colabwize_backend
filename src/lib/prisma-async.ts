@@ -132,11 +132,6 @@ export async function initializePrisma(): Promise<PrismaClient> {
 }
 
 // Graceful shutdown handler
-process.on("beforeExit", async () => {
-    if (globalForPrisma.prisma) {
-        logger.info("Closing database connections...");
-        await globalForPrisma.prisma.$disconnect();
-    }
-});
+// [AUDIT] Removed process.on("beforeExit") handler to prevent infinite loop.
 
 export default initializePrisma;

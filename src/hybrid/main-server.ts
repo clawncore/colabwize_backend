@@ -39,6 +39,7 @@ import templatesRouter from "../api/templates/index";
 import behavioralTrackingRouter from "../api/behavioral-tracking/index";
 import proxyRouter from "../api/proxy/index";
 import sourcesRouter from "../api/sources/index";
+import unsplashRouter from "../api/integrations/unsplash";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 
 const app: Application = express();
@@ -305,6 +306,9 @@ app.use("/api/proxy", authMiddleware, proxyRouter);
 
 // Sources API (Authentication required - Source Integration Verification)
 app.use("/api/sources", authMiddleware, sourcesRouter);
+
+// Integrations API (Unsplash Proxy)
+app.use("/api/integrations/unsplash", authMiddleware, unsplashRouter);
 
 // 404 handler
 app.use((req, res) => {

@@ -2,13 +2,54 @@ import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 
 export const CREDIT_COSTS = {
-    scan: 100,
-    originality: 150,
-    citation: 50,
-    certificate: 20,
+    // Deprecated static costs - moving to dynamic calculation
+    scan: 1, // Base cost if metadata missing (fallback)
+    originality: 1,
+    citation: 1,
+    certificate: 1,
+    ai_chat: 1,
 };
 
 export class CreditService {
+    /**
+     * Calculate credit cost based on usage metadata
+     * Rule: 1 Credit = 1000 words processed
+     */
+    static calculateCost(feature: string, metadata?: { wordCount?: number, inputWords?: number, outputWords?: number }): number {
+        if (!metadata) {
+            // Fallback for legacy calls without metadata
+            return CREDIT_COSTS[feature as keyof typeof CREDIT_COSTS] || 1;
+        }
+
+        let words = 0;
+
+        switch (feature) {
+            case 'scan':
+            case 'citation_audit':
+                // Citation audits: 1 credit per 1000 words
+                words = metadata.wordCount || 0;
+                return Math.ceil(words / 1000);
+
+            case 'rephrase':
+                // Rephrase: (Input + Output) / 1000
+                words = (metadata.inputWords || 0) + (metadata.outputWords || 0);
+                return Math.ceil(words / 1000);
+
+            case 'ai_chat':
+                // AI Chat: (Input + Output) / 2000 (Cheaper)
+                words = (metadata.inputWords || 0) + (metadata.outputWords || 0);
+                return Math.ceil(words / 2000);
+
+            case 'originality':
+                // Originality: Higher cost (Future) - e.g. / 500
+                words = metadata.wordCount || 0;
+                return Math.ceil(words / 500);
+
+            default:
+                return 1; // Default safety cost
+        }
+    }
+
     /**
      * Get user's credit balance
      */
@@ -30,6 +71,22 @@ export class CreditService {
         description?: string
     ) {
         return await prisma.$transaction(async (tx: any) => {
+            // Fix 2: Credit Grant Locking (Order-Level Idempotency)
+            if (referenceId && type === "PURCHASE") {
+                const existingTransaction = await tx.creditTransaction.findFirst({
+                    where: {
+                        reference_id: referenceId,
+                        type: "PURCHASE",
+                    },
+                });
+
+                if (existingTransaction) {
+                    logger.info("Credit grant skipped (Idempotent)", { userId, referenceId, type });
+                    // Return current balance logic without modification
+                    return await tx.creditBalance.findUnique({ where: { user_id: userId } });
+                }
+            }
+
             // Create transaction record
             const transaction = await tx.creditTransaction.create({
                 data: {

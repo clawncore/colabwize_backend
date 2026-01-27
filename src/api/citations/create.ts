@@ -50,6 +50,7 @@ router.post(
           doi,
           url,
           source,
+          abstract,
           formatted_citations,
         }
       );

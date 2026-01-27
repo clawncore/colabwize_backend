@@ -4,7 +4,7 @@ import logger from "../monitoring/logger";
 import { ADVERSARIAL_SYSTEM_PROMPT, constructHumanizeUserPrompt } from "../prompts/adversarialPrompt";
 
 interface HumanizationResult {
-    text: string;
+    variations: string[];
     provider: "anthropic" | "openai";
 }
 
@@ -19,8 +19,29 @@ export class HumanizerService {
         try {
             logger.info("Attempting humanization with Anthropic...");
             const result = await AnthropicService.humanizeText(text);
+
+            // Expected format: JSON array of strings
+            try {
+                let cleanResult = result.trim();
+                if (cleanResult.startsWith("```json")) {
+                    cleanResult = cleanResult.replace(/```json\n?/, "").replace(/\n?```/, "");
+                } else if (cleanResult.startsWith("```")) {
+                    cleanResult = cleanResult.replace(/```\n?/, "").replace(/\n?```/, "");
+                }
+
+                const variations = JSON.parse(cleanResult);
+                if (Array.isArray(variations)) {
+                    return {
+                        variations,
+                        provider: "anthropic"
+                    };
+                }
+            } catch (pE) {
+                logger.warn("Failed to parse Anthropic JSON, returning as single variation", { response: result });
+            }
+
             return {
-                text: result,
+                variations: [result],
                 provider: "anthropic"
             };
         } catch (anthropicError: any) {
@@ -30,26 +51,6 @@ export class HumanizerService {
         // 2. Attempt Fallback (OpenAI)
         try {
             logger.info("Attempting humanization with OpenAI (Fallback)...");
-
-            // Construct OpenAI-compatible messages
-            // We use the same system prompt to try and enforce the same behavior
-            /* 
-               Note: OpenAIService.generateCompletion takes a string prompt usually, 
-               but we should eventually enhance it to take messages or use the prompt carefully.
-               For now, we'll combine System + User into a single prompt string if the service is simple,
-               OR we update OpenAIService to be smarter.
-               
-               Looking at OpenAIService.generateCompletion, it takes a prompt string but sends it as a user message.
-               Wait, looking at the code:
-               messages: [{ role: "user", content: prompt }]
-               
-               It lacks system message support in the current helper.
-               We'll wrap the instruction in the user prompt for now to avoid modifying OpenAIService too heavily 
-               OR we can just instantiate a raw axios call here for full control, 
-               OR better: we add a dedicated method to OpenAIService?
-               
-               Let's trust the current OpenAIService for now but prepend the instructions.
-            */
 
             const combinedPrompt = `
 SYSTEM INSTRUCTIONS:
@@ -65,8 +66,27 @@ ${constructHumanizeUserPrompt(text)}
                 temperature: 0.7
             });
 
+            try {
+                let cleanResult = result.trim();
+                if (cleanResult.startsWith("```json")) {
+                    cleanResult = cleanResult.replace(/```json\n?/, "").replace(/\n?```/, "");
+                } else if (cleanResult.startsWith("```")) {
+                    cleanResult = cleanResult.replace(/```\n?/, "").replace(/\n?```/, "");
+                }
+
+                const variations = JSON.parse(cleanResult);
+                if (Array.isArray(variations)) {
+                    return {
+                        variations,
+                        provider: "openai"
+                    };
+                }
+            } catch (pE) {
+                logger.warn("Failed to parse OpenAI JSON, returning as single variation", { response: result });
+            }
+
             return {
-                text: result,
+                variations: [result],
                 provider: "openai"
             };
 
@@ -75,4 +95,13 @@ ${constructHumanizeUserPrompt(text)}
             throw new Error("Failed to humanize text. Please try again later.");
         }
     }
+
+    /**
+     * In-Line Rewrite: Humanize a specific selection while preserving context
+     * Used for the editor's "Humanize This" tooltip.
+     */
+    static async rewriteSelection(selection: string, surroundingContext?: string): Promise<HumanizationResult> {
+        return this.humanizeText(selection);
+    }
 }
+

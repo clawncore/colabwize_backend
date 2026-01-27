@@ -24,33 +24,26 @@ router.post("/", async (req: Request, res: Response) => {
       hasContext: !!context,
     });
 
-    // Check and increment usage for AI Integrity Chat
-    await checkUsageLimit("ai_integrity")(req, res, async () => {
-      // If we pass the check, increment usage immediately
-      await incrementFeatureUsage("ai_integrity")(req, res, () => { });
-    });
+    // Check and consume usage (Atomic Plan/Credit Check)
+    const { SubscriptionService } = await import("../../services/subscriptionService");
+    const consumption = await SubscriptionService.consumeAction(userId, "ai_integrity");
 
-    // If checkUsageLimit sent a response (error), we shouldn't proceed.
-    // However, checkUsageLimit middleware doesn't return a boolean, it calls next() or sends response.
-    // Since we are calling it manually without 'next', we need to be careful.
-    // Actually, checkUsageLimit as designed (req, res, next) expects to drive flow.
-    // Uses 'next' on success.
-    // Let's refactor to use it properly as a promise wrapper or middleware.
+    if (!consumption.allowed) {
+      // Map reason to status code
+      let status = 403;
+      if (consumption.code === "INSUFFICIENT_CREDITS") {
+        status = 402; // Payment required
+      }
 
-    // Better approach: Usage check is a Promise<void> but it sends response on failure.
-    // If it sends response, res.headersSent might be true (or we can check strict return).
-    // Let's use it as strict middleware in the route definition for cleaner code?
-    // But we are already inside the handler.
-
-    // Let's try inline manual call pattern that respects the middleware signature:
-    let allowed = false;
-    await checkUsageLimit("ai_integrity")(req, res, () => {
-      allowed = true;
-    });
-    if (!allowed) return; // Response already sent by middleware
-
-    // Increment usage
-    await incrementFeatureUsage("ai_integrity")(req, res, () => { });
+      return res.status(status).json({
+        error: consumption.message || "Usage limit reached",
+        code: consumption.code || "PLAN_LIMIT_REACHED",
+        data: {
+          upgrade_url: "/pricing",
+          limit_info: consumption
+        }
+      });
+    }
 
     const result = await AIChatService.streamChat(
       messages,

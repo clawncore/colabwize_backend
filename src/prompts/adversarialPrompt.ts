@@ -22,7 +22,7 @@ STRICT RULES:
     -   Avoid "As an AI..." or strictly neutral, robotic tones.
 3.  **Use "Perplexing" Vocabulary**: Use precise, somewhat rare academic vocabulary where appropriate efficiently, but don't result to "thesaurus stuffing".
 4.  **Maintain Meaning**: The core arguments and facts must remain exactly the same.
-5.  **Output Only**: Return ONLY the rewritten text. Do not include introductory or concluding remarks.
+5.  **Output Format**: You must provide Exactly 3 distinct variations. Return the results as a raw JSON array of strings. Do not include introductory remarks or markdown code blocks (no \`\`\`json). Just the raw array.
 
 STRATEGY:
 -   Write with conviction and a distinct "voice".
@@ -33,11 +33,11 @@ STRATEGY:
 
 export const constructHumanizeUserPrompt = (text: string): string => {
     return `
-REWRITE THE FOLLOWING TEXT TO SOUND MORE HUMAN AND LESS ROBOTIC.
+REWRITE THE FOLLOWING TEXT IN 3 DISTINCT HUMAN-LIKE WAYS.
 
 TEXT:
 "${text}"
 
-REWRITTEN TEXT:
+REMEMBER: Return ONLY a JSON array of 3 strings.
 `;
 };

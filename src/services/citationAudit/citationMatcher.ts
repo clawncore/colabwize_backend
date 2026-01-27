@@ -9,6 +9,7 @@ export interface CitationPair {
         start: number;
         end: number;
         patternType: string;
+        context?: string;
     };
     reference: {
         rawText: string;
@@ -16,6 +17,7 @@ export interface CitationPair {
         extractedTitle?: string;
         extractedAuthor?: string;
         extractedYear?: number;
+        extractedDOI?: string;
     } | null;
 }
 
@@ -52,6 +54,7 @@ export class CitationMatcher {
                     extractedTitle: this.extractTitle(matchedReference.rawText) || undefined,
                     extractedAuthor: this.extractAuthor(matchedReference.rawText) || undefined,
                     extractedYear: this.extractYear(matchedReference.rawText) || undefined,
+                    extractedDOI: this.extractDOI(matchedReference.rawText) || undefined,
                 }
                 : null;
 
@@ -61,6 +64,7 @@ export class CitationMatcher {
                     start: inline.start,
                     end: inline.end,
                     patternType: inline.patternType,
+                    context: inline.context,
                 },
                 reference: referenceData,
             });
@@ -242,5 +246,15 @@ export class CitationMatcher {
     private static extractYear(refText: string): number | null {
         const yearMatch = refText.match(/\b(19|20)\d{2}\b/);
         return yearMatch ? parseInt(yearMatch[0]) : null;
+    }
+
+    /**
+     * Extract DOI from reference entry
+     */
+    private static extractDOI(refText: string): string | null {
+        // Broad DOI regex
+        const doiRegex = /\b(10\.\d{4,9}\/[-._;()/:A-Z0-9]+)\b/i;
+        const match = refText.match(doiRegex);
+        return match ? match[1] : null;
     }
 }

@@ -101,9 +101,10 @@ export class UsageService {
 
     // FIX: Handle -1 as Unlimited (Researcher)
     // Also explicitly check for high-tier plans to be safe
-    if (limit === -1 || plan.toLowerCase() === "researcher" || plan.toLowerCase().includes("pro")) {
+    if (limit === -1) {
       return { allowed: true, current, limit: -1 };
     }
+
 
     const allowed = current < limit;
 

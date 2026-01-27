@@ -79,37 +79,45 @@ export class ExternalVerificationService {
             };
         }
 
-        // Case 3: Verify using academic database
-        const searchQuery = this.buildSearchQuery(pair.reference);
+        // Case 3: Verify using academic database (DOI preferred, then search)
+        let foundPaper: any = null;
+        let bestMatch: any = null;
 
-        console.log(`\n🔍 TESTING MATCHED CITATION:`);
-        console.log(`   Inline: "${pair.inline.text}"`);
-        console.log(`   Reference: ${pair.reference.rawText.substring(0, 80)}...`);
-        console.log(`   Extracted Title: "${pair.reference.extractedTitle}"`);
-        console.log(`   Extracted Author: "${pair.reference.extractedAuthor}"`);
-        console.log(`   Extracted Year: ${pair.reference.extractedYear}`);
-        console.log(`   Search Query: "${searchQuery}"`);
-        console.log(`   🌐 Searching academic databases...`);
+        if (pair.reference.extractedDOI) {
+            console.log(`   🎯 Searching by DOI: ${pair.reference.extractedDOI}`);
+            foundPaper = await AcademicDatabaseService.searchByDOI(pair.reference.extractedDOI);
+            if (foundPaper) {
+                bestMatch = { ...foundPaper, similarity: 1.0 };
+            }
+        }
 
-        logger.info("Verifying citation", {
-            inline: pair.inline.text,
-            query: searchQuery
-        });
+        if (!bestMatch) {
+            const searchQuery = this.buildSearchQuery(pair.reference);
 
-        const apiResults = await AcademicDatabaseService.searchAcademicDatabases(searchQuery);
+            console.log(`\n🔍 TESTING MATCHED CITATION:`);
+            console.log(`   Inline: "${pair.inline.text}"`);
+            console.log(`   Reference: ${pair.reference.rawText.substring(0, 80)}...`);
+            console.log(`   Extracted Title: "${pair.reference.extractedTitle}"`);
+            console.log(`   Extracted Author: "${pair.reference.extractedAuthor}"`);
+            console.log(`   Extracted Year: ${pair.reference.extractedYear}`);
+            console.log(`   Search Query: "${searchQuery}"`);
+            console.log(`   🌐 Searching academic databases...`);
 
-        console.log(`   📊 API Results: ${apiResults.length} papers found`);
-        if (apiResults.length > 0) {
-            console.log(`   📄 Top matches:`);
-            apiResults.slice(0, 3).forEach((result, i) => {
-                console.log(`      ${i + 1}. "${result.title}" (${(result.similarity * 100).toFixed(0)}% match) - ${result.database}`);
+            logger.info("Verifying citation", {
+                inline: pair.inline.text,
+                query: searchQuery
             });
-        } else {
-            console.log(`   ❌ NO RESULTS from APIs`);
+
+            const apiResults = await AcademicDatabaseService.searchAcademicDatabases(searchQuery);
+            console.log(`   📊 API Results: ${apiResults.length} papers found`);
+
+            if (apiResults.length > 0) {
+                bestMatch = apiResults[0];
+            }
         }
 
         // Case 4: No results from API
-        if (apiResults.length === 0) {
+        if (!bestMatch) {
             const refTitle = pair.reference.extractedTitle || pair.reference.rawText.substring(0, 80);
             const author = pair.reference.extractedAuthor || 'Unknown';
             const year = pair.reference.extractedYear || '?';
@@ -117,61 +125,68 @@ export class ExternalVerificationService {
             return {
                 inlineLocation,
                 status: "VERIFICATION_FAILED",
-                message: `Paper not found in academic databases (CrossRef, arXiv, PubMed). Reference: "${refTitle}" by ${author} (${year}). This may indicate: (1) The paper doesn't exist, (2) Incorrect citation details, or (3) Not indexed in free databases yet.`,
+                message: `Paper not found in academic databases (CrossRef, arXiv, PubMed). Reference: "${refTitle}" by ${author} (${year}). This may indicate a hallucinated or non-existent source.`,
                 similarity: 0,
             };
         }
 
         // Case 5: Evaluate Match Quality (Tiered Scoring)
-        const bestMatch = apiResults[0];
         const similarity = bestMatch.similarity;
         const refTitle = pair.reference.extractedTitle || pair.reference.rawText.substring(0, 80);
 
-        // Tier 1: Poor Match (< 50%) -> Flag as Failed with Specific Reason
-        if (similarity < 0.5) {
+        // Perform Semantic Support Check if abstract is available
+        let semanticSupport: any = undefined;
+        if (bestMatch.abstract && pair.inline.context) {
+            console.log(`   🧠 Performing semantic support check...`);
+            const { SemanticClaimService } = require("./semanticClaimService");
+            semanticSupport = await SemanticClaimService.verifyClaim(pair.inline.context, bestMatch.abstract);
+            console.log(`      Status: ${semanticSupport.status}`);
+        }
+
+        const buildVerificationResult = (status: VerificationStatus, baseMessage: string): VerificationResult => {
+            let message = baseMessage;
+            if (bestMatch.isRetracted) {
+                message = `🚨 RETRACTED SOURCE: ${message}`;
+            }
+
             return {
                 inlineLocation,
-                status: "VERIFICATION_FAILED",
-                message: `⚠️ Poor match quality (${(similarity * 100).toFixed(0)}%). Closest paper: "${bestMatch.title}". This usually means the citation has typos, incorrect year, or is very obscure.`,
+                status: bestMatch.isRetracted ? "VERIFICATION_FAILED" : status,
+                message: message,
                 similarity: similarity,
                 foundPaper: {
                     title: bestMatch.title,
                     year: bestMatch.year,
                     url: bestMatch.url,
                     database: bestMatch.database,
+                    abstract: bestMatch.abstract,
+                    isRetracted: bestMatch.isRetracted
                 },
+                semanticSupport
             };
+        };
+
+        // Tier 1: Poor Match (< 50%) -> Flag as Failed
+        if (similarity < 0.5) {
+            return buildVerificationResult(
+                "VERIFICATION_FAILED",
+                `⚠️ Poor match quality (${(similarity * 100).toFixed(0)}%). Closest paper: "${bestMatch.title}". Verification cannot be confirmed.`
+            );
         }
 
         // Tier 2: Fair Match (50% - 70%) -> Verified but with Qualification
         if (similarity < 0.7) {
-            return {
-                inlineLocation,
-                status: "VERIFIED",
-                message: `✅ Verified (Fair Match: ${(similarity * 100).toFixed(0)}%). Found: "${bestMatch.title}".`,
-                similarity: similarity,
-                foundPaper: {
-                    title: bestMatch.title,
-                    year: bestMatch.year,
-                    url: bestMatch.url,
-                    database: bestMatch.database,
-                },
-            };
+            return buildVerificationResult(
+                "VERIFIED",
+                `✅ Verified (Fair Match: ${(similarity * 100).toFixed(0)}%). Found: "${bestMatch.title}".`
+            );
         }
 
         // Tier 3: Good Match (> 70%) -> Verified High Confidence
-        return {
-            inlineLocation,
-            status: "VERIFIED",
-            message: `✅ Verified: "${bestMatch.title}" (${(similarity * 100).toFixed(0)}% match from ${bestMatch.database})`,
-            similarity: similarity,
-            foundPaper: {
-                title: bestMatch.title,
-                year: bestMatch.year,
-                url: bestMatch.url,
-                database: bestMatch.database,
-            },
-        };
+        return buildVerificationResult(
+            "VERIFIED",
+            `✅ Verified: "${bestMatch.title}" (${(similarity * 100).toFixed(0)}% match from ${bestMatch.database})`
+        );
     }
 
     /**

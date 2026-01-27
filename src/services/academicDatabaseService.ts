@@ -18,6 +18,7 @@ export class AcademicDatabaseService {
             year?: number;
             similarity: number;
             database: "crossref" | "semantic_scholar" | "arxiv" | "ieee" | "pubmed";
+            isRetracted?: boolean;
         }>
     > {
         // Using FREE public APIs only (no API keys needed)
@@ -28,6 +29,7 @@ export class AcademicDatabaseService {
             url: string;
             similarity: number;
             database: "crossref" | "semantic_scholar" | "arxiv" | "ieee" | "pubmed";
+            isRetracted?: boolean;
         }> = [];
 
         logger.info("Starting academic database search (free public APIs only)");
@@ -61,6 +63,36 @@ export class AcademicDatabaseService {
         // Semantic Scholar & IEEE skipped (require API keys)
 
         return results;
+    }
+
+    /**
+     * Specific search by DOI for pinpoint accuracy
+     */
+    static async searchByDOI(doi: string): Promise<any | null> {
+        try {
+            const response = await axios.get(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
+                headers: { "User-Agent": "ColabWize/1.0 (mailto:hello@colabwize.com)" },
+                timeout: 5000,
+            });
+
+            if (response.data && response.data.message) {
+                const item = response.data.message;
+                const year = item.published?.["date-parts"]?.[0]?.[0] || item.created?.["date-parts"]?.[0]?.[0];
+
+                return {
+                    title: Array.isArray(item.title) ? item.title[0] : item.title,
+                    authors: item.author?.map((auth: any) => `${auth.family || ""} ${auth.given || ""}`.trim()) || [],
+                    abstract: item.abstract || "",
+                    url: `https://doi.org/${item.DOI}`,
+                    year: year,
+                    database: "crossref",
+                    isRetracted: item["is-retracted"] === true || item["update-to"]?.some((u: any) => u.type === "retraction")
+                };
+            }
+        } catch (error) {
+            logger.warn("DOI search failed", { doi, error: (error as Error).message });
+        }
+        return null;
     }
 
     private static async searchCrossRef(
@@ -133,6 +165,7 @@ export class AcademicDatabaseService {
                             year: year,
                             similarity: bestScore,
                             database: "crossref" as const,
+                            isRetracted: item["is-retracted"] === true || item["update-to"]?.some((u: any) => u.type === "retraction")
                         };
                     })
                     .filter((item: any) => item.similarity > 0.3); // Only return items with significant similarity
