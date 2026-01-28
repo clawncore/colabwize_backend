@@ -3,6 +3,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { config } from "../config/env";
 import logger from "../monitoring/logger";
 import { SecretsService } from "./secrets-service";
+import { SubscriptionService } from "./subscriptionService";
 
 interface ChatContext {
   documentContent: string;
@@ -12,19 +13,55 @@ interface ChatContext {
   citationSuggestions?: any;
   projectTitle?: string;
   projectDescription?: string;
+  // Document Context Loader Fields
+  documentType?: string;
+  academicLevel?: string;
+  citationStyle?: string;
+  discipline?: string;
 }
 
 import { prisma } from "../lib/prisma";
 
 export class AIChatService {
   private static readonly SYSTEM_PROMPT = `
-You are an expert Academic Integrity Assistant for ColabWize. You operate in **EXPLAIN MODE** - your purpose is to educate and explain, never to write for the student.
+# GLOBAL SYSTEM GUARD (NON-NEGOTIABLE)
+
+Purpose:
+Defines what the AI is allowed and forbidden to do across the entire editor.
+
+This prompt is always active.
+
+You are an AI Integrity Co-Pilot embedded in an academic writing editor.
+
+Your role is strictly observational and advisory.
+
+You MUST:
+- Observe text without modifying it
+- Flag issues without interrupting the user
+- Explain issues only when the user clicks a flag
+- Preserve the author’s voice and intent
+- Explain originality detection results and similarity flags
+- Clarify citation requirements and academic integrity rules
+- Provide educational guidance on academic writing practices
+
+You MUST NOT:
+- Rewrite text automatically
+- Insert or edit citations
+- Fabricate sources or references
+- Change document structure
+- Trigger popups or messages uninvited
+
+All suggestions must be optional, transparent, and academically justified.
+
+If this prompt is violated → your product loses trust.
+
+
+# OPERATIONAL GUIDELINES (COMPLIANT WITH GUARD)
 
 **YOUR ROLE**:
 - Explain originality detection results and similarity flags
 - Clarify citation requirements and academic integrity rules
 - Provide educational guidance on academic writing practices
-- Help interpret scan results and suggest appropriate actions
 
 **CRITICAL RULES (NON-NEGOTIABLE)**:
 1. **EXPLAIN ONLY**: You may explain concepts, analyze text, and offer educational advice.
@@ -45,6 +82,110 @@ You are an expert Academic Integrity Assistant for ColabWize. You operate in **E
 
 You have access to the student's document content and scan results. Use this context to provide specific, actionable explanations.
 `;
+
+  private static readonly CITATION_EXPLANATION_PROMPT = `
+PROMPT 4 — Citation Explanation Agent (AI, ON-CLICK ONLY)
+
+This only runs when the user clicks a flag.
+
+You are an academic citation explanation assistant.
+
+You activate ONLY when the user interacts with a citation warning.
+
+Input:
+- The flagged text
+- Detected issue
+- Expected citation rule
+- Minimal surrounding context
+
+Your task:
+1. Explain what is wrong
+2. Explain which citation rule applies
+3. Show a corrected example
+4. Keep explanation concise and neutral
+
+You must NOT:
+- Rewrite the document
+- Insert citations
+- Suggest new sources
+- Override user intent
+
+This is educational AI, not corrective AI.
+`;
+
+  private static readonly CITATION_AUDIT_PROMPT = `
+PROMPT 6 — Manual Citation Audit Agent (AI, USER-TRIGGERED)
+
+Runs only when the user clicks Run Citation Audit.
+
+You are performing a full-document citation audit.
+
+Scope:
+- Entire document
+
+You must:
+- Summarize citation issues
+- Group issues by severity
+- Highlight systemic problems (style mixing, missing references)
+
+You must NOT:
+- Edit content
+- Rewrite citations
+- Add references
+
+Your output is a report, not a fix.
+`;
+
+  private static readonly CITATION_SUGGESTION_PROMPT = `
+PROMPT 7 — Citation Suggestion Assistant (AI, OPTIONAL, ON-CLICK)
+
+This is separate from monitoring.
+
+You are a citation suggestion assistant.
+
+You activate only when the user clicks "Suggest citation".
+
+Input:
+- Selected paragraph
+- Claim type (argument, fact, theory)
+
+You must:
+- Suggest where a citation would strengthen credibility
+- Suggest the type of source needed
+
+You must NOT:
+- Generate citations
+- Insert references
+- Modify text
+`;
+
+  /**
+   * PROMPT 7: Suggest where citations are needed
+   */
+  static async suggestCitations(
+    input: {
+      paragraph: string;
+      claimType: string;
+    }
+  ) {
+    const apiKey = await SecretsService.getOpenAiApiKey();
+    const openaiProvider = createOpenAI({ apiKey: apiKey || undefined });
+
+    const inputContent = `
+[INPUT DATA]
+Paragraph: "${input.paragraph}"
+Claim Type: ${input.claimType}
+`;
+
+    const result = await streamText({
+      model: openaiProvider("gpt-4o-mini"),
+      system: this.CITATION_SUGGESTION_PROMPT,
+      messages: [{ role: "user", content: inputContent }],
+      temperature: 0.3,
+    });
+
+    return result.toTextStreamResponse();
+  }
 
   /**
    * Create a new chat session
@@ -168,14 +309,56 @@ You have access to the student's document content and scan results. Use this con
         }
       }
 
+      // --- LIMIT ENFORCEMENT START ---
+      // --- LIMIT ENFORCEMENT START ---
+      try {
+        if (!userId) {
+          // Should not happen in authenticated context, but safe to ignore or block?
+          // Block to be safe.
+          throw new Error("User ID missing for AI request");
+        }
+
+        // 1. Check Usage Limits ("ai_chat" feature)
+        // This deducts from Plan first, then Credits if auto-use is on.
+        const consumption = await SubscriptionService.consumeAction(
+          userId,
+          "ai_chat"
+        );
+
+        if (!consumption.allowed) {
+          // Return a structured error that the frontend can parse/display
+          // Since we are in a stream, we pipe this as a text chunk but the frontend should handle it.
+          // Ideally, we'd throw an http error, but for streamText we might need to be careful.
+          // Let's return a special system message.
+          return new Response(
+            JSON.stringify({
+              error: consumption.code || "LIMIT_REACHED",
+              message: consumption.message || "You have reached your AI usage limit."
+            }),
+            { status: 403, headers: { "Content-Type": "application/json" } }
+          );
+        }
+      } catch (error) {
+        console.error("AI Limit Check Failed:", error);
+        // Fallback: Allow if DB checks fail? Or Block?
+        // Block to be safe against abuse.
+        return new Response("System Error: Unable to verify usage limits.", { status: 500 });
+      }
+      // --- LIMIT ENFORCEMENT END ---
+
       // Construct the full context system message
       let contextMessage = `
-[DOCUMENT CONTEXT]
+[DOCUMENT CONTEXT LOADER]
+Document type: ${context.documentType || "Research Paper"}
+Academic level: ${context.academicLevel || "Undergraduate"}
+Citation style: ${context.citationStyle || "APA 7"}
+Discipline: ${context.discipline || "Unknown"}
+
+[DOCUMENT CONTENT]
 Title: ${context.projectTitle || "Untitled"}
 Description: ${context.projectDescription || "No description"}
-Excerpt (around cursor): "${
-        context.selectedText || context.documentContent.slice(0, 2000)
-      }..."
+Excerpt (around cursor): "${context.selectedText || context.documentContent.slice(0, 2000)
+        }..."
 [END DOCUMENT CONTEXT]
 `;
 
@@ -363,5 +546,69 @@ ${JSON.stringify(context.citationSuggestions, null, 2)}
       `Unknown policy type: ${policyType}. Consult your institution's academic integrity policy for specific guidance.`;
 
     return explanation;
+  }
+
+  /**
+   * PROMPT 3: Explain a specific citation issue (On-Click)
+   */
+  static async explainCitationIssue(
+    issueContext: {
+      textSpan: string;
+      detectedPattern: string;
+      expectedStyle: string;
+      surroundingContext: string;
+    }
+  ) {
+    const apiKey = await SecretsService.getOpenAiApiKey();
+    const openaiProvider = createOpenAI({ apiKey: apiKey || undefined });
+
+    // Input construction
+    const inputContent = `
+[INPUT DATA]
+Flagged Text: "${issueContext.textSpan}"
+Detected Pattern: ${issueContext.detectedPattern}
+Expected Style: ${issueContext.expectedStyle}
+Context: "...${issueContext.surroundingContext}..."
+`;
+
+    // Use streamText or just generateText depending on UI needs. 
+    // Assuming UI expects a stream akin to chat, or a block. Let's use streamText for consistency.
+    const result = await streamText({
+      model: openaiProvider("gpt-4o-mini"),
+      system: this.CITATION_EXPLANATION_PROMPT,
+      messages: [{ role: "user", content: inputContent }],
+      temperature: 0.2,
+    });
+
+    return result.toTextStreamResponse();
+  }
+
+  /**
+   * PROMPT 4: Run full document citation audit
+   */
+  static async auditCitations(
+    documentContent: string,
+    citationStyle: string
+  ) {
+    const apiKey = await SecretsService.getOpenAiApiKey();
+    const openaiProvider = createOpenAI({ apiKey: apiKey || undefined });
+
+    const inputContent = `
+[AUDIT REQUEST]
+Citation Style Target: ${citationStyle}
+Document Content:
+${documentContent.slice(0, 50000)} // Truncate to safety limit
+`;
+
+    const result = await streamText({
+      model: openaiProvider("gpt-4o-mini"), // Or gpt-4o for complex audits
+      system: this.CITATION_AUDIT_PROMPT,
+      messages: [{ role: "user", content: inputContent }],
+      temperature: 0.1,
+      // response_format: { type: "json_object" } // enforcing JSON if model supports it, but streamText might output raw.
+      // We instructed JSON in prompt.
+    });
+
+    return result.toTextStreamResponse();
   }
 }

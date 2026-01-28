@@ -54,13 +54,28 @@ export class UsageService {
    * Get current usage for user
    */
   static async getCurrentUsage(userId: string) {
-    const { period_start, period_end } = this.getCurrentPeriod();
+    const now = new Date();
+
+    // Default to Calendar Month
+    let period_start = new Date(now.getFullYear(), now.getMonth(), 1);
+    // Remove strict period_end check to capture everything in the current cycle
+    // or set it loosely.
+
+    // Try to get subscription billing cycle to align with recording logic
+    try {
+      const subscription = await SubscriptionService.getUserSubscription(userId);
+      if (subscription && subscription.current_period_start) {
+        period_start = new Date(subscription.current_period_start);
+      }
+    } catch (e) {
+      // Fallback to calendar month
+    }
 
     const usageRecords = await prisma.usageTracking.findMany({
       where: {
         user_id: userId,
+        // Only check start time. This is robust enough because we reset/rollover based on start time.
         period_start: { gte: period_start },
-        period_end: { lte: period_end },
       },
     });
 

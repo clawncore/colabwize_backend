@@ -9,7 +9,8 @@ export type PatternType =
     | "et_al_no_period"   // et al
     | "et_al_with_period" // et al.
     | "AMPERSAND_IN_PAREN" // (Smith & Jones)
-    | "AND_IN_PAREN";      // (Smith and Jones)
+    | "AND_IN_PAREN"      // (Smith and Jones)
+    | "MIXED_STYLE"; // Global flag for mixed styles
 
 export interface DocumentMeta {
     language: string;

@@ -25,6 +25,7 @@ const PLAN_LIMITS = {
     rephrase_suggestions: 3,
     paper_search: 0,
     ai_integrity: 0,
+    ai_chat: 5, // Request: Limited access for Free Tier
     certificate: 0,
     max_scan_characters: 20000,
 
@@ -47,6 +48,7 @@ const PLAN_LIMITS = {
     rephrase_suggestions: -2,
     paper_search: -2,
     ai_integrity: -2,
+    ai_chat: -2,
     certificate: -2,
     max_scan_characters: 300000,
 
@@ -69,6 +71,7 @@ const PLAN_LIMITS = {
     rephrase_suggestions: 25,
     paper_search: 25,
     ai_integrity: 0,
+    ai_chat: 50, // Request: Student Limit
     certificate: 25,
     max_scan_characters: 80000,
 
@@ -91,6 +94,7 @@ const PLAN_LIMITS = {
     rephrase_suggestions: 100,
     paper_search: 100,
     ai_integrity: 100,
+    ai_chat: -1, // Request: Unlimited
     certificate: 100,
     max_scan_characters: 200000,
 

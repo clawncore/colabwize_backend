@@ -2,6 +2,7 @@ import { Router } from "express";
 import express from "express";
 import { LemonSqueezyService } from "../../services/lemonSqueezyService";
 import { SubscriptionService } from "../../services/subscriptionService";
+import { CreditService } from "../../services/CreditService";
 import { EmailService } from "../../services/emailService";
 import logger from "../../monitoring/logger";
 import { prisma } from "../../lib/prisma";
@@ -169,6 +170,10 @@ const CREDIT_PLAN_MAPPING: Record<string, number> = {
   credits_25: 25,
   credits_50: 50,
   credits_100: 100,
+  // New Plan Mappings
+  credits_trial: 10,
+  credits_standard: 25,
+  credits_power: 50,
 };
 
 /**
@@ -180,55 +185,71 @@ async function handleOrderCreated(event: any) {
   const userId = customData?.user_id;
   const plan = customData?.plan;
   const variantName = data.attributes.variant_name;
+  const orderId = data.id;
 
   if (!userId) {
     logger.warn("Order created without user_id");
     return;
   }
 
-  logger.info("Order created", { userId, plan, variantName });
+  logger.info("Order created", { userId, plan, variantName, orderId });
 
   // Check if this is a credit purchase
+  let creditAmount = 0;
+
   if (plan && plan.startsWith("credits_")) {
-    const creditAmount = CREDIT_PLAN_MAPPING[plan];
-
-    if (creditAmount) {
-      try {
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            credits: {
-              increment: creditAmount,
-            },
-          },
-        });
-
-        logger.info("Credits granted", { userId, amount: creditAmount, plan });
-
-        // Credits granted successfully - email notification removed
-      } catch (creditError: any) {
-        logger.error("Failed to grant credits", {
-          error: creditError.message,
-          userId,
-          plan
-        });
-      }
-    } else if (variantName) {
-      // Fallback: parse from variant name
-      const match = variantName.match(/CREDITS[_\s](\d+)/i);
-      if (match) {
-        const amount = parseInt(match[1], 10);
-        try {
-          await prisma.user.update({
-            where: { id: userId },
-            data: { credits: { increment: amount } },
-          });
-          logger.info("Credits granted from variant", { userId, amount, variantName });
-        } catch (error: any) {
-          logger.error("Failed to grant credits from variant", { error: error.message });
-        }
-      }
+    creditAmount = CREDIT_PLAN_MAPPING[plan] || 0;
+  } else if (variantName) {
+    // Fallback: parse from variant name
+    const match = variantName.match(/CREDITS[_\s](\d+)/i);
+    if (match) {
+      creditAmount = parseInt(match[1], 10);
     }
+  }
+
+  if (creditAmount > 0) {
+    try {
+      await CreditService.addCredits(
+        userId,
+        creditAmount,
+        "PURCHASE",
+        orderId,
+        `Purchase: ${plan || variantName}`
+      );
+
+      logger.info("Credits granted", { userId, amount: creditAmount, plan, orderId });
+    } catch (creditError: any) {
+      logger.error("Failed to grant credits", {
+        error: creditError.message,
+        userId,
+        plan,
+        orderId
+      });
+    }
+  }
+
+  // Persist Payment History
+  try {
+    await prisma.paymentHistory.upsert({
+      where: { lemonsqueezy_order_id: orderId.toString() },
+      create: {
+        user_id: userId,
+        lemonsqueezy_order_id: orderId.toString(),
+        amount: parseInt(data.attributes.total),
+        currency: data.attributes.currency,
+        status: data.attributes.status,
+        receipt_url: data.attributes.urls?.receipt,
+        description: `One-time purchase: ${variantName || 'Credits'}`,
+        created_at: new Date(data.attributes.created_at),
+      },
+      update: {
+        status: data.attributes.status,
+        receipt_url: data.attributes.urls?.receipt,
+      }
+    });
+    logger.info("Payment history recorded for order", { orderId, userId });
+  } catch (error: any) {
+    logger.error("Failed to record payment history", { error: error.message, orderId });
   }
 }
 
@@ -427,6 +448,31 @@ async function handleSubscriptionPaymentSuccess(event: any) {
   });
 
   logger.info("Payment success", { userId });
+
+  // Persist Payment History for Subscription Renewal/Payment
+  try {
+    const orderId = data.attributes.order_id?.toString() || data.id; // Usually subscription invoice has an order ID reference
+    await prisma.paymentHistory.upsert({
+      where: { lemonsqueezy_order_id: orderId },
+      create: {
+        user_id: userId,
+        lemonsqueezy_order_id: orderId,
+        amount: parseInt(data.attributes.total),
+        currency: data.attributes.currency,
+        status: data.attributes.status,
+        receipt_url: data.attributes.urls?.receipt,
+        description: `Subscription Payment: ${plan}`,
+        created_at: new Date(data.attributes.created_at),
+      },
+      update: {
+        status: data.attributes.status,
+        receipt_url: data.attributes.urls?.receipt,
+      }
+    });
+    logger.info("Payment history recorded for subscription", { orderId, userId });
+  } catch (error: any) {
+    logger.error("Failed to record subscription payment history", { error: error.message, userId });
+  }
 }
 
 /**
@@ -436,6 +482,7 @@ async function handleRefundEvent(event: any, eventName: string) {
   const data = event.data;
   const customData = event.meta?.custom_data || data.attributes.custom_data;
   const userId = customData?.user_id;
+  const orderId = data.id; // Use order ID as reference
 
   if (!userId) {
     logger.warn("Refund event without user_id", { eventName });
@@ -450,15 +497,17 @@ async function handleRefundEvent(event: any, eventName: string) {
     if (plan?.startsWith("credits_")) {
       const creditAmount = CREDIT_PLAN_MAPPING[plan];
       if (creditAmount) {
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            credits: {
-              decrement: creditAmount,
-            },
-          },
-        });
-        logger.info("Credits revoked due to refund", { userId, amount: creditAmount });
+        try {
+          await CreditService.deductCredits(
+            userId,
+            creditAmount,
+            `REFUND_${orderId}`,
+            `Refund for ${plan}`
+          );
+          logger.info("Credits revoked due to refund", { userId, amount: creditAmount });
+        } catch (error: any) {
+          logger.error("Failed to revoke credits", { error: error.message, userId });
+        }
       }
     }
   } else if (eventName === "subscription_payment_refunded") {
