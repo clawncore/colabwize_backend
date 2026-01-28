@@ -4,6 +4,7 @@ import { LemonSqueezyService } from "../../services/lemonSqueezyService";
 import { CreditService } from "../../services/CreditService";
 import { EmailService } from "../../services/emailService";
 import logger from "../../monitoring/logger";
+import { prisma } from "../../lib/prisma";
 
 const router = express.Router();
 
@@ -11,23 +12,50 @@ const router = express.Router();
  * POST /api/webhooks/lemonsqueezy
  * Handle LemonSqueezy webhook events
  */
-router.post("/lemonsqueezy", express.raw({ type: "application/json" }), async (req, res) => {
+router.post("/lemonsqueezy", async (req, res) => {
   try {
     const signature = req.headers["x-signature"] as string;
-    const payload = (req as any).rawBody ? (req as any).rawBody.toString() : req.body.toString();
+
+    // Get raw body for signature verification
+    // The rawBody is set by the verify middleware in main-server.ts
+    const payload = (req as any).rawBody
+      ? (req as any).rawBody.toString()
+      : JSON.stringify(req.body);
+
+    // Debug logging
+    logger.info("Webhook received", {
+      hasSignature: !!signature,
+      hasRawBody: !!(req as any).rawBody,
+      payloadLength: payload.length,
+      contentType: req.headers["content-type"]
+    });
 
     // Verify webhook signature
     const isValid = await LemonSqueezyService.verifyWebhookSignature(payload, signature);
 
     if (!isValid) {
-      logger.warn("Invalid webhook signature");
+      logger.error("Invalid webhook signature", {
+        signaturePreview: signature?.substring(0, 20) + "...",
+        payloadLength: payload.length,
+        eventPreview: payload.substring(0, 100)
+      });
       return res.status(401).json({ error: "Invalid signature" });
     }
 
-    const event = JSON.parse(payload);
-    const eventName = event.meta.event_name;
-    const data = event.data;
-    const eventId = event.meta.event_id || data.id; // Correct way to get ID varies by version
+    let event, eventName, data, eventId;
+
+    try {
+      event = JSON.parse(payload);
+      eventName = event.meta.event_name;
+      data = event.data;
+      eventId = event.meta.event_id || data.id;
+    } catch (parseError: any) {
+      logger.error("Failed to parse webhook payload", {
+        error: parseError.message,
+        payloadPreview: payload.substring(0, 200)
+      });
+      return res.status(400).json({ error: "Invalid payload format" });
+    }
 
     logger.info("LemonSqueezy webhook received", { eventName, eventId });
 
@@ -100,8 +128,13 @@ router.post("/lemonsqueezy", express.raw({ type: "application/json" }), async (r
     });
 
     return res.status(200).json({ received: true });
-  } catch (error) {
-    logger.error("Webhook error", { error });
+  } catch (error: any) {
+    logger.error("Webhook processing error", {
+      error: error.message,
+      stack: error.stack,
+      eventName: error.eventName || "unknown",
+      payload: error.payload || "not available"
+    });
     return res.status(500).json({ error: "Webhook processing failed" });
   }
 });
@@ -118,7 +151,12 @@ async function handleOrderCreated(event: any) {
   const currency = data.attributes.currency;
 
   if (!userId) {
-    logger.warn("Order created without user_id", { eventMeta: event.meta });
+    logger.error("Order created without user_id - CREDITS NOT GRANTED", {
+      orderId,
+      customData,
+      eventMeta: event.meta,
+      dataAttributes: data.attributes
+    });
     return;
   }
 
@@ -408,9 +446,6 @@ async function handleSubscriptionUnpaused(event: any) {
 
   logger.info("Subscription unpaused", { userId });
 }
-
-// Add prisma import at the top
-import { prisma } from "../../lib/prisma";
 
 /**
  * Handle subscription payment success event (Renewals)
