@@ -215,7 +215,10 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
     }
 
     // 2. POLICY ACCEPTANCE CHECK (Legal Requirement)
-    if (policyAccepted !== true) {
+    // Only require policy acceptance for subscription plans, not for one-time credit purchases
+    const isSubscriptionPlan = !plan.startsWith("credits_") && plan !== "payg";
+
+    if (isSubscriptionPlan && policyAccepted !== true) {
       return res.status(400).json({
         success: false,
         message: "You must accept the Refund Policy and Terms of Service to proceed.",
@@ -223,18 +226,24 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
       });
     }
 
-    // 3. PERSIST POLICY ACCEPTANCE
+    // 3. PERSIST POLICY ACCEPTANCE (only for subscription plans)
     // Always update to latest timestamp to prove acceptance of current terms
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { policy_accepted_at: new Date() }
-    });
+    if (isSubscriptionPlan) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { policy_accepted_at: new Date() }
+      });
+    }
 
     // Validate plan - accept subscription plans and credit packages
     const validPlans = [
       "student",
       "researcher",
       "payg",
+      "credits_trial",
+      "credits_standard",
+      "credits_power",
+      // Legacy support
       "credits_10",
       "credits_25",
       "credits_50",
@@ -263,11 +272,14 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
     } else if (plan === "payg") {
       // Legacy PAYG - generic one-time variant
       variantId = config.onetimeVariantId || "";
-    } else if (plan === "credits_10") {
+    } else if (plan === "credits_trial" || plan === "credits_10") {
+      // Trial package: 5 credits for $1.99
       variantId = config.credits10VariantId || "";
-    } else if (plan === "credits_25") {
+    } else if (plan === "credits_standard" || plan === "credits_25") {
+      // Standard package: 25 credits for $6.99
       variantId = config.credits25VariantId || "";
-    } else if (plan === "credits_50") {
+    } else if (plan === "credits_power" || plan === "credits_50") {
+      // Power package: 50 credits for $12.99
       variantId = config.credits50VariantId || "";
     } else {
       return res.status(400).json({
