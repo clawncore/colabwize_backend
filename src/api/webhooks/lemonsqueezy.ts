@@ -30,6 +30,13 @@ router.post("/lemonsqueezy", async (req, res) => {
       contentType: req.headers["content-type"]
     });
 
+    // Log webhook arrival BEFORE signature check for debugging
+    logger.info("Webhook endpoint hit", {
+      hasSignature: !!signature,
+      payloadLength: payload.length,
+      contentType: req.headers["content-type"]
+    });
+
     // Verify webhook signature
     const isValid = await LemonSqueezyService.verifyWebhookSignature(payload, signature);
 
