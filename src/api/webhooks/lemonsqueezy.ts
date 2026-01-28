@@ -45,8 +45,19 @@ router.post("/lemonsqueezy", async (req, res) => {
       contentType: req.headers["content-type"]
     });
 
-    // Verify webhook signature
-    const isValid = await LemonSqueezyService.verifyWebhookSignature(payload, signature);
+    // Verify webhook signature with error handling
+    let isValid = false;
+    try {
+      isValid = await LemonSqueezyService.verifyWebhookSignature(payload, signature);
+    } catch (sigError: any) {
+      logger.error("Signature verification crashed", {
+        error: sigError.message,
+        stack: sigError.stack,
+        hasSignature: !!signature,
+        payloadLength: payload.length
+      });
+      return res.status(500).json({ error: "Signature verification failed", details: sigError.message });
+    }
 
     if (!isValid) {
       logger.error("Invalid webhook signature", {
