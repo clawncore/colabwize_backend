@@ -69,42 +69,52 @@ router.post("/lemonsqueezy", async (req, res) => {
       return res.status(401).json({ error: "Invalid signature" });
     }
 
-    let event, eventName, data, eventId;
+    let event, eventName, data, eventId, webhookId;
 
     try {
       event = JSON.parse(payload);
       eventName = event.meta.event_name;
       data = event.data;
       eventId = event.meta.event_id || data.id;
+      webhookId = event.meta.webhook_id;
     } catch (parseError: any) {
       logger.error("Failed to parse webhook payload", {
-        error: parseError.message,
-        payloadPreview: payload.substring(0, 200)
+        error: parseError.message
       });
-      return res.status(400).json({ error: "Invalid payload format" });
+      return; // Silent failure - already ACK'd
     }
 
-    logger.info("LemonSqueezy webhook received", { eventName, eventId });
+    // Security-safe logging (no PII, no sensitive data)
+    logger.info("Processing webhook", {
+      eventName,
+      eventId,
+      webhookId
+    });
 
-    // 1. Global Idempotency Check
-    let existingEvent;
+    // Idempotency check using webhook_id (LemonSqueezy retries by design)
     try {
-      existingEvent = await prisma.webhookEvent.findUnique({
-        where: { event_id: eventId },
+      const existingEvent = await prisma.webhookEvent.findFirst({
+        where: {
+          OR: [
+            { event_id: eventId },
+            { event_id: webhookId } // Use webhook_id for true idempotency
+          ]
+        }
       });
+
+      if (existingEvent) {
+        logger.info("Webhook already processed", {
+          eventId,
+          webhookId
+        });
+        return; // Silent return - already ACK'd
+      }
     } catch (dbError: any) {
-      logger.error("Database error during idempotency check", {
+      logger.error("Idempotency check failed", {
         error: dbError.message,
-        stack: dbError.stack,
         eventId
       });
-      // Continue processing even if idempotency check fails
-      // This ensures webhooks still process if there's a DB issue
-    }
-
-    if (existingEvent) {
-      logger.info("Webhook event already processed (Idempotent)", { eventId });
-      return res.status(200).json({ received: true, idempotent: true });
+      // Continue processing - better to process twice than never
     }
 
     // Process event based on type
