@@ -15,13 +15,14 @@ const router = express.Router();
 router.post("/lemonsqueezy", async (req, res) => {
   // CRITICAL: Log IMMEDIATELY to confirm webhook reaches handler
   console.log("[WEBHOOK] Handler entry - webhook received");
-  logger.info("[WEBHOOK] Handler entry", {
-    method: req.method,
-    url: req.url,
-    headers: Object.keys(req.headers)
-  });
 
   try {
+    logger.info("[WEBHOOK] Handler entry", {
+      method: req.method,
+      url: req.url,
+      headers: Object.keys(req.headers)
+    });
+
     const signature = req.headers["x-signature"] as string;
 
     // Get raw body for signature verification
@@ -106,7 +107,7 @@ router.post("/lemonsqueezy", async (req, res) => {
       return res.status(200).json({ received: true, idempotent: true });
     }
 
-    // Handle different event types
+    // Process event based on type
     switch (eventName) {
       case "order_created":
         await handleOrderCreated(event);
@@ -161,7 +162,8 @@ router.post("/lemonsqueezy", async (req, res) => {
           event_id: eventId,
           provider: "lemonsqueezy",
           event_type: eventName,
-          payload: event as any,
+          payload: JSON.stringify(event),
+          processed_at: new Date(),
         },
       });
       logger.info("Webhook event persisted", { eventId });
@@ -175,16 +177,16 @@ router.post("/lemonsqueezy", async (req, res) => {
       });
     }
 
-    return res.status(200).json({ received: true });
+    res.status(200).json({ received: true });
   } catch (error: any) {
-    logger.error("Webhook processing error - FULL DETAILS", {
+    // OUTERMOST CATCH - This will catch ANY error in the entire handler
+    console.error("[WEBHOOK] CRITICAL ERROR:", error);
+    logger.error("Webhook processing failed", {
       error: error.message,
       stack: error.stack,
-      name: error.name,
-      code: error.code,
-      cause: error.cause
+      name: error.name
     });
-    return res.status(500).json({ error: "Webhook processing failed" });
+    res.status(500).json({ error: "Webhook processing failed" });
   }
 });
 
