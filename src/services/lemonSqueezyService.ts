@@ -206,8 +206,10 @@ export class LemonSqueezyService {
 
   /**
    * Verify webhook signature
+   * @param payload - Raw request body (Buffer or string)
+   * @param signature - X-Signature header value from LemonSqueezy
    */
-  static async verifyWebhookSignature(payload: string, signature: string): Promise<boolean> {
+  static async verifyWebhookSignature(payload: Buffer | string, signature: string): Promise<boolean> {
     await this.initialize(); // Ensure webhook secret is loaded from SecretsService
 
     if (!this.webhookSecret) {
@@ -215,22 +217,40 @@ export class LemonSqueezyService {
       return true; // Allow in development
     }
 
-    const hmac = crypto
+    // Convert Buffer to string if needed, but use the raw bytes for HMAC
+    const payloadData = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, "utf8");
+
+    const computed = crypto
       .createHmac("sha256", this.webhookSecret)
-      .update(payload)
+      .update(payloadData)
       .digest("hex");
 
-    const isValid = hmac === signature;
+    // Use timing-safe comparison to prevent timing attacks
+    try {
+      const isValid = crypto.timingSafeEqual(
+        Buffer.from(computed, "hex"),
+        Buffer.from(signature, "hex")
+      );
 
-    if (!isValid) {
-      logger.warn("Webhook signature mismatch", {
-        receivedSignature: signature,
-        computedHmac: hmac,
-        hasSecret: !!this.webhookSecret
+      if (!isValid) {
+        logger.warn("Webhook signature mismatch", {
+          signatureLength: signature.length,
+          computedLength: computed.length,
+          payloadSize: payloadData.length
+        });
+      } else {
+        logger.info("Webhook signature verified successfully");
+      }
+
+      return isValid;
+    } catch (error: any) {
+      // timingSafeEqual throws if buffer lengths don't match
+      logger.warn("Webhook signature verification failed", {
+        error: error.message,
+        signatureLength: signature.length
       });
+      return false;
     }
-
-    return isValid;
   }
 
   /**

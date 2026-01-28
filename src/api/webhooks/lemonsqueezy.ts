@@ -1,4 +1,5 @@
 import { Router } from "express";
+import express from "express";
 import { LemonSqueezyService } from "../../services/lemonSqueezyService";
 import { SubscriptionService } from "../../services/subscriptionService";
 import { EmailService } from "../../services/emailService";
@@ -11,41 +12,52 @@ const router = Router();
  * LemonSqueezy Webhook Handler
  * CRITICAL: This route MUST bypass all auth middleware
  * Uses signature verification ONLY, never JWT/session
+ * MUST use express.raw() to capture raw body for signature verification
  */
-router.post("/lemonsqueezy", async (req, res) => {
-  // 1. Get signature and payload
-  const signature = req.headers["x-signature"] as string | undefined;
-  const rawBody = (req as any).rawBody;
-  const payload = rawBody ? rawBody.toString() : JSON.stringify(req.body || {});
+router.post(
+  "/lemonsqueezy",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    // 1. Get signature and raw body
+    const signature = req.headers["x-signature"] as string | undefined;
+    const rawBody = req.body; // This is a Buffer from express.raw()
 
-  // 2. Verify signature (ONLY reason to reject)
-  try {
-    if (!signature) {
-      logger.warn("Webhook missing signature");
-      return res.status(401).json({ error: "Missing signature" });
+    // 2. Verify signature (ONLY reason to reject)
+    try {
+      if (!signature) {
+        logger.warn("Webhook missing signature");
+        return res.status(401).json({ error: "Missing signature" });
+      }
+
+      if (!rawBody || !Buffer.isBuffer(rawBody)) {
+        logger.warn("Webhook missing raw body");
+        return res.status(400).json({ error: "Missing body" });
+      }
+
+      const isValid = await LemonSqueezyService.verifyWebhookSignature(rawBody, signature);
+      if (!isValid) {
+        logger.warn("Invalid webhook signature");
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+    } catch (error: any) {
+      logger.error("Signature verification error", { error: error.message });
+      return res.status(500).json({ error: "Verification failed" });
     }
 
-    const isValid = await LemonSqueezyService.verifyWebhookSignature(payload, signature);
-    if (!isValid) {
-      logger.warn("Invalid webhook signature");
-      return res.status(401).json({ error: "Invalid signature" });
-    }
-  } catch (error: any) {
-    logger.error("Signature verification error", { error: error.message });
-    return res.status(500).json({ error: "Verification failed" });
-  }
+    // 3. ACK IMMEDIATELY (never block on business logic)
+    res.status(200).json({ received: true });
 
-  // 3. ACK IMMEDIATELY (never block on business logic)
-  res.status(200).json({ received: true });
-
-  // 4. Process async (fire-and-forget)
-  processWebhookAsync(payload).catch((error) => {
-    logger.error("Webhook async processing error", {
-      error: error.message,
-      stack: error.stack
+    // 4. Process async (fire-and-forget)
+    // Convert Buffer to string for processing
+    const payload = rawBody.toString("utf8");
+    processWebhookAsync(payload).catch((error) => {
+      logger.error("Webhook async processing error", {
+        error: error.message,
+        stack: error.stack
+      });
     });
-  });
-});
+  }
+);
 
 /**
  * Async webhook processor (never blocks HTTP response)
