@@ -13,6 +13,14 @@ const router = express.Router();
  * Handle LemonSqueezy webhook events
  */
 router.post("/lemonsqueezy", async (req, res) => {
+  // CRITICAL: Log IMMEDIATELY to confirm webhook reaches handler
+  console.log("[WEBHOOK] Handler entry - webhook received");
+  logger.info("[WEBHOOK] Handler entry", {
+    method: req.method,
+    url: req.url,
+    headers: Object.keys(req.headers)
+  });
+
   try {
     const signature = req.headers["x-signature"] as string;
 
