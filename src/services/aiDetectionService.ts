@@ -1,22 +1,4 @@
 import logger from "../monitoring/logger";
-import { compareTwoStrings } from "string-similarity";
-
-// Dynamic import holder for transformers
-let pipeline: any;
-let env: any;
-
-async function getTransformers() {
-    if (!pipeline || !env) {
-        const mod = await import("@xenova/transformers");
-        pipeline = mod.pipeline;
-        env = mod.env;
-
-        // Configure transformers for local execution if possible
-        env.allowLocalModels = false;
-        env.useBrowserCache = false;
-    }
-    return { pipeline, env };
-}
 
 export interface AIDetectionResult {
     overallScore: number; // 0-100 probability of being AI
@@ -34,61 +16,28 @@ export interface AISentenceResult {
 }
 
 export class AIDetectionService {
-    private static detector: any = null;
-
-    private static async getDetector() {
-        if (!this.detector) {
-            try {
-                logger.info("Loading AI detection model...");
-                const { pipeline } = await getTransformers();
-                // Use the RoBERTa base OpenAI detector model
-                this.detector = await pipeline(
-                    "text-classification",
-                    "Xenova/roberta-base-openai-detector"
-                );
-                logger.info("AI detection model loaded successfully");
-            } catch (error: any) {
-                logger.error("Failed to load AI detection model", { error: error.message });
-                logger.warn("Using fallback heuristic detector");
-
-                // Fallback: Simple heuristic detector if model fails (avoids 500 error)
-                this.detector = async (text: string) => {
-                    // Very basic heuristic: check for common AI phrases or perfect grammar (placeholder)
-                    // In a real fallback, this could be more sophisticated
-                    const randomness = Math.random() * 0.2; // Add some noise
-                    return [{ label: "Real", score: 0.5 + randomness }]; // Return neutral/human-leaning result
-                };
-            }
-        }
-        return this.detector;
-    }
-
     /**
-     * Detect AI-generated content in a document
+     * Detect AI-generated content in a document using GPTZero API
      */
     static async detectAI(content: string): Promise<AIDetectionResult> {
         const GPTZERO_API_KEY = process.env.GPTZERO_API_KEY;
 
+        if (!GPTZERO_API_KEY) {
+            logger.error("GPTZero API key not configured");
+            throw new Error("AI detection service is not configured. Please contact support.");
+        }
+
         try {
-            logger.info("Starting AI detection scan", {
-                contentLength: content.length,
-                engine: GPTZERO_API_KEY ? "GPTZero API" : "Local Model"
+            logger.info("Starting AI detection scan with GPTZero", {
+                contentLength: content.length
             });
 
-            if (GPTZERO_API_KEY) {
-                try {
-                    return await this.detectWithGPTZero(content, GPTZERO_API_KEY);
-                } catch (apiError: any) {
-                    logger.warn("GPTZero API failed, falling back to local model", {
-                        error: apiError.message
-                    });
-                    // Fall through to local model
-                }
-            }
-
-            return await this.detectWithLocalModel(content);
+            return await this.detectWithGPTZero(content, GPTZERO_API_KEY);
         } catch (error: any) {
-            logger.error("Error in AI detection service", { error: error.message });
+            logger.error("Error in AI detection service", {
+                error: error.message,
+                stack: error.stack
+            });
             throw new Error(`AI detection failed: ${error.message}`);
         }
     }
@@ -99,96 +48,80 @@ export class AIDetectionService {
     private static async detectWithGPTZero(content: string, apiKey: string): Promise<AIDetectionResult> {
         const axios = (await import("axios")).default;
 
-        const response = await axios.post(
-            "https://api.gptzero.me/v2/predict/text",
-            { document: content },
-            {
-                headers: {
-                    "x-api-key": apiKey,
-                    "Content-Type": "application/json",
-                },
+        try {
+            const response = await axios.post(
+                "https://api.gptzero.me/v2/predict/text",
+                { document: content },
+                {
+                    headers: {
+                        "x-api-key": apiKey,
+                        "Content-Type": "application/json",
+                    },
+                    timeout: 30000, // 30 second timeout
+                }
+            );
+
+            const data = response.data;
+
+            // Validate response structure
+            if (!data.documents || !data.documents[0]) {
+                throw new Error("Invalid response from GPTZero API");
             }
-        );
 
-        const data = response.data;
-        // GPTZero returns probabilities and sentence-level analysis
-        // Mapping GPTZero response to our internal AIDetectionResult format
-        const overallScore = (data.documents[0].completely_generated_prob || 0) * 100;
+            const doc = data.documents[0];
+            const overallScore = (doc.completely_generated_prob || 0) * 100;
 
-        const sentences: AISentenceResult[] = (data.documents[0].sentences || []).map((s: any) => {
-            const score = (s.generated_prob || 0) * 100;
+            // Map sentences with position tracking
+            let currentPosition = 0;
+            const sentences: AISentenceResult[] = (doc.sentences || []).map((s: any) => {
+                const score = (s.generated_prob || 0) * 100;
+                const sentenceText = s.sentence || "";
+
+                // Find sentence position in content
+                const positionStart = content.indexOf(sentenceText, currentPosition);
+                const positionEnd = positionStart >= 0
+                    ? positionStart + sentenceText.length
+                    : currentPosition + sentenceText.length;
+
+                currentPosition = positionEnd;
+
+                return {
+                    text: sentenceText,
+                    score: score,
+                    classification: this.classifySentence(score),
+                    positionStart: Math.max(0, positionStart),
+                    positionEnd: positionEnd,
+                };
+            });
+
+            logger.info("GPTZero scan completed", {
+                overallScore,
+                sentenceCount: sentences.length
+            });
+
             return {
-                text: s.sentence,
-                score: score,
-                classification: this.classifySentence(score),
-                // GPTZero doesn't always provide offsets, so we estimate or search if needed
-                // For simplicity in this robust mapping:
-                positionStart: 0,
-                positionEnd: 0,
+                overallScore,
+                classification: this.classifyOverall(overallScore),
+                sentences,
+                scannedAt: new Date(),
             };
-        });
-
-        return {
-            overallScore,
-            classification: this.classifyOverall(overallScore),
-            sentences,
-            scannedAt: new Date(),
-        };
-    }
-
-    /**
-     * Privacy-First Local Detection (Fallback)
-     */
-    private static async detectWithLocalModel(content: string): Promise<AIDetectionResult> {
-        const detector = await this.getDetector();
-        const sentences = this.splitIntoSentences(content);
-        const results: AISentenceResult[] = [];
-        let totalScore = 0;
-        let position = 0;
-
-        for (const sentence of sentences) {
-            const trimmed = sentence.trim();
-            if (trimmed.length < 25) {
-                position += sentence.length;
-                continue;
-            }
-
-            try {
-                const output = await detector(trimmed);
-                const aiScore = output[0].label === "Fake"
-                    ? output[0].score * 100
-                    : (1 - output[0].score) * 100;
-
-                results.push({
-                    text: trimmed,
-                    score: aiScore,
-                    classification: this.classifySentence(aiScore),
-                    positionStart: position,
-                    positionEnd: position + sentence.length,
+        } catch (error: any) {
+            if (error.response) {
+                logger.error("GPTZero API error", {
+                    status: error.response.status,
+                    data: error.response.data
                 });
 
-                totalScore += aiScore;
-            } catch (err: any) {
-                logger.warn("Failed to detect AI for sentence, skipping", { sentence: trimmed, error: err.message });
+                if (error.response.status === 401) {
+                    throw new Error("Invalid GPTZero API key");
+                } else if (error.response.status === 429) {
+                    throw new Error("GPTZero API rate limit exceeded. Please try again later.");
+                } else {
+                    throw new Error(`GPTZero API error: ${error.response.data?.message || error.message}`);
+                }
             }
-
-            position += sentence.length;
+            throw error;
         }
-
-        const overallScore = results.length > 0 ? totalScore / results.length : 0;
-
-        return {
-            overallScore,
-            classification: this.classifyOverall(overallScore),
-            sentences: results,
-            scannedAt: new Date(),
-        };
-    }
-
-    private static splitIntoSentences(text: string): string[] {
-        // Basic sentence splitting logic
-        // Can be improved with more sophisticated regex or NLP library
-        return text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [text];
     }
 
     private static classifySentence(score: number): "human" | "likely_human" | "likely_ai" | "ai" {

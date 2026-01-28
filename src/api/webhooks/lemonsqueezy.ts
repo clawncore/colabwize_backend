@@ -200,7 +200,9 @@ async function handleOrderCreated(event: any) {
 
   // Handle Credit Purchases
   const plan = customData?.plan;
-  if (plan && plan.startsWith("credits_")) {
+  const variantName = data.attributes.first_order_item?.variant_name || "";
+
+  if ((plan && plan.startsWith("credits_")) || variantName.includes("CREDITS_")) {
     // Map plan names to credit amounts
     const CREDIT_PLAN_MAPPING: Record<string, number> = {
       "credits_trial": 5,
@@ -209,14 +211,30 @@ async function handleOrderCreated(event: any) {
       "credits_enterprise": 100,
     };
 
-    // Try to get amount from mapping first
-    let baseAmount = CREDIT_PLAN_MAPPING[plan];
+    let baseAmount: number | undefined;
 
-    // If not in mapping, try to parse number from plan name (e.g. "credits_25")
-    if (!baseAmount) {
-      const parsed = parseInt(plan.replace("credits_", ""), 10);
-      if (!isNaN(parsed)) {
-        baseAmount = parsed;
+    // Try to get amount from custom_data plan mapping first
+    if (plan && plan.startsWith("credits_")) {
+      baseAmount = CREDIT_PLAN_MAPPING[plan];
+
+      // If not in mapping, try to parse number from plan name (e.g. "credits_25")
+      if (!baseAmount) {
+        const parsed = parseInt(plan.replace("credits_", ""), 10);
+        if (!isNaN(parsed)) {
+          baseAmount = parsed;
+        }
+      }
+    }
+
+    // Fallback: Try to parse from variant name (e.g. "CREDITS_10" -> 10)
+    if (!baseAmount && variantName.includes("CREDITS_")) {
+      const match = variantName.match(/CREDITS[_\s](\d+)/i);
+      if (match && match[1]) {
+        const parsed = parseInt(match[1], 10);
+        if (!isNaN(parsed)) {
+          baseAmount = parsed;
+          logger.info("Parsed credit amount from variant name", { variantName, baseAmount });
+        }
       }
     }
 
@@ -233,7 +251,7 @@ async function handleOrderCreated(event: any) {
           `Purchased ${baseAmount} Scans (${creditAmount} Credits)`
         );
 
-        logger.info("Credits granted to user", { userId, creditAmount, plan, baseAmount });
+        logger.info("Credits granted to user", { userId, creditAmount, plan, variantName, baseAmount });
       } catch (creditError: any) {
         logger.error("Failed to grant credits", {
           error: creditError.message,
@@ -241,12 +259,19 @@ async function handleOrderCreated(event: any) {
           userId,
           orderId,
           plan,
+          variantName,
           creditAmount
         });
         throw creditError; // Re-throw to trigger webhook error
       }
     } else {
-      logger.error("Could not determine credit amount from plan", { plan, orderId, userId });
+      logger.error("Could not determine credit amount from plan or variant", {
+        plan,
+        variantName,
+        orderId,
+        userId,
+        firstOrderItem: data.attributes.first_order_item
+      });
     }
   }
 }
