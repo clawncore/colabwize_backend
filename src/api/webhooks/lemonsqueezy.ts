@@ -3,7 +3,7 @@ import { LemonSqueezyService } from "../../services/lemonSqueezyService";
 import { SubscriptionService } from "../../services/subscriptionService";
 import { EmailService } from "../../services/emailService";
 import logger from "../../monitoring/logger";
-import prisma from "../../config/database";
+import { prisma } from "../../lib/prisma";
 
 const router = Router();
 
@@ -193,19 +193,7 @@ async function handleOrderCreated(event: any) {
 
         logger.info("Credits granted", { userId, amount: creditAmount, plan });
 
-        // Send confirmation email
-        try {
-          const user = await prisma.user.findUnique({ where: { id: userId } });
-          if (user?.email) {
-            await EmailService.sendCreditsPurchasedEmail(
-              user.email,
-              user.full_name || "User",
-              creditAmount
-            );
-          }
-        } catch (emailError: any) {
-          logger.error("Failed to send credit email", { error: emailError.message });
-        }
+        // Credits granted successfully - email notification removed
       } catch (creditError: any) {
         logger.error("Failed to grant credits", {
           error: creditError.message,
@@ -259,20 +247,6 @@ async function handleSubscriptionCreated(event: any) {
   });
 
   logger.info("Subscription created", { userId, plan });
-
-  // Send welcome email
-  try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (user?.email) {
-      await EmailService.sendSubscriptionConfirmationEmail(
-        user.email,
-        user.full_name || "User",
-        plan
-      );
-    }
-  } catch (emailError: any) {
-    logger.error("Failed to send subscription email", { error: emailError.message });
-  }
 }
 
 /**
@@ -301,23 +275,6 @@ async function handleSubscriptionUpdated(event: any) {
   });
 
   logger.info("Subscription updated", { userId, plan });
-
-  // Send plan change email
-  try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    const newPlan = customData?.plan || "student";
-
-    if (user?.email) {
-      await EmailService.sendPlanChangeEmail(
-        user.email,
-        user.full_name || "User",
-        "Previous Plan",
-        newPlan
-      );
-    }
-  } catch (emailError: any) {
-    logger.error("Failed to send plan change email", { error: emailError.message });
-  }
 }
 
 /**
@@ -334,6 +291,7 @@ async function handleSubscriptionCancelled(event: any) {
   }
 
   await SubscriptionService.upsertSubscription(userId, {
+    plan: "free",
     status: "cancelled",
     ends_at: data.attributes.ends_at ? new Date(data.attributes.ends_at) : undefined,
     entitlement_expires_at: data.attributes.ends_at
@@ -357,9 +315,13 @@ async function handleSubscriptionResumed(event: any) {
     return;
   }
 
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const plan = customData?.plan || "student";
+
   await SubscriptionService.upsertSubscription(userId, {
+    plan,
     status: "active",
-    ends_at: null,
+    ends_at: undefined,
     renews_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
     entitlement_expires_at: new Date(data.attributes.renews_at),
   });
@@ -381,6 +343,7 @@ async function handleSubscriptionExpired(event: any) {
   }
 
   await SubscriptionService.upsertSubscription(userId, {
+    plan: "free",
     status: "expired",
     entitlement_expires_at: new Date(),
   });
@@ -401,7 +364,11 @@ async function handleSubscriptionPaused(event: any) {
     return;
   }
 
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const plan = customData?.plan || "student";
+
   await SubscriptionService.upsertSubscription(userId, {
+    plan,
     status: "paused",
   });
 
@@ -421,7 +388,11 @@ async function handleSubscriptionUnpaused(event: any) {
     return;
   }
 
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const plan = customData?.plan || "student";
+
   await SubscriptionService.upsertSubscription(userId, {
+    plan,
     status: "active",
   });
 
@@ -441,7 +412,11 @@ async function handleSubscriptionPaymentSuccess(event: any) {
     return;
   }
 
+  const customData = event.meta?.custom_data || data.attributes.custom_data;
+  const plan = customData?.plan || "student";
+
   await SubscriptionService.upsertSubscription(userId, {
+    plan,
     status: "active",
     renews_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
     entitlement_expires_at: new Date(data.attributes.renews_at),
@@ -484,6 +459,7 @@ async function handleRefundEvent(event: any, eventName: string) {
     }
   } else if (eventName === "subscription_payment_refunded") {
     await SubscriptionService.upsertSubscription(userId, {
+      plan: "free",
       status: "cancelled",
       entitlement_expires_at: new Date(),
     });
