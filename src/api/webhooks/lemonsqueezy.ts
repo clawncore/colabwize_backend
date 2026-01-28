@@ -60,9 +60,20 @@ router.post("/lemonsqueezy", async (req, res) => {
     logger.info("LemonSqueezy webhook received", { eventName, eventId });
 
     // 1. Global Idempotency Check
-    const existingEvent = await prisma.webhookEvent.findUnique({
-      where: { event_id: eventId },
-    });
+    let existingEvent;
+    try {
+      existingEvent = await prisma.webhookEvent.findUnique({
+        where: { event_id: eventId },
+      });
+    } catch (dbError: any) {
+      logger.error("Database error during idempotency check", {
+        error: dbError.message,
+        stack: dbError.stack,
+        eventId
+      });
+      // Continue processing even if idempotency check fails
+      // This ensures webhooks still process if there's a DB issue
+    }
 
     if (existingEvent) {
       logger.info("Webhook event already processed (Idempotent)", { eventId });
@@ -117,23 +128,35 @@ router.post("/lemonsqueezy", async (req, res) => {
         logger.info("Unhandled webhook event", { eventName });
     }
 
-    // 2. Persist Event
-    await prisma.webhookEvent.create({
-      data: {
-        event_id: eventId,
-        provider: "lemonsqueezy",
-        event_type: eventName,
-        payload: event as any, // Storing full payload for audit
-      },
-    });
+    // 2. Persist Event (with error handling)
+    try {
+      await prisma.webhookEvent.create({
+        data: {
+          event_id: eventId,
+          provider: "lemonsqueezy",
+          event_type: eventName,
+          payload: event as any,
+        },
+      });
+      logger.info("Webhook event persisted", { eventId });
+    } catch (persistError: any) {
+      // Log but don't fail the webhook if persistence fails
+      logger.error("Failed to persist webhook event", {
+        error: persistError.message,
+        stack: persistError.stack,
+        eventId,
+        eventName
+      });
+    }
 
     return res.status(200).json({ received: true });
   } catch (error: any) {
-    logger.error("Webhook processing error", {
+    logger.error("Webhook processing error - FULL DETAILS", {
       error: error.message,
       stack: error.stack,
-      eventName: error.eventName || "unknown",
-      payload: error.payload || "not available"
+      name: error.name,
+      code: error.code,
+      cause: error.cause
     });
     return res.status(500).json({ error: "Webhook processing failed" });
   }
@@ -178,23 +201,52 @@ async function handleOrderCreated(event: any) {
   // Handle Credit Purchases
   const plan = customData?.plan;
   if (plan && plan.startsWith("credits_")) {
-    // Parse credit amount from plan ID (e.g. "credits_25" -> 25)
-    const baseAmount = parseInt(plan.replace("credits_", ""), 10);
+    // Map plan names to credit amounts
+    const CREDIT_PLAN_MAPPING: Record<string, number> = {
+      "credits_trial": 5,
+      "credits_standard": 25,
+      "credits_pro": 50,
+      "credits_enterprise": 100,
+    };
 
-    if (!isNaN(baseAmount)) {
+    // Try to get amount from mapping first
+    let baseAmount = CREDIT_PLAN_MAPPING[plan];
+
+    // If not in mapping, try to parse number from plan name (e.g. "credits_25")
+    if (!baseAmount) {
+      const parsed = parseInt(plan.replace("credits_", ""), 10);
+      if (!isNaN(parsed)) {
+        baseAmount = parsed;
+      }
+    }
+
+    if (baseAmount) {
       // Scale by 100 as per user request (25 -> 2500 credits)
-      // This ensures 1 scan (100 credits) matches the intended pack size (25 scans)
       const creditAmount = baseAmount * 100;
 
-      await CreditService.addCredits(
-        userId,
-        creditAmount,
-        "PURCHASE",
-        orderId.toString(),
-        `Purchased ${baseAmount} Scans (${creditAmount} Credits)`
-      );
+      try {
+        await CreditService.addCredits(
+          userId,
+          creditAmount,
+          "PURCHASE",
+          orderId.toString(),
+          `Purchased ${baseAmount} Scans (${creditAmount} Credits)`
+        );
 
-      logger.info("Credits granted to user", { userId, creditAmount, plan });
+        logger.info("Credits granted to user", { userId, creditAmount, plan, baseAmount });
+      } catch (creditError: any) {
+        logger.error("Failed to grant credits", {
+          error: creditError.message,
+          stack: creditError.stack,
+          userId,
+          orderId,
+          plan,
+          creditAmount
+        });
+        throw creditError; // Re-throw to trigger webhook error
+      }
+    } else {
+      logger.error("Could not determine credit amount from plan", { plan, orderId, userId });
     }
   }
 }
