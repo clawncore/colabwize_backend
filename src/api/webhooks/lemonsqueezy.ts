@@ -1,321 +1,239 @@
-import express from "express";
-import { SubscriptionService } from "../../services/subscriptionService";
+import { Router } from "express";
 import { LemonSqueezyService } from "../../services/lemonSqueezyService";
-import { CreditService } from "../../services/CreditService";
+import { SubscriptionService } from "../../services/subscriptionService";
 import { EmailService } from "../../services/emailService";
 import logger from "../../monitoring/logger";
-import { prisma } from "../../lib/prisma";
+import prisma from "../../config/database";
 
-const router = express.Router();
+const router = Router();
 
 /**
- * POST /api/webhooks/lemonsqueezy
- * Handle LemonSqueezy webhook events
+ * LemonSqueezy Webhook Handler
+ * CRITICAL: This route MUST bypass all auth middleware
+ * Uses signature verification ONLY, never JWT/session
  */
 router.post("/lemonsqueezy", async (req, res) => {
-  // CRITICAL: Log IMMEDIATELY to confirm webhook reaches handler
-  console.log("[WEBHOOK] Handler entry - webhook received");
+  // 1. Get signature and payload
+  const signature = req.headers["x-signature"] as string | undefined;
+  const rawBody = (req as any).rawBody;
+  const payload = rawBody ? rawBody.toString() : JSON.stringify(req.body || {});
 
+  // 2. Verify signature (ONLY reason to reject)
   try {
-    logger.info("[WEBHOOK] Handler entry", {
-      method: req.method,
-      url: req.url,
-      headers: Object.keys(req.headers)
-    });
-
-    const signature = req.headers["x-signature"] as string;
-
-    // Get raw body for signature verification
-    // The rawBody is set by the verify middleware in main-server.ts
-    const payload = (req as any).rawBody
-      ? (req as any).rawBody.toString()
-      : JSON.stringify(req.body);
-
-    // Debug logging
-    logger.info("Webhook received", {
-      hasSignature: !!signature,
-      hasRawBody: !!(req as any).rawBody,
-      payloadLength: payload.length,
-      contentType: req.headers["content-type"]
-    });
-
-    // Log webhook arrival BEFORE signature check for debugging
-    logger.info("Webhook endpoint hit", {
-      hasSignature: !!signature,
-      payloadLength: payload.length,
-      contentType: req.headers["content-type"]
-    });
-
-    // Verify webhook signature with error handling
-    let isValid = false;
-    try {
-      isValid = await LemonSqueezyService.verifyWebhookSignature(payload, signature);
-    } catch (sigError: any) {
-      logger.error("Signature verification crashed", {
-        error: sigError.message,
-        stack: sigError.stack,
-        hasSignature: !!signature,
-        payloadLength: payload.length
-      });
-      return res.status(500).json({ error: "Signature verification failed", details: sigError.message });
+    if (!signature) {
+      logger.warn("Webhook missing signature");
+      return res.status(401).json({ error: "Missing signature" });
     }
 
+    const isValid = await LemonSqueezyService.verifyWebhookSignature(payload, signature);
     if (!isValid) {
-      logger.error("Invalid webhook signature", {
-        signaturePreview: signature?.substring(0, 20) + "...",
-        payloadLength: payload.length,
-        eventPreview: payload.substring(0, 100)
-      });
+      logger.warn("Invalid webhook signature");
       return res.status(401).json({ error: "Invalid signature" });
     }
+  } catch (error: any) {
+    logger.error("Signature verification error", { error: error.message });
+    return res.status(500).json({ error: "Verification failed" });
+  }
 
-    let event, eventName, data, eventId, webhookId;
+  // 3. ACK IMMEDIATELY (never block on business logic)
+  res.status(200).json({ received: true });
 
-    try {
-      event = JSON.parse(payload);
-      eventName = event.meta.event_name;
-      data = event.data;
-      eventId = event.meta.event_id || data.id;
-      webhookId = event.meta.webhook_id;
-    } catch (parseError: any) {
-      logger.error("Failed to parse webhook payload", {
-        error: parseError.message
-      });
-      return; // Silent failure - already ACK'd
-    }
+  // 4. Process async (fire-and-forget)
+  processWebhookAsync(payload).catch((error) => {
+    logger.error("Webhook async processing error", {
+      error: error.message,
+      stack: error.stack
+    });
+  });
+});
 
-    // Security-safe logging (no PII, no sensitive data)
-    logger.info("Processing webhook", {
-      eventName,
-      eventId,
-      webhookId
+/**
+ * Async webhook processor (never blocks HTTP response)
+ */
+async function processWebhookAsync(payload: string): Promise<void> {
+  let event, eventName, eventId, webhookId;
+
+  try {
+    event = JSON.parse(payload);
+    eventName = event.meta?.event_name;
+    eventId = event.meta?.event_id || event.data?.id;
+    webhookId = event.meta?.webhook_id;
+  } catch (parseError: any) {
+    logger.error("Failed to parse webhook", { error: parseError.message });
+    return;
+  }
+
+  if (!eventName) {
+    logger.error("Webhook missing event_name");
+    return;
+  }
+
+  // Security-safe logging (no PII)
+  logger.info("Processing webhook", { eventName, eventId, webhookId });
+
+  // Idempotency check
+  try {
+    const existingEvent = await prisma.webhookEvent.findFirst({
+      where: {
+        OR: [
+          { event_id: eventId },
+          { event_id: webhookId }
+        ]
+      }
     });
 
-    // Idempotency check using webhook_id (LemonSqueezy retries by design)
-    try {
-      const existingEvent = await prisma.webhookEvent.findFirst({
-        where: {
-          OR: [
-            { event_id: eventId },
-            { event_id: webhookId } // Use webhook_id for true idempotency
-          ]
-        }
-      });
-
-      if (existingEvent) {
-        logger.info("Webhook already processed", {
-          eventId,
-          webhookId
-        });
-        return; // Silent return - already ACK'd
-      }
-    } catch (dbError: any) {
-      logger.error("Idempotency check failed", {
-        error: dbError.message,
-        eventId
-      });
-      // Continue processing - better to process twice than never
+    if (existingEvent) {
+      logger.info("Webhook already processed", { eventId, webhookId });
+      return;
     }
+  } catch (dbError: any) {
+    logger.error("Idempotency check failed", { error: dbError.message });
+    // Continue - better to process twice than never
+  }
 
-    // Process event based on type
+  // Process event
+  try {
     switch (eventName) {
       case "order_created":
         await handleOrderCreated(event);
         break;
-
       case "subscription_created":
         await handleSubscriptionCreated(event);
         break;
-
       case "subscription_updated":
         await handleSubscriptionUpdated(event);
         break;
-
       case "subscription_cancelled":
         await handleSubscriptionCancelled(event);
         break;
-
       case "subscription_resumed":
         await handleSubscriptionResumed(event);
         break;
-
       case "subscription_expired":
         await handleSubscriptionExpired(event);
         break;
-
       case "subscription_paused":
         await handleSubscriptionPaused(event);
         break;
-
       case "subscription_unpaused":
         await handleSubscriptionUnpaused(event);
         break;
-
       case "subscription_payment_success":
         await handleSubscriptionPaymentSuccess(event);
         break;
-
-      // Fix 4: Refund Handling
       case "order_refunded":
       case "subscription_payment_refunded":
         await handleRefundEvent(event, eventName);
         break;
-
       default:
         logger.info("Unhandled webhook event", { eventName });
     }
 
-    // 2. Persist Event (with error handling)
+    // Persist event
     try {
       await prisma.webhookEvent.create({
         data: {
-          event_id: eventId,
-          provider: "lemonsqueezy",
-          event_type: eventName,
-          payload: JSON.stringify(event),
+          event_id: webhookId || eventId,
+          event_name: eventName,
+          payload: payload,
           processed_at: new Date(),
         },
       });
-      logger.info("Webhook event persisted", { eventId });
     } catch (persistError: any) {
-      // Log but don't fail the webhook if persistence fails
-      logger.error("Failed to persist webhook event", {
-        error: persistError.message,
-        stack: persistError.stack,
-        eventId,
-        eventName
-      });
+      logger.error("Failed to persist webhook", { error: persistError.message });
     }
-
-    res.status(200).json({ received: true });
-  } catch (error: any) {
-    // OUTERMOST CATCH - This will catch ANY error in the entire handler
-    console.error("[WEBHOOK] CRITICAL ERROR:", error);
+  } catch (processingError: any) {
     logger.error("Webhook processing failed", {
-      error: error.message,
-      stack: error.stack,
-      name: error.name
+      eventName,
+      error: processingError.message,
+      stack: processingError.stack
     });
-    res.status(500).json({ error: "Webhook processing failed" });
   }
-});
+}
+
+// Credit plan mapping
+const CREDIT_PLAN_MAPPING: Record<string, number> = {
+  credits_10: 10,
+  credits_25: 25,
+  credits_50: 50,
+  credits_100: 100,
+};
 
 /**
- * Handle order created event
+ * Handle order_created event (one-time purchases like credits)
  */
 async function handleOrderCreated(event: any) {
   const data = event.data;
   const customData = event.meta?.custom_data || data.attributes.custom_data;
   const userId = customData?.user_id;
-  const orderId = data.id;
-  const amount = data.attributes.total;
-  const currency = data.attributes.currency;
+  const plan = customData?.plan;
+  const variantName = data.attributes.variant_name;
 
   if (!userId) {
-    logger.error("Order created without user_id - CREDITS NOT GRANTED", {
-      orderId,
-      customData,
-      eventMeta: event.meta,
-      dataAttributes: data.attributes
-    });
+    logger.warn("Order created without user_id");
     return;
   }
 
-  // Create payment history record
-  await prisma.paymentHistory.create({
-    data: {
-      user_id: userId,
-      lemonsqueezy_order_id: orderId,
-      amount: Math.round(amount * 100), // Convert to cents
-      currency: currency.toLowerCase(),
-      status: data.attributes.status,
-      receipt_url: data.attributes.receipt_url,
-      description: `Order ${orderId}`,
-    },
-  });
+  logger.info("Order created", { userId, plan, variantName });
 
-  logger.info("Payment history created", { userId, orderId });
+  // Check if this is a credit purchase
+  if (plan && plan.startsWith("credits_")) {
+    const creditAmount = CREDIT_PLAN_MAPPING[plan];
 
-  // Handle Credit Purchases
-  const plan = customData?.plan;
-  const variantName = data.attributes.first_order_item?.variant_name || "";
-
-  if ((plan && plan.startsWith("credits_")) || variantName.includes("CREDITS_")) {
-    // Map plan names to credit amounts
-    const CREDIT_PLAN_MAPPING: Record<string, number> = {
-      "credits_trial": 5,
-      "credits_standard": 25,
-      "credits_pro": 50,
-      "credits_enterprise": 100,
-    };
-
-    let baseAmount: number | undefined;
-
-    // Try to get amount from custom_data plan mapping first
-    if (plan && plan.startsWith("credits_")) {
-      baseAmount = CREDIT_PLAN_MAPPING[plan];
-
-      // If not in mapping, try to parse number from plan name (e.g. "credits_25")
-      if (!baseAmount) {
-        const parsed = parseInt(plan.replace("credits_", ""), 10);
-        if (!isNaN(parsed)) {
-          baseAmount = parsed;
-        }
-      }
-    }
-
-    // Fallback: Try to parse from variant name (e.g. "CREDITS_10" -> 10)
-    if (!baseAmount && variantName.includes("CREDITS_")) {
-      const match = variantName.match(/CREDITS[_\s](\d+)/i);
-      if (match && match[1]) {
-        const parsed = parseInt(match[1], 10);
-        if (!isNaN(parsed)) {
-          baseAmount = parsed;
-          logger.info("Parsed credit amount from variant name", { variantName, baseAmount });
-        }
-      }
-    }
-
-    if (baseAmount) {
-      // Scale by 100 as per user request (25 -> 2500 credits)
-      const creditAmount = baseAmount * 100;
-
+    if (creditAmount) {
       try {
-        await CreditService.addCredits(
-          userId,
-          creditAmount,
-          "PURCHASE",
-          orderId.toString(),
-          `Purchased ${baseAmount} Scans (${creditAmount} Credits)`
-        );
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            credits: {
+              increment: creditAmount,
+            },
+          },
+        });
 
-        logger.info("Credits granted to user", { userId, creditAmount, plan, variantName, baseAmount });
+        logger.info("Credits granted", { userId, amount: creditAmount, plan });
+
+        // Send confirmation email
+        try {
+          const user = await prisma.user.findUnique({ where: { id: userId } });
+          if (user?.email) {
+            await EmailService.sendCreditsPurchasedEmail(
+              user.email,
+              user.full_name || "User",
+              creditAmount
+            );
+          }
+        } catch (emailError: any) {
+          logger.error("Failed to send credit email", { error: emailError.message });
+        }
       } catch (creditError: any) {
         logger.error("Failed to grant credits", {
           error: creditError.message,
-          stack: creditError.stack,
           userId,
-          orderId,
-          plan,
-          variantName,
-          creditAmount
+          plan
         });
-        throw creditError; // Re-throw to trigger webhook error
       }
-    } else {
-      logger.error("Could not determine credit amount from plan or variant", {
-        plan,
-        variantName,
-        orderId,
-        userId,
-        firstOrderItem: data.attributes.first_order_item
-      });
+    } else if (variantName) {
+      // Fallback: parse from variant name
+      const match = variantName.match(/CREDITS[_\s](\d+)/i);
+      if (match) {
+        const amount = parseInt(match[1], 10);
+        try {
+          await prisma.user.update({
+            where: { id: userId },
+            data: { credits: { increment: amount } },
+          });
+          logger.info("Credits granted from variant", { userId, amount, variantName });
+        } catch (error: any) {
+          logger.error("Failed to grant credits from variant", { error: error.message });
+        }
+      }
     }
   }
 }
 
 /**
- * Handle subscription created event
+ * Handle subscription_created event
  */
 async function handleSubscriptionCreated(event: any) {
   const data = event.data;
@@ -324,7 +242,7 @@ async function handleSubscriptionCreated(event: any) {
   const plan = customData?.plan || "student";
 
   if (!userId) {
-    logger.warn("Subscription created without user_id", { eventMeta: event.meta });
+    logger.warn("Subscription created without user_id");
     return;
   }
 
@@ -337,52 +255,37 @@ async function handleSubscriptionCreated(event: any) {
     current_period_start: new Date(data.attributes.created_at),
     current_period_end: new Date(data.attributes.renews_at),
     renews_at: new Date(data.attributes.renews_at),
-    entitlement_expires_at: new Date(data.attributes.renews_at), // Access valid until renewal
-  });
-
-  console.log('[WEBHOOK_APPLY_SUBSCRIPTION]', {
-    event: 'subscription_created',
-    userId,
-    plan,
-    status: data.attributes.status,
-    variant: data.attributes.variant_name || data.attributes.variant_id,
+    entitlement_expires_at: new Date(data.attributes.renews_at),
   });
 
   logger.info("Subscription created", { userId, plan });
 
-  // Send welcome/confirmation email
+  // Send welcome email
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (user && user.email) {
-      // We could have a specific 'subscription welcome' email, but for now we'll rely on generic or add one.
-      // The task list mentioned "Plan change confirmation". Created is essentially a plan start.
-      // I'll send a Plan Change email where oldPlan is "None" or "Free".
-      await EmailService.sendPlanChangeEmail(
+    if (user?.email) {
+      await EmailService.sendSubscriptionConfirmationEmail(
         user.email,
-        user.full_name || "ColabWize User",
-        "Free",
-        plan.charAt(0).toUpperCase() + plan.slice(1),
-        new Date().toLocaleDateString(),
-        ["Full Access to Features", "Priority Support"] // Generic features
+        user.full_name || "User",
+        plan
       );
     }
-  } catch (error) {
-    logger.error("Failed to send subscription created email", { error });
+  } catch (emailError: any) {
+    logger.error("Failed to send subscription email", { error: emailError.message });
   }
 }
 
 /**
- * Handle subscription updated event
+ * Handle subscription_updated event
  */
 async function handleSubscriptionUpdated(event: any) {
   const data = event.data;
   const customData = event.meta?.custom_data || data.attributes.custom_data;
-  const subscriptionId = data.id;
   const userId = customData?.user_id;
   const plan = customData?.plan || "student";
 
   if (!userId) {
-    logger.warn("Subscription updated without user_id", { eventMeta: event.meta });
+    logger.warn("Subscription updated without user_id");
     return;
   }
 
@@ -392,48 +295,33 @@ async function handleSubscriptionUpdated(event: any) {
     variant_id: data.attributes.variant_id.toString(),
     renews_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
     ends_at: data.attributes.ends_at ? new Date(data.attributes.ends_at) : undefined,
-    // If renewing, entitlement extends to renews_at. If ending, extends to ends_at.
     entitlement_expires_at: data.attributes.ends_at
       ? new Date(data.attributes.ends_at)
       : new Date(data.attributes.renews_at),
   });
 
-  console.log('[WEBHOOK_APPLY_SUBSCRIPTION]', {
-    event: 'subscription_updated',
-    userId,
-    plan,
-    status: data.attributes.status,
-    variant: data.attributes.variant_name || data.attributes.variant_id,
-  });
-
-  logger.info("Subscription updated", { userId, subscriptionId });
+  logger.info("Subscription updated", { userId, plan });
 
   // Send plan change email
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    // Use customData already extracted at the top, not data.attributes.custom_data
     const newPlan = customData?.plan || "student";
-    // We don't easily know the old plan here without fetching the subscription BEFORE update, 
-    // but the update handles the DB update. 
-    // Ideally we would compare. For now, assuming Upgrade.
 
-    if (user && user.email) {
+    if (user?.email) {
       await EmailService.sendPlanChangeEmail(
         user.email,
-        user.full_name || "ColabWize User",
-        "Previous Plan", // Placeholder if we can't easily determine
-        newPlan.charAt(0).toUpperCase() + newPlan.slice(1),
-        new Date().toLocaleDateString(),
-        ["Upgraded Features"]
+        user.full_name || "User",
+        "Previous Plan",
+        newPlan
       );
     }
-  } catch (error) {
-    logger.error("Failed to send subscription updated email", { error });
+  } catch (emailError: any) {
+    logger.error("Failed to send plan change email", { error: emailError.message });
   }
 }
 
 /**
- * Handle subscription cancelled event
+ * Handle subscription_cancelled event
  */
 async function handleSubscriptionCancelled(event: any) {
   const data = event.data;
@@ -441,30 +329,23 @@ async function handleSubscriptionCancelled(event: any) {
   const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn("Subscription cancelled without user_id", { eventMeta: event.meta });
+    logger.warn("Subscription cancelled without user_id");
     return;
   }
 
-  // Determine if immediate or scheduled
-  // attributes.cancelled = true -> Immediate cancellation (e.g. by admin or refunded)
-  // attributes.cancelled = false -> Scheduled at period end
-  const isImmediate = data.attributes.cancelled === true;
-  const periodEnd = data.attributes.ends_at ? new Date(data.attributes.ends_at) : new Date();
-
   await SubscriptionService.upsertSubscription(userId, {
-    plan: customData?.plan || "student",
-    status: data.attributes.status,
-    cancel_at_period_end: !isImmediate,
+    status: "cancelled",
     ends_at: data.attributes.ends_at ? new Date(data.attributes.ends_at) : undefined,
-    // Hardening: If immediate, expire NOW. If scheduled, keep access until period end.
-    entitlement_expires_at: isImmediate ? new Date() : periodEnd,
+    entitlement_expires_at: data.attributes.ends_at
+      ? new Date(data.attributes.ends_at)
+      : new Date(),
   });
 
   logger.info("Subscription cancelled", { userId });
 }
 
 /**
- * Handle subscription resumed event
+ * Handle subscription_resumed event
  */
 async function handleSubscriptionResumed(event: any) {
   const data = event.data;
@@ -472,23 +353,22 @@ async function handleSubscriptionResumed(event: any) {
   const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn("Subscription resumed without user_id", { eventMeta: event.meta });
+    logger.warn("Subscription resumed without user_id");
     return;
   }
 
   await SubscriptionService.upsertSubscription(userId, {
-    plan: customData?.plan || "student",
     status: "active",
-    cancel_at_period_end: false,
-    // Resuming usually means extending to the next renewal date
-    entitlement_expires_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
+    ends_at: null,
+    renews_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
+    entitlement_expires_at: new Date(data.attributes.renews_at),
   });
 
   logger.info("Subscription resumed", { userId });
 }
 
 /**
- * Handle subscription expired event
+ * Handle subscription_expired event
  */
 async function handleSubscriptionExpired(event: any) {
   const data = event.data;
@@ -496,33 +376,20 @@ async function handleSubscriptionExpired(event: any) {
   const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn("Subscription expired without user_id", { eventMeta: event.meta });
-    return;
-  }
-
-  // Hardening: Replay Protection
-  // If we receive an expiry hook, but the DB says entitlement is still valid (e.g. user resubscribed recently),
-  // IGNORE this hook to prevent accidental downgrade.
-  const currentSub = await SubscriptionService.getUserSubscription(userId);
-  if (currentSub && currentSub.entitlement_expires_at && currentSub.entitlement_expires_at > new Date()) {
-    logger.warn("Ignoring subscription_expired hook: User entitlement is still valid (Replay protection)", {
-      userId,
-      expiresAt: currentSub.entitlement_expires_at
-    });
+    logger.warn("Subscription expired without user_id");
     return;
   }
 
   await SubscriptionService.upsertSubscription(userId, {
-    plan: "free",
     status: "expired",
-    entitlement_expires_at: null, // Clear entitlement
+    entitlement_expires_at: new Date(),
   });
 
   logger.info("Subscription expired", { userId });
 }
 
 /**
- * Handle subscription paused event
+ * Handle subscription_paused event
  */
 async function handleSubscriptionPaused(event: any) {
   const data = event.data;
@@ -530,12 +397,11 @@ async function handleSubscriptionPaused(event: any) {
   const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn("Subscription paused without user_id", { eventMeta: event.meta });
+    logger.warn("Subscription paused without user_id");
     return;
   }
 
   await SubscriptionService.upsertSubscription(userId, {
-    plan: customData?.plan || "student",
     status: "paused",
   });
 
@@ -543,7 +409,7 @@ async function handleSubscriptionPaused(event: any) {
 }
 
 /**
- * Handle subscription unpaused event
+ * Handle subscription_unpaused event
  */
 async function handleSubscriptionUnpaused(event: any) {
   const data = event.data;
@@ -551,12 +417,11 @@ async function handleSubscriptionUnpaused(event: any) {
   const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn("Subscription unpaused without user_id", { eventMeta: event.meta });
+    logger.warn("Subscription unpaused without user_id");
     return;
   }
 
   await SubscriptionService.upsertSubscription(userId, {
-    plan: customData?.plan || "student",
     status: "active",
   });
 
@@ -564,41 +429,29 @@ async function handleSubscriptionUnpaused(event: any) {
 }
 
 /**
- * Handle subscription payment success event (Renewals)
+ * Handle subscription_payment_success event
  */
 async function handleSubscriptionPaymentSuccess(event: any) {
   const data = event.data;
   const customData = event.meta?.custom_data || data.attributes.custom_data;
   const userId = customData?.user_id;
-  const subscriptionId = data.attributes.subscription_id;
 
   if (!userId) {
-    logger.warn("Subscription payment success without user_id", { subscriptionId, eventMeta: event.meta });
+    logger.warn("Payment success without user_id");
     return;
   }
 
-  const amount = data.attributes.total;
-  const currency = data.attributes.currency;
-  const receiptUrl = data.attributes.receipt_url; // url to receipt
-
-  // Create payment history record
-  await prisma.paymentHistory.create({
-    data: {
-      user_id: userId,
-      lemonsqueezy_order_id: data.id.toString(), // Using invoice ID/event ID as order ref
-      amount: data.attributes.total,
-      currency: currency.toLowerCase(),
-      status: "paid", // payment_success implies paid
-      receipt_url: receiptUrl,
-      description: `Subscription Renewal - ${data.attributes.billing_reason || 'Recurring'}`,
-    },
+  await SubscriptionService.upsertSubscription(userId, {
+    status: "active",
+    renews_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
+    entitlement_expires_at: new Date(data.attributes.renews_at),
   });
 
-  logger.info("Subscription renewal payment recorded", { userId, subscriptionId });
+  logger.info("Payment success", { userId });
 }
 
 /**
- * Handle refund events (Log & Flag)
+ * Handle refund events
  */
 async function handleRefundEvent(event: any, eventName: string) {
   const data = event.data;
@@ -606,20 +459,36 @@ async function handleRefundEvent(event: any, eventName: string) {
   const userId = customData?.user_id;
 
   if (!userId) {
-    logger.warn(`Refund event (${eventName}) without user_id`, { eventMeta: event.meta });
+    logger.warn("Refund event without user_id", { eventName });
     return;
   }
 
-  // Log strict warning
-  logger.warn("REFUND DETECTED - MANUAL REVIEW REQUIRED", {
-    userId,
-    eventName,
-    orderId: data.attributes.order_id,
-    amount: data.attributes.amount,
-  });
+  logger.info("Refund event", { userId, eventName });
 
-  // TODO: Add flag to user account (e.g. requires_review: true) if schema supports it
-  // For now, the log is sufficient for the MVP strictness requirement.
+  // Handle based on what was refunded
+  if (eventName === "order_refunded") {
+    const plan = customData?.plan;
+    if (plan?.startsWith("credits_")) {
+      const creditAmount = CREDIT_PLAN_MAPPING[plan];
+      if (creditAmount) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            credits: {
+              decrement: creditAmount,
+            },
+          },
+        });
+        logger.info("Credits revoked due to refund", { userId, amount: creditAmount });
+      }
+    }
+  } else if (eventName === "subscription_payment_refunded") {
+    await SubscriptionService.upsertSubscription(userId, {
+      status: "cancelled",
+      entitlement_expires_at: new Date(),
+    });
+    logger.info("Subscription cancelled due to refund", { userId });
+  }
 }
 
 export default router;
