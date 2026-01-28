@@ -309,14 +309,12 @@ async function handleSubscriptionResumed(event: any) {
   const data = event.data;
   const customData = event.meta?.custom_data || data.attributes.custom_data;
   const userId = customData?.user_id;
+  const plan = customData?.plan || "student";
 
   if (!userId) {
     logger.warn("Subscription resumed without user_id");
     return;
   }
-
-  const customData = event.meta?.custom_data || data.attributes.custom_data;
-  const plan = customData?.plan || "student";
 
   await SubscriptionService.upsertSubscription(userId, {
     plan,
@@ -358,14 +356,12 @@ async function handleSubscriptionPaused(event: any) {
   const data = event.data;
   const customData = event.meta?.custom_data || data.attributes.custom_data;
   const userId = customData?.user_id;
+  const plan = customData?.plan || "student";
 
   if (!userId) {
     logger.warn("Subscription paused without user_id");
     return;
   }
-
-  const customData = event.meta?.custom_data || data.attributes.custom_data;
-  const plan = customData?.plan || "student";
 
   await SubscriptionService.upsertSubscription(userId, {
     plan,
@@ -382,14 +378,12 @@ async function handleSubscriptionUnpaused(event: any) {
   const data = event.data;
   const customData = event.meta?.custom_data || data.attributes.custom_data;
   const userId = customData?.user_id;
+  const plan = customData?.plan || "student";
 
   if (!userId) {
     logger.warn("Subscription unpaused without user_id");
     return;
   }
-
-  const customData = event.meta?.custom_data || data.attributes.custom_data;
-  const plan = customData?.plan || "student";
 
   await SubscriptionService.upsertSubscription(userId, {
     plan,
@@ -406,14 +400,12 @@ async function handleSubscriptionPaymentSuccess(event: any) {
   const data = event.data;
   const customData = event.meta?.custom_data || data.attributes.custom_data;
   const userId = customData?.user_id;
+  const plan = customData?.plan || "student";
 
   if (!userId) {
     logger.warn("Payment success without user_id");
     return;
   }
-
-  const customData = event.meta?.custom_data || data.attributes.custom_data;
-  const plan = customData?.plan || "student";
 
   await SubscriptionService.upsertSubscription(userId, {
     plan,
