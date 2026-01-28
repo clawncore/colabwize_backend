@@ -388,7 +388,8 @@ async function handleSubscriptionUpdated(event: any) {
   // Send plan change email
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    const newPlan = data.attributes.custom_data?.plan || "student";
+    // Use customData already extracted at the top, not data.attributes.custom_data
+    const newPlan = customData?.plan || "student";
     // We don't easily know the old plan here without fetching the subscription BEFORE update, 
     // but the update handles the DB update. 
     // Ideally we would compare. For now, assuming Upgrade.
