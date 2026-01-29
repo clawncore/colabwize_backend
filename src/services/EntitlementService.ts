@@ -19,114 +19,152 @@ export class EntitlementService {
     static async rebuildEntitlements(userId: string): Promise<void> {
         logger.info("Rebuilding entitlements", { userId });
 
-        // 1. Get raw subscription data (The Policy Source)
-        const subscription = await prisma.subscription.findUnique({
-            where: { user_id: userId },
-        });
-
-        let plan = "free";
-        let periodStart = new Date();
-        let periodEnd = new Date();
-        // Default to calendar month for free tier
-        periodStart.setDate(1);
-        periodStart.setHours(0, 0, 0, 0);
-        periodEnd.setMonth(periodEnd.getMonth() + 1);
-        periodEnd.setDate(0);
-        periodEnd.setHours(23, 59, 59, 999);
-
-        if (subscription && subscription.status === "active") {
-            // Double check entitlement expiry if present
-            if (!subscription.entitlement_expires_at || new Date() < subscription.entitlement_expires_at) {
-                plan = subscription.plan;
-                if (subscription.current_period_start) periodStart = subscription.current_period_start;
-                if (subscription.current_period_end) periodEnd = subscription.current_period_end;
-            }
-        }
-
-        // 2. Get Plan Constants (The Rules)
-        // We access the static method from SubscriptionService or move constants here.
-        // Ideally, constants should be shared. For now, accessing from SubscriptionService.
-        const limits = SubscriptionService.getPlanLimits(plan);
-
-        // 3. Calculate Entitlements
-        const features: Record<string, any> = {};
-
-        for (const [feature, limit] of Object.entries(limits)) {
-            // Logic:
-            // -1 => Unlimited
-            // >= 0 => Finite limit
-
-            const isUnlimited = limit === -1;
-            const numericLimit = typeof limit === "number" ? limit : 0; // Handle booleans if any? existing code has booleans in limits?
-
-            // If limit is boolean false/true in PLAN_LIMITS, handle it
-            // The current PLAN_LIMITS has booleans for features like 'advanced_analytics'
-            let limitValue = 0;
-            let unlimited = false;
-            let enabled = true;
-
-            if (typeof limit === 'boolean') {
-                enabled = limit;
-                limitValue = 0; // Usage doesn't apply
-                unlimited = true; // Effectively "unlimited use" if enabled? Or just "access granted"
-            } else if (limit === -1) {
-                unlimited = true;
-                limitValue = -1;
-            } else {
-                limitValue = numericLimit;
-            }
-
-            // Check *Usage* for this cycle to calculate remaining
-            // We assume usage tracking is still relevant for history, but for *enforcement* we can cache 'remaining'
-            // BUT: 'remaining' changes on every use. 
-            // Storing 'remaining' in Entitlements implies we update Entitlements on every use.
-            // This is the desired "Single Source of Truth" architecture.
-
-            // However, we need to initialize it.
-            // We should check existing usage for *this period* from UsageTracking to initialize properly
-            // in case of mid-cycle rebuild.
-
-            const currentUsage = await prisma.usageTracking.findFirst({
-                where: {
-                    user_id: userId,
-                    feature: feature,
-                    period_start: { gte: periodStart }
-                }
-            });
-
-            const used = currentUsage?.count || 0;
-            const remaining = unlimited ? -1 : Math.max(0, limitValue - used);
-
-            features[feature] = {
-                limit: limitValue,
-                used: used,
-                remaining: remaining,
-                unlimited: unlimited,
-                enabled: enabled
-            };
-        }
-
-        // 4. Persist to DB
+        // 0. Update Status to Running (State Management)
+        // We use upsert to ensure row exists and set status
         await prisma.userEntitlement.upsert({
             where: { user_id: userId },
             create: {
                 user_id: userId,
-                plan: plan,
-                features: features,
-                billing_cycle_start: periodStart,
-                billing_cycle_end: periodEnd,
-                last_updated: new Date()
+                plan: "free", // Placeholder, will update later
+                features: {},
+                billing_cycle_start: new Date(),
+                billing_cycle_end: new Date(),
+                rebuild_status: "running",
+                last_rebuilt_at: new Date()
             },
             update: {
-                plan: plan,
-                features: features,
-                billing_cycle_start: periodStart,
-                billing_cycle_end: periodEnd,
-                last_updated: new Date()
+                rebuild_status: "running"
             }
         });
 
-        logger.info("Entitlements rebuilt", { userId, plan });
+        try {
+            // 1. Get raw subscription data (The Policy Source)
+            const subscription = await prisma.subscription.findUnique({
+                where: { user_id: userId },
+            });
+
+            let plan = "free";
+            let periodStart = new Date();
+            let periodEnd = new Date();
+            // Default to calendar month for free tier
+            periodStart.setDate(1);
+            periodStart.setHours(0, 0, 0, 0);
+            periodEnd.setMonth(periodEnd.getMonth() + 1);
+            periodEnd.setDate(0);
+            periodEnd.setHours(23, 59, 59, 999);
+
+            if (subscription && subscription.status === "active") {
+                // Double check entitlement expiry if present
+                if (!subscription.entitlement_expires_at || new Date() < subscription.entitlement_expires_at) {
+                    plan = subscription.plan;
+                    if (subscription.current_period_start) periodStart = subscription.current_period_start;
+                    if (subscription.current_period_end) periodEnd = subscription.current_period_end;
+                }
+            }
+
+            // 2. Get Plan Constants (The Rules)
+            // We access the static method from SubscriptionService or move constants here.
+            // Ideally, constants should be shared. For now, accessing from SubscriptionService.
+            const limits = SubscriptionService.getPlanLimits(plan);
+
+            // 3. Calculate Entitlements
+            const features: Record<string, any> = {};
+
+            for (const [feature, limit] of Object.entries(limits)) {
+                // Logic:
+                // -1 => Unlimited
+                // >= 0 => Finite limit
+
+                const isUnlimited = limit === -1;
+                const numericLimit = typeof limit === "number" ? limit : 0; // Handle booleans if any? existing code has booleans in limits?
+
+                // If limit is boolean false/true in PLAN_LIMITS, handle it
+                // The current PLAN_LIMITS has booleans for features like 'advanced_analytics'
+                let limitValue = 0;
+                let unlimited = false;
+                let enabled = true;
+
+                if (typeof limit === 'boolean') {
+                    enabled = limit;
+                    limitValue = 0; // Usage doesn't apply
+                    unlimited = true; // Effectively "unlimited use" if enabled? Or just "access granted"
+                } else if (limit === -1) {
+                    unlimited = true;
+                    limitValue = -1;
+                } else {
+                    limitValue = numericLimit;
+                }
+
+                // Check *Usage* for this cycle to calculate remaining
+                // We assume usage tracking is still relevant for history, but for *enforcement* we can cache 'remaining'
+                // BUT: 'remaining' changes on every use. 
+                // Storing 'remaining' in Entitlements implies we update Entitlements on every use.
+                // This is the desired "Single Source of Truth" architecture.
+
+                // However, we need to initialize it.
+                // We should check existing usage for *this period* from UsageTracking to initialize properly
+                // in case of mid-cycle rebuild.
+
+                const currentUsage = await prisma.usageTracking.findFirst({
+                    where: {
+                        user_id: userId,
+                        feature: feature,
+                        period_start: { gte: periodStart }
+                    }
+                });
+
+                const used = currentUsage?.count || 0;
+                const remaining = unlimited ? -1 : Math.max(0, limitValue - used);
+
+                features[feature] = {
+                    limit: limitValue,
+                    used: used,
+                    remaining: remaining,
+                    unlimited: unlimited,
+                    enabled: enabled
+                };
+            }
+
+            // 4. Persist to DB
+            await prisma.userEntitlement.upsert({
+                where: { user_id: userId },
+                create: {
+                    user_id: userId,
+                    plan: plan,
+                    features: features,
+                    billing_cycle_start: periodStart,
+                    billing_cycle_end: periodEnd,
+                    last_updated: new Date(),
+                    rebuild_status: "idle",  // Success!
+                    last_rebuilt_at: new Date(),
+                    version: { increment: 1 }
+                },
+                update: {
+                    plan: plan,
+                    features: features,
+                    billing_cycle_start: periodStart,
+                    billing_cycle_end: periodEnd,
+                    last_updated: new Date(),
+                    rebuild_status: "idle", // Success!
+                    last_rebuilt_at: new Date(),
+                    version: { increment: 1 }
+                }
+            });
+
+            logger.info("Entitlements rebuilt", { userId, plan });
+        } catch (error: any) {
+            logger.error("Entitlement rebuild failed", { userId, error: error.message });
+
+            // Mark as failed
+            await prisma.userEntitlement.update({
+                where: { user_id: userId },
+                data: {
+                    rebuild_status: "failed",
+                    last_updated: new Date()
+                }
+            });
+            throw error; // Re-throw to ensure caller knows (though caller might be async fire-and-forget)
+        }
     }
 
     /**
@@ -135,7 +173,11 @@ export class EntitlementService {
     static async getEntitlements(userId: string) {
         let ent = await prisma.userEntitlement.findUnique({ where: { user_id: userId } });
 
+        // Safe Initialization: If missing, we MUST rebuild.
+        // But if it IS missing, and we are paid, we might be in trouble if we block.
+        // Current logic blocks until rebuild if missing. That is correct for initial state.
         if (!ent) {
+            // We await here because if there is NO record, we have no decision basis.
             await this.rebuildEntitlements(userId);
             ent = await prisma.userEntitlement.findUnique({ where: { user_id: userId } });
         }
@@ -256,6 +298,29 @@ export class EntitlementService {
     static async assertCanUse(userId: string, feature: string, metadata?: any): Promise<boolean> {
         // 1. Get Entitlements
         let ent = await this.getEntitlements(userId);
+
+        // 🛡️ SAFE-ALLOW LOGIC (Innocent until proven guilty)
+        // If rebuild is IN PROGRESS or FAILED (and not just idle), check if we should allow optimistically.
+        const status = (ent as any)?.rebuild_status || "idle";
+
+        if (ent && (status === "running" || status === "failed")) {
+            // Check implicit subscription status directly to decide "Are they a paid user?"
+            try {
+                const sub = await SubscriptionService.getUserSubscription(userId);
+                if (sub && ["active", "trialing"].includes(sub.status) && sub.plan !== "free") {
+                    // PAID USER in unknown state -> ALLOW
+                    logger.warn("Optimistic Allow: Entitlements rebuilding/failed for paid user. Allowing feature access.", { userId, feature, status });
+                    return true;
+                }
+            } catch (err) {
+                // If even subscription fetch fails, fall back to "Restrict"
+                logger.error("Safe-allow check failed", { userId, error: err });
+            }
+        }
+        if (!ent) throw new Error("Entitlements not found");
+
+
+
 
         // SELF-HEALING GUARD:
         // If user has an active paid subscription but entitlements say "free", REBUILD.

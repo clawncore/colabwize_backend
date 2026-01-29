@@ -234,7 +234,7 @@ router.post("/audit", async (req: Request, res: Response) => {
                 } else {
                     // NO REFERENCE LIST - All citations are unmatched
                     console.log("\n⚠️  NO REFERENCE LIST FOUND");
-                    console.log("   Creating UNMATCHED_REFERENCE results for all citations");
+                    console.log("   Creating NOT_FOUND existence results for all citations");
 
                     verificationResults = patterns.map(pattern => ({
                         inlineLocation: {
@@ -242,38 +242,119 @@ router.post("/audit", async (req: Request, res: Response) => {
                             end: pattern.end,
                             text: pattern.text
                         },
-                        status: "UNMATCHED_REFERENCE" as const,
+                        existenceStatus: "NOT_FOUND",
+                        supportStatus: "NOT_EVALUATED",
+                        provenance: [],
                         message: `No reference list found. Citation "${pattern.text}" has no matching bibliography entry.`
                     }));
 
-                    console.log(`   📝 Created ${verificationResults.length} UNMATCHED_REFERENCE results`);
+                    console.log(`   📝 Created ${verificationResults.length} fallback results`);
                 }
             } catch (err) {
                 console.error("Citation verification failed (non-fatal):", err);
             }
         }
 
-        // Step 7: Construct Response
+        // Step 7: Calculate Citation Integrity Index (CII)
+        // Weighting: Style (30%), Verification (30%), Reference (20%), Semantic (20%)
+        const calculateCII = (flags: CitationFlag[], verificationResults: VerificationResult[], docWordCount: number) => {
+            // 1. Style Score (30%)
+            // Penalty based on density: 1 violation per 500 words is acceptable
+            const styleViolations = flags.filter(f => f.type === "INLINE_STYLE" || f.type === "REF_LIST_ENTRY").length;
+            const acceptableViolations = Math.max(1, Math.ceil(docWordCount / 500));
+            const stylePenalty = Math.max(0, styleViolations - acceptableViolations) * 5; // 5 points per excess violation
+            const styleScore = Math.max(0, 100 - stylePenalty);
+
+            // 2. Verification Score (30%) - Existence
+            const totalCitations = verificationResults.length;
+            let verificationScore = 100;
+            if (totalCitations > 0) {
+                const confirmedCount = verificationResults.filter(r => r.existenceStatus === "CONFIRMED").length;
+                const notFoundCount = verificationResults.filter(r => r.existenceStatus === "NOT_FOUND").length;
+                // Weighted deduction: Not Found is heavy penalty
+                const verifyRatio = confirmedCount / totalCitations;
+                verificationScore = Math.round(verifyRatio * 100);
+            }
+
+            // 3. Reference Score (20%) - Structural
+            // Simple check: Do we have a reference list? Are there unmatched refs?
+            const unmatchedRefs = verificationResults.filter(r => r.existenceStatus === "NOT_FOUND" && r.message.includes("No reference list")).length;
+            let referenceScore = 100;
+            if (!referenceList) referenceScore = 0;
+            else if (unmatchedRefs > 0) referenceScore = 50;
+
+            // 4. Semantic Score (20%) - Support
+            // Only evaluate confirmed citations
+            const confirmedResults = verificationResults.filter(r => r.existenceStatus === "CONFIRMED");
+            let semanticScore = 100;
+            if (confirmedResults.length > 0) {
+                const supported = confirmedResults.filter(r => r.supportStatus === "SUPPORTED").length;
+                const plausible = confirmedResults.filter(r => r.supportStatus === "PLAUSIBLE").length;
+                const contradictory = confirmedResults.filter(r => r.supportStatus === "CONTRADICTORY").length;
+
+                // Formula: (Supported * 1 + Plausible * 0.8 - Contradictory * 1) / Total
+                const rawScore = ((supported * 1) + (plausible * 0.8) - (contradictory * 1));
+                const ratio = Math.max(0, rawScore) / confirmedResults.length;
+                semanticScore = Math.round(ratio * 100);
+            }
+
+            // Weighted Total
+            const totalScore = Math.round(
+                (styleScore * 0.30) +
+                (verificationScore * 0.30) +
+                (referenceScore * 0.20) +
+                (semanticScore * 0.20)
+            );
+
+            // Determine Confidence Level
+            let confidence: "HIGH" | "MEDIUM" | "LOW" = "HIGH";
+            if (totalCitations === 0) confidence = "LOW";
+            else if (verificationResults.some(r => r.existenceStatus === "SERVICE_ERROR")) confidence = "MEDIUM";
+            else if (totalScore < 50) confidence = "LOW";
+
+            // Limits
+            const limits: string[] = [];
+            if (totalCitations === 0) limits.push("No citations found to verify.");
+            if (verificationResults.some(r => r.existenceStatus === "SERVICE_ERROR")) limits.push("External verification service unavailable.");
+            if (!referenceList) limits.push("No reference list found.");
+
+            return {
+                totalScore,
+                confidence,
+                components: {
+                    styleScore,
+                    referenceScore,
+                    verificationScore,
+                    semanticScore
+                },
+                verificationLimits: limits
+            };
+        };
+
+        const integrityIndex = calculateCII(flags, verificationResults, docWordCount);
+
+        // Step 8: Construct Response
         const report: AuditReport = {
             style: declaredStyle,
             timestamp: new Date().toISOString(),
             flags,
-            verificationResults,  // NEW: Include verification results
-            detectedStyles
+            verificationResults,
+            detectedStyles,
+            integrityIndex // NEW: Include CII
         };
 
         // Summary of verification results
         if (verificationResults && verificationResults.length > 0) {
-            const verified = verificationResults.filter(r => r.status === "VERIFIED").length;
-            const failed = verificationResults.filter(r => r.status === "VERIFICATION_FAILED").length;
-            const unmatched = verificationResults.filter(r => r.status === "UNMATCHED_REFERENCE").length;
-            const insufficient = verificationResults.filter(r => r.status === "INSUFFICIENT_INFO").length;
+            const confirmed = verificationResults.filter(r => r.existenceStatus === "CONFIRMED").length;
+            const notFound = verificationResults.filter(r => r.existenceStatus === "NOT_FOUND").length;
+            const serviceError = verificationResults.filter(r => r.existenceStatus === "SERVICE_ERROR").length;
+            const pending = verificationResults.filter(r => r.existenceStatus === "PENDING").length;
 
             console.log("\n📊 VERIFICATION SUMMARY:");
-            console.log(`   ✅ Verified: ${verified}`);
-            console.log(`   ❌ Failed: ${failed}`);
-            console.log(`   ⚠️  Unmatched: ${unmatched}`);
-            console.log(`   📝 Insufficient Info: ${insufficient}`);
+            console.log(`   ✅ Confirmed: ${confirmed}`);
+            console.log(`   ❌ Not Found: ${notFound}`);
+            console.log(`   ⚠️  Service Error: ${serviceError}`);
+            console.log(`   📝 Pending: ${pending}`);
             console.log(`   📦 Total Results: ${verificationResults.length}`);
         }
 

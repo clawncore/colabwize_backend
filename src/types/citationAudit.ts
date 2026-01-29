@@ -75,12 +75,25 @@ export interface CitationFlag {
     expected?: string;
 }
 
-// Verification Results (separate from flags)
-export type VerificationStatus =
-    | "VERIFIED"                // Paper found and matches
-    | "VERIFICATION_FAILED"      // Paper not found or low similarity
-    | "UNMATCHED_REFERENCE"      // Inline citation has no matching reference
-    | "INSUFFICIENT_INFO";       // Citation too short to verify
+// Verification Results (separate from flags) - SPLIT AXIS MODEL
+export type ExistenceStatus =
+    | "CONFIRMED"           // Paper Found (Match metadata/DOI)
+    | "NOT_FOUND"           // Not in database or < 50% match
+    | "SERVICE_ERROR"       // API Failure
+    | "PENDING";            // Not run yet
+
+export type SupportStatus =
+    | "SUPPORTED"           // Semantic check confirms claim
+    | "PLAUSIBLE"           // Abstract related, probabilistic support
+    | "UNRELATED"           // Paper is real, but claim is orthogonal
+    | "CONTRADICTORY"       // Paper explicitly disputes claim
+    | "NOT_EVALUATED";      // No abstract or semantic check skipped
+
+export interface VerificationProvenance {
+    source: "CrossRef" | "PubMed" | "arXiv" | "Manual" | "Other";
+    status: "SUCCESS" | "FAILED" | "SKIPPED";
+    latencyMs?: number;
+}
 
 export interface VerificationResult {
     inlineLocation: {
@@ -88,27 +101,55 @@ export interface VerificationResult {
         end: number;
         text: string;
     };
-    status: VerificationStatus;
-    message: string;
-    similarity?: number;
+
+    // Axis 1: Existence (Is the paper real?)
+    existenceStatus: ExistenceStatus;
+
+    // Axis 2: Support (Does it back the claim?)
+    supportStatus: SupportStatus;
+
+    // Source Tracking (Where did we check?)
+    provenance: VerificationProvenance[];
+
+    message: string; // Aggregate user-friendly summary
+    similarity?: number; // Match score (0-1) for reference string
+
     foundPaper?: {
         title: string;
+        authors?: string[];
         year?: number;
         url: string;
+        doi?: string;
         database: string;
         abstract?: string;
         isRetracted?: boolean;
     };
-    semanticSupport?: {
-        status: "SUPPORTED" | "DISPUTED" | "PARTIALLY_SUPPORTED" | "UNRELATED" | "PENDING";
+
+    // Detailed semantic reasoning (if SupportStatus != NOT_EVALUATED)
+    semanticAnalysis?: {
         reasoning: string;
+        confidence: number; // 0-1
     };
+}
+
+// Scoring Model
+export interface CitationIntegrityIndex {
+    totalScore: number;
+    confidence: "HIGH" | "MEDIUM" | "LOW";
+    components: {
+        styleScore: number;       // Based on style flags
+        referenceScore: number;   // Based on bibliography completeness
+        verificationScore: number; // Based on existence confirmation
+        semanticScore: number;    // Based on claim alignment
+    };
+    verificationLimits: string[]; // Reasons for uncertainty (e.g. "Preprint source")
 }
 
 export interface AuditReport {
     style: CitationStyle;
     timestamp: string;
     flags: CitationFlag[];
-    verificationResults?: VerificationResult[];  // NEW: Separate verification results
-    detectedStyles?: string[]; // Auto-detected style indicators
+    verificationResults?: VerificationResult[];
+    detectedStyles?: string[];
+    integrityIndex?: CitationIntegrityIndex; // NEW: Detailed scoring
 }

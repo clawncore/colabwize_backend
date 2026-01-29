@@ -785,6 +785,9 @@ model UserEntitlement {
   billing_cycle_start DateTime
   billing_cycle_end   DateTime
   last_updated      DateTime @default(now())
+  rebuild_status    String   @default("idle") // 'idle' | 'running' | 'failed'
+  last_rebuilt_at   DateTime @default(now())
+  version           Int      @default(1)
   user              User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])

@@ -2,6 +2,9 @@ import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { OpenAIService } from "./openaiService";
 import { compareTwoStrings } from "string-similarity";
+import { AbuseGuard, RephraseMode } from "./AbuseGuard";
+
+import { UsageService } from "./usageService";
 
 export interface RephraseResult {
   id: string;
@@ -17,10 +20,40 @@ export class RephraseService {
     scanId: string,
     matchId: string,
     originalText: string,
-    userId: string
+    userId: string,
+    mode: RephraseMode = RephraseMode.ACADEMIC
   ): Promise<RephraseResult[]> {
     try {
-      logger.info("Generating rephrase suggestions", { scanId, matchId });
+      logger.info("Generating rephrase suggestions", { scanId, matchId, mode });
+
+      // 1. Abuse & Similarity Guard
+      const abuseCheck = await AbuseGuard.checkAbuse(userId, originalText);
+
+      // Degrade mode if abuse detected
+      let effectiveMode = mode;
+      if (abuseCheck.isAbuse) {
+        if (abuseCheck.degradeTo === "CACHED") {
+          logger.warn(`Abuse limit hit: Forcing CACHED response for user ${userId}`);
+          return await this.getCachedOrFallback(scanId, originalText);
+        }
+        if (abuseCheck.degradeTo === "LOCAL") {
+          logger.warn(`Abuse limit hit: Forcing LOCAL response for user ${userId}`);
+          effectiveMode = RephraseMode.QUICK; // Limit cost/usage
+        }
+      }
+
+      // 2. Character-Based Accounting (Internal Tracking)
+      // We calculate "units" consumed but don't hard-block Pro users.
+      // 1 Unit = 500 chars * Mode Multiplier
+      const unitsConsumed = AbuseGuard.calculateCost(originalText, effectiveMode);
+
+      // Track usage asynchronously (fire and forget)
+      // We assume UsageService handles per-user limits internally if needed, 
+      // but here we just want to record the "volume" of work.
+      // We pass 'rephrase_chars' as the feature to track raw volume, or 'rephrase_units'
+      UsageService.trackUsage(userId, 'rephrase_requests').catch((e: any) => logger.error("Failed to track usage", e));
+      // Ideally we'd track units, but existing trackUsage increments by 1. 
+      // For now, tracking requests is fine for velocity, detailed billing might need a schema update.
 
       // Check if this is a temporary/ad-hoc request
       const isTemporary = scanId.startsWith("temp-");
@@ -34,30 +67,30 @@ export class RephraseService {
           },
         });
 
-        if (!scan) {
-          throw new Error("Scan not found or access denied");
-        }
+        if (!scan) throw new Error("Scan not found or access denied");
 
-        // Check if we already have suggestions for this text (caching)
-        const existingSuggestions = await prisma.rephraseSuggestion.findMany({
-          where: {
-            scan_id: scanId,
-            original_text: originalText,
-          },
-        });
+        // Check cache (unless DEEP mode requested explicitly, though even then we might cache)
+        if (effectiveMode !== RephraseMode.DEEP) {
+          const existingSuggestions = await prisma.rephraseSuggestion.findMany({
+            where: {
+              scan_id: scanId,
+              original_text: originalText,
+            },
+          });
 
-        if (existingSuggestions.length > 0) {
-          logger.info("Found cached rephrase suggestions");
-          return existingSuggestions.map((s: any) => ({
-            id: s.id,
-            originalText: s.original_text,
-            suggestedText: s.suggested_text,
-          }));
+          if (existingSuggestions.length > 0) {
+            logger.info("Found cached rephrase suggestions");
+            return existingSuggestions.map((s: any) => ({
+              id: s.id,
+              originalText: s.original_text,
+              suggestedText: s.suggested_text,
+            }));
+          }
         }
       }
 
-      // Generate new suggestions using AI
-      const suggestions = await this.generateAIRephrases(originalText);
+      // Generate new suggestions using AI (or Local if degraded)
+      const suggestions = await this.generateAIRephrases(originalText, effectiveMode);
 
       // Store suggestions in database ONLY if not temporary
       const savedSuggestions: RephraseResult[] = [];
@@ -80,7 +113,7 @@ export class RephraseService {
           });
         }
       } else {
-        // For temporary requests, just return the generated suggestions with fake IDs
+        // For temporary requests
         return suggestions.map((suggestion, index) => ({
           id: `temp-sugg-${Date.now()}-${index}`,
           originalText: originalText,
@@ -96,70 +129,82 @@ export class RephraseService {
         error: error.message,
         scanId,
       });
-      throw new Error(
-        `Failed to generate rephrase suggestions: ${error.message}`
-      );
+      // Fallback to local on crash
+      const fallback = this.generateLocalRephrases(originalText);
+      return fallback.map((suggestion, index) => ({
+        id: `fallback-${Date.now()}-${index}`,
+        originalText: originalText,
+        suggestedText: suggestion,
+      }));
     }
   }
 
   /**
-   * Generate AI-powered rephrase suggestions
+   * Helper to return cached or fallback result
+   */
+  private static async getCachedOrFallback(scanId: string, originalText: string): Promise<RephraseResult[]> {
+    // Try DB Cache
+    const existingSuggestions = await prisma.rephraseSuggestion.findMany({
+      where: { scan_id: scanId, original_text: originalText },
+      take: 3
+    });
+
+    if (existingSuggestions.length > 0) {
+      return existingSuggestions.map((s: any) => ({
+        id: s.id,
+        originalText: s.original_text,
+        suggestedText: s.suggested_text,
+      }));
+    }
+
+    // Fallback to Local
+    const local = this.generateLocalRephrases(originalText);
+    return local.map((suggestion, index) => ({
+      id: `abused-fallback-${Date.now()}-${index}`,
+      originalText: originalText,
+      suggestedText: suggestion,
+    }));
+  }
+
+  /**
+   * Generate AI-powered rephrase suggestions with Mode support
    */
   private static async generateAIRephrases(
-    originalText: string
+    originalText: string,
+    mode: RephraseMode
   ): Promise<string[]> {
     try {
-      // First, try to use our improved local rephrasing methods
+      // 1. QUICK / LOCAL Mode
+      if (mode === RephraseMode.QUICK) {
+        return this.generateLocalRephrases(originalText);
+      }
+
+      // 2. ACADEMIC / DEEP Mode
+      // First, establish local baseline
       const localSuggestions = this.generateLocalRephrases(originalText);
 
-      // If we have good local suggestions, return them
-      if (localSuggestions.length >= 2) {
-        // Add an AI-generated suggestion as backup if API is available
-        try {
-          const aiSuggestion = await this.generateAISuggestion(originalText);
-          if (
-            aiSuggestion &&
-            !this.isTooSimilar(localSuggestions, aiSuggestion)
-          ) {
-            return [...localSuggestions, aiSuggestion];
-          }
-          return localSuggestions;
-        } catch (aiError: any) {
-          logger.warn("AI service unavailable, using local rephrasing only", {
-            error: aiError.message,
-          });
-          return localSuggestions;
-        }
-      }
-
-      // If local rephrasing didn't produce enough suggestions, fall back to AI
-      const prompt = `Provide 3 different ways to rewrite the following text to improve clarity, academic tone, and uniqueness. Ensure the new versions reflect a distinct voice while maintaining the original meaning. Return only the rephrased versions, numbered 1-3:
-
-Original text: "${originalText}"
-
-Rephrased versions:`;
+      const prompt = mode === RephraseMode.DEEP
+        ? `Critically analyze and rewrite the following text to substantially improve its academic rigor, clarity, and flow. Use sophisticated vocabulary and varied sentence structure. Return 3 distinct versions numbered 1-3:\n\nOriginal: "${originalText}"\n\nVersions:`
+        : `Rewrite the following text to improve clarity and academic tone. Return 3 numbered versions:\n\nOriginal: "${originalText}"\n\nVersions:`;
 
       const response = await OpenAIService.generateCompletion(prompt, {
-        maxTokens: 300,
-        temperature: 0.7,
+        maxTokens: mode === RephraseMode.DEEP ? 500 : 300,
+        temperature: mode === RephraseMode.DEEP ? 0.8 : 0.7,
+        model: mode === RephraseMode.DEEP ? "gpt-4" : "gpt-3.5-turbo" // Hypothetical model switch
       });
 
-      // Parse the response into individual suggestions
-      const suggestions = this.parseSuggestions(response);
+      const aiSuggestions = this.parseSuggestions(response);
 
-      return suggestions.slice(0, 5); // Return max 5 suggestions
+      // Combine: 1 Local + AI suggestions
+      // We prioritize AI in Deep/Academic modes but keep one local as a "conservative" option if possible
+      const combined = [...localSuggestions.slice(0, 1), ...aiSuggestions];
+
+      return combined.slice(0, 5); // Return max 5
+
     } catch (error: any) {
       logger.error("Error generating AI rephrases", { error: error.message });
-
-      // Fallback: use only local rephrasing methods
-      const localOnly = this.generateLocalRephrases(originalText);
-
-      // If local rephasing also failed to produce results (e.g. text too short), use generic fallback
-      if (localOnly.length === 0) {
-        return this.generateFallbackSuggestions(originalText);
-      }
-
-      return localOnly;
+      // Fallback
+      return this.generateLocalRephrases(originalText);
     }
   }
 
@@ -211,6 +256,11 @@ Rephrased versions:`;
       suggestions.push(academicSuggestion);
     }
 
+    // Ensure we have at least ONE backup if all else fails (identity implies failure, but we want to return SOMETHING)
+    if (suggestions.length === 0) {
+      suggestions.push("Consider revising this sentence for clarity.");
+    }
+
     return suggestions.slice(0, 5); // Return max 5 suggestions
   }
 
@@ -224,7 +274,6 @@ Rephrased versions:`;
     for (const suggestion of suggestions) {
       const similarity = compareTwoStrings(suggestion, newSuggestion);
       if (similarity > 0.8) {
-        // If similarity is over 80%, consider it too similar
         return true;
       }
     }
@@ -235,94 +284,47 @@ Rephrased versions:`;
    * Replace words with synonyms
    */
   private static replaceSynonyms(text: string): string {
-    // Basic synonym dictionary - in a real implementation, this would be more comprehensive
     const synonyms: Record<string, string[]> = {
       important: ["significant", "crucial", "vital", "essential", "key"],
       analyze: ["examine", "investigate", "study", "evaluate", "assess"],
       demonstrate: ["show", "illustrate", "prove", "exhibit", "reveal"],
-      significant: [
-        "substantial",
-        "considerable",
-        "notable",
-        "important",
-        "meaningful",
-      ],
-      research: [
-        "study",
-        "investigation",
-        "enquiry",
-        "exploration",
-        "examination",
-      ],
-      therefore: [
-        "thus",
-        "consequently",
-        "accordingly",
-        "as a result",
-        "hence",
-      ],
-      however: [
-        "nevertheless",
-        "nonetheless",
-        "on the other hand",
-        "yet",
-        "although",
-      ],
-      moreover: [
-        "furthermore",
-        "additionally",
-        "also",
-        "besides",
-        "what's more",
-      ],
-      conclude: ["deduce", "infer", "determine", "establish", "summarize"],
+      significant: ["substantial", "considerable", "notable", "meaningful"],
+      research: ["study", "investigation", "enquiry", "exploration"],
+      therefore: ["thus", "consequently", "accordingly", "hence"],
+      however: ["nevertheless", "nonetheless", "yet", "although"],
+      moreover: ["furthermore", "additionally", "besides"],
+      conclude: ["deduce", "infer", "determine", "summarize"],
     };
 
     let result = text;
-
-    // Simple replacement - pick first synonym for each match
     Object.entries(synonyms).forEach(([word, replacements]) => {
-      const regex = new RegExp("\b" + word + "\b", "gi");
+      const regex = new RegExp("\\b" + word + "\\b", "gi");
       result = result.replace(regex, replacements[0]);
     });
-
     return result;
   }
 
   /**
-   * Restructure sentences (simple implementation)
+   * Restructure sentences
    */
   private static restructureSentence(text: string): string {
-    // Convert simple "A because B" to "B, therefore A" or vice versa
     let result = text.replace(/(\w+) because (\w+)/gi, "$2, therefore $1");
     result = result.replace(/(\w+), therefore (\w+)/gi, "$2 because $1");
-
-    // Move introductory phrases
-    result = result.replace(/^(\w+), (\w+ \w+)/, "$2, $1,");
-
     return result;
   }
 
   /**
-   * Transform voice between active and passive
+   * Transform voice
    */
   private static transformVoice(text: string): string {
-    // Very basic implementation - convert some simple active to passive
-    // In a real implementation, this would use NLP to properly identify subjects, verbs, objects
     let result = text.replace(/(\w+) studies/gi, "studies are conducted by $1");
     result = result.replace(/(\w+) analyzes/gi, "analyses are performed by $1");
     result = result.replace(/(\w+) demonstrates/gi, "it is demonstrated by $1");
-
-    // Passive to active
-    result = result.replace(/are conducted by (\w+)/gi, "$1 conducts");
-    result = result.replace(/are performed by (\w+)/gi, "$1 performs");
-    result = result.replace(/is demonstrated by (\w+)/gi, "$1 demonstrates");
-
     return result;
   }
 
   /**
-   * Paraphrase common academic phrases
+   * Paraphrase phrases
    */
   private static paraphrasePhrases(text: string): string {
     const phraseReplacements: Record<string, string> = {
@@ -334,98 +336,39 @@ Rephrased versions:`;
       "for example": "for instance",
       "according to": "as stated by",
       "in other words": "that is to say",
-      "it is important to note": "significantly",
-      "the purpose of this study": "this research aims to",
     };
-
     let result = text;
-
     Object.entries(phraseReplacements).forEach(([phrase, replacement]) => {
       const regex = new RegExp(phrase, "gi");
       result = result.replace(regex, replacement);
     });
-
     return result;
   }
 
   /**
-   * Adjust to more academic tone
+   * Adjust academic tone
    */
   private static adjustAcademicTone(text: string): string {
-    // Make language more formal
     let result = text.replace(/\bi\b/g, "one");
     result = result.replace(/\byou\b/g, "one");
     result = result.replace(/\bwe\b/g, "researchers");
     result = result.replace(/\bthink\b/g, "consider");
     result = result.replace(/\bsay\b/g, "suggest");
     result = result.replace(/\bseems\b/g, "appears");
-
     return result;
   }
 
   /**
-   * Generate a single AI suggestion to supplement local rephrases
-   */
-  private static async generateAISuggestion(
-    originalText: string
-  ): Promise<string | null> {
-    try {
-      const prompt = `Rewrite the following text to improve clarity and academic tone while maintaining the original meaning. Provide only one rephrased version:
-
-Original: "${originalText}"
-
-Rephrased:`;
-
-      const response = await OpenAIService.generateCompletion(prompt, {
-        maxTokens: 200,
-        temperature: 0.6,
-      });
-
-      // Clean up the response
-      const cleaned = response.trim().replace(/^Rephrased:\s*/i, "");
-
-      return cleaned;
-    } catch (error) {
-      logger.warn("AI suggestion generation failed", { error });
-      return null;
-    }
-  }
-
-  /**
-   * Parse AI response into individual suggestions
+   * Parse AI response
    */
   private static parseSuggestions(response: string): string[] {
-    // Split by numbers (1., 2., 3., etc.) or newlines
-    const lines = response
-      .split(/\n/)
-      .map((line) => line.trim())
-      .filter((line: string) => line.length > 0);
-
+    const lines = response.split(/\n/).map((line) => line.trim()).filter((line) => line.length > 0);
     const suggestions: string[] = [];
-
     for (const line of lines) {
-      // Remove numbering (1., 2., etc.)
       const cleaned = line.replace(/^\d+[\.\)]\s*/, "").trim();
-
-      if (cleaned.length > 10) {
-        // Only add if it's a substantial suggestion
-        suggestions.push(cleaned);
-      }
+      if (cleaned.length > 10) suggestions.push(cleaned);
     }
-
     return suggestions;
-  }
-
-  /**
-   * Generate fallback suggestions if AI fails
-   */
-  private static generateFallbackSuggestions(originalText: string): string[] {
-    // Simple fallback: provide basic rephrasing tips
-    return [
-      `Consider rephrasing: ${originalText}`,
-      `Try using synonyms and restructuring this sentence.`,
-      `Rewrite this in your own words while keeping the meaning.`,
-    ];
   }
 
   /**

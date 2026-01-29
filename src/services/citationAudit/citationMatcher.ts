@@ -36,70 +36,125 @@ export class CitationMatcher {
         const pairs: CitationPair[] = [];
 
         for (const inline of inlineCitations) {
-            let matchedReference: ReferenceEntry | null = null;
+            let matchedReferences: ReferenceEntry[] = [];
 
             if (style === "IEEE") {
-                // IEEE: Match by number [1], [2], etc.
-                matchedReference = this.matchIEEE(inline, referenceEntries);
+                // IEEE: Match by number [1], [2], [1-3], etc.
+                matchedReferences = this.matchIEEE(inline, referenceEntries);
             } else if (style === "APA" || style === "MLA") {
                 // APA/MLA: Match by author and year
-                matchedReference = this.matchAuthorYear(inline, referenceEntries);
+                const match = this.matchAuthorYear(inline, referenceEntries);
+                if (match) matchedReferences.push(match);
             }
 
-            // Extract metadata from reference if found
-            const referenceData = matchedReference
-                ? {
-                    rawText: matchedReference.rawText,
-                    index: matchedReference.index,
-                    extractedTitle: this.extractTitle(matchedReference.rawText) || undefined,
-                    extractedAuthor: this.extractAuthor(matchedReference.rawText) || undefined,
-                    extractedYear: this.extractYear(matchedReference.rawText) || undefined,
-                    extractedDOI: this.extractDOI(matchedReference.rawText) || undefined,
-                }
-                : null;
+            // If no match found, we still want to track the inline citation as UNMATCHED
+            if (matchedReferences.length === 0) {
+                pairs.push({
+                    inline: {
+                        text: inline.text,
+                        start: inline.start,
+                        end: inline.end,
+                        patternType: inline.patternType,
+                        context: inline.context,
+                    },
+                    reference: null,
+                });
+            } else {
+                // Create a pair for EACH matched reference
+                for (const ref of matchedReferences) {
+                    const referenceData = {
+                        rawText: ref.rawText,
+                        index: ref.index,
+                        extractedTitle: this.extractTitle(ref.rawText) || undefined,
+                        extractedAuthor: this.extractAuthor(ref.rawText) || undefined,
+                        extractedYear: this.extractYear(ref.rawText) || undefined,
+                        extractedDOI: this.extractDOI(ref.rawText) || undefined,
+                    };
 
-            pairs.push({
-                inline: {
-                    text: inline.text,
-                    start: inline.start,
-                    end: inline.end,
-                    patternType: inline.patternType,
-                    context: inline.context,
-                },
-                reference: referenceData,
-            });
+                    pairs.push({
+                        inline: {
+                            text: inline.text,
+                            start: inline.start,
+                            end: inline.end,
+                            patternType: inline.patternType,
+                            context: inline.context,
+                        },
+                        reference: referenceData,
+                    });
+                }
+            }
         }
 
+        // Deduplicate pairs if needed? 
+        // No, if [1-3] generates 1, 2, 3, we want 3 pairs.
         return pairs;
     }
 
     /**
-     * Match IEEE citations by number: [1] → Reference [1]
+     * Match IEEE citations by number: [1], [1-3], [1, 3]
      */
     private static matchIEEE(
         inline: ExtractedPattern,
         references: ReferenceEntry[]
-    ): ReferenceEntry | null {
-        // Extract number from [1], [2], etc.
-        const numberMatch = inline.text.match(/\[(\d+)\]/);
-        if (!numberMatch) return null;
+    ): ReferenceEntry[] {
+        const text = inline.text;
+        const results: ReferenceEntry[] = [];
+        const requiredNumbers = new Set<number>();
 
-        const citationNumber = parseInt(numberMatch[1]);
+        // 1. Extract all numbers from the text
+        // Handle [1], [1, 2], [1-3]
 
-        // Find reference with matching number
-        return references.find((ref) => {
-            // Check if reference starts with [1], [2], etc.
-            const refNumberMatch = ref.rawText.match(/^\s*\[(\d+)\]/);
-            if (refNumberMatch) {
-                return parseInt(refNumberMatch[1]) === citationNumber;
+        // Remove brackets
+        const content = text.replace(/[\[\]]/g, '');
+
+        // Split by comma
+        const parts = content.split(',');
+
+        for (const part of parts) {
+            const trimmed = part.trim();
+            if (trimmed.includes('-') || trimmed.includes('–')) { // Hyphen or En-dash
+                // Range [1-3]
+                const rangeParts = trimmed.split(/[-–]/);
+                if (rangeParts.length === 2) {
+                    const start = parseInt(rangeParts[0]);
+                    const end = parseInt(rangeParts[1]);
+                    if (!isNaN(start) && !isNaN(end) && end >= start) {
+                        for (let i = start; i <= end; i++) {
+                            requiredNumbers.add(i);
+                        }
+                    }
+                }
+            } else {
+                // Single number
+                const num = parseInt(trimmed);
+                if (!isNaN(num)) {
+                    requiredNumbers.add(num);
+                }
             }
-            // Also check for "1." format
-            const refDotMatch = ref.rawText.match(/^\s*(\d+)\./);
-            if (refDotMatch) {
-                return parseInt(refDotMatch[1]) === citationNumber;
+        }
+
+        // 2. Find matches
+        for (const num of requiredNumbers) {
+            const match = references.find((ref) => {
+                // Check if reference starts with [1], [2], etc.
+                const refNumberMatch = ref.rawText.match(/^\s*\[(\d+)\]/);
+                if (refNumberMatch) {
+                    return parseInt(refNumberMatch[1]) === num;
+                }
+                // Also check for "1." format
+                const refDotMatch = ref.rawText.match(/^\s*(\d+)\./);
+                if (refDotMatch) {
+                    return parseInt(refDotMatch[1]) === num;
+                }
+                return false;
+            });
+
+            if (match) {
+                results.push(match);
             }
-            return false;
-        }) || null;
+        }
+
+        return results;
     }
 
     /**

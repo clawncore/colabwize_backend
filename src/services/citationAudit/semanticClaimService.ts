@@ -6,6 +6,7 @@ export type SemanticSupportStatus = "SUPPORTED" | "DISPUTED" | "PARTIALLY_SUPPOR
 export interface SemanticSupportResult {
     status: SemanticSupportStatus;
     reasoning: string;
+    confidence: number; // 0.0 to 1.0
 }
 
 /**
@@ -14,38 +15,40 @@ export interface SemanticSupportResult {
 export class SemanticClaimService {
     /**
      * Verify a claim against a source abstract using LLM
+     * STRICT MODE: Conservative, probabilistic language required.
      */
     static async verifyClaim(claim: string, abstract: string): Promise<SemanticSupportResult> {
         if (!claim || !abstract) {
-            return { status: "UNRELATED", reasoning: "Insufficient information to evaluate claim." };
+            return { status: "UNRELATED", reasoning: "Insufficient information to evaluate claim.", confidence: 0 };
         }
 
         const prompt = `
-Evaluate if the following document claim is supported by the provided research paper abstract.
+You are an academic verification assistant. Your job is to check if a specific claim is supported by a paper's abstract.
+BE CONSERVATIVE and SKEPTICAL. Do not hallucinate support.
 
-DOCUMENT CLAIM:
-"${claim}"
+CLAIM: "${claim.substring(0, 500)}"
+ABSTRACT: "${abstract.substring(0, 2000)}"
 
-PAPER ABSTRACT:
-"${abstract}"
+INSTRUCTIONS:
+Determine if the abstract supports the claim.
+- "SUPPORTED": The abstract EXPLICITLY contains findings or arguments that back the claim.
+- "PARTIALLY_SUPPORTED": The abstract is relevant and suggests the claim might be true, or supports a weaker version of it.
+- "DISPUTED": The abstract EXPLICITLY contradicts the claim.
+- "UNRELATED": The abstract discusses a different topic or does not contain enough info to judge.
 
-DECISION CRITERIA:
-- SUPPORTED: The abstract directly confirms or strongly supports the specific claim.
-- DISPUTED: The abstract contradicts the claim or provides evidence against it.
-- PARTIALLY_SUPPORTED: The abstract supports some part of the claim or suggests it under specific conditions, but isn't a direct 1:1 match.
-- UNRELATED: The abstract is about a different topic and doesn't mention the claim's core subject.
-
-Return your response as a JSON object with two fields:
-1. "status": One of "SUPPORTED", "DISPUTED", "PARTIALLY_SUPPORTED", "UNRELATED".
-2. "reasoning": A one-sentence explanation of why you chose this status.
-
-JSON:`;
+Output strict JSON:
+{
+  "status": "SUPPORTED" | "PARTIALLY_SUPPORTED" | "DISPUTED" | "UNRELATED",
+  "reasoning": "A short, neutral sentence explaining the link. Use probabilistic language like 'suggests', 'indicates', 'mentions'. Avoid absolute terms like 'proves'.",
+  "confidence": <number between 0.0 and 1.0 reflecting how sure you are of this judgment>
+}
+`;
 
         try {
             const response = await OpenAIService.generateCompletion(prompt, {
                 maxTokens: 150,
-                temperature: 0.3,
-                model: "gpt-3.5-turbo" // Using 3.5 for speed/cost, can upgrade to gpt-4o if needed
+                temperature: 0.1, // Low temperature for consistency
+                model: "gpt-3.5-turbo"
             });
 
             // Extract JSON from response
@@ -54,7 +57,8 @@ JSON:`;
 
             return {
                 status: result.status as SemanticSupportStatus,
-                reasoning: result.reasoning
+                reasoning: result.reasoning,
+                confidence: typeof result.confidence === 'number' ? result.confidence : 0.5
             };
 
         } catch (error: any) {
@@ -64,7 +68,8 @@ JSON:`;
             });
             return {
                 status: "UNRELATED",
-                reasoning: "Semantic verification service encountered an error."
+                reasoning: "Semantic verification service encountered an error.",
+                confidence: 0
             };
         }
     }
