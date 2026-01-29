@@ -5,6 +5,7 @@ import { AuthorshipCertificateGenerator } from "../../services/authorshipCertifi
 import { SubscriptionService } from "../../services/subscriptionService";
 import { randomUUID } from "crypto";
 import { SecretsService } from "../../services/secrets-service";
+import { EntitlementService } from "../../services/EntitlementService";
 
 export const generateCertificate = async (req: Request, res: Response) => {
   try {
@@ -70,19 +71,16 @@ export const generateCertificate = async (req: Request, res: Response) => {
     }
 
     // Check Plan Limits (Atomic Pre-flight)
-    const eligibility = await SubscriptionService.checkActionEligibility(user.id, "certificate");
-
-    if (!eligibility.allowed) {
-      console.log("Blocking certificate generation:", eligibility.message);
-      // Map reason to status code
+    try {
+      await EntitlementService.assertCanUse(user.id, "certificate");
+    } catch (e: any) {
+      console.log("Blocking certificate generation:", e.message);
       let status = 403;
-      if (eligibility.code === "INSUFFICIENT_CREDITS") {
-        status = 402; // Payment required/insufficient funds
-      }
+      if (e.code === "INSUFFICIENT_CREDITS") status = 402;
       return res.status(status).json({
-        error: eligibility.message || "Monthly limit reached",
-        code: eligibility.code || "PLAN_LIMIT_REACHED",
-        data: { upgrade_url: "/pricing", limit_info: eligibility }
+        error: e.message || "Monthly limit reached",
+        code: "PLAN_LIMIT_REACHED",
+        data: { upgrade_url: "/pricing" }
       });
     }
 
@@ -191,13 +189,8 @@ export const generateCertificate = async (req: Request, res: Response) => {
         },
       });
 
-      // Increment Usage / Deduct Credits
-      const consumption = await SubscriptionService.consumeAction(user.id, "certificate");
-      if (!consumption.allowed) {
-        // This shouldn't happen if pre-check passed, but could in race conditions.
-        // Log it, but don't fail the user request since they got the file.
-        console.error("CRITICAL: Deduct failed after generation", { userId: user.id });
-      }
+      // Deduct Credits / Entitlement (HANDLED AT START NOW)
+      // const consumption = await SubscriptionService.consumeAction(user.id, "certificate");
 
       // Send PDF buffer directly
       res.setHeader("Content-Type", "application/pdf");

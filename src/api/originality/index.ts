@@ -15,6 +15,7 @@ import webhookRouter from "./webhook";
 import { prisma } from "../../lib/prisma";
 import { EnhancedOriginalityDetectionService } from "../../services/enhancedOriginalityDetectionService";
 import { getSafeString } from "../../utils/requestHelpers";
+import { EntitlementService } from "../../services/EntitlementService";
 
 const router = express.Router();
 
@@ -50,7 +51,7 @@ const rephraseLimiter = rateLimit({
 router.post(
   "/scan",
   scanLimiter,
-  checkUsageLimit("originality_scan"),
+  // checkUsageLimit removed - using internal check for variable cost
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
@@ -91,6 +92,20 @@ router.post(
         });
       }
 
+      // Check Entitlement/Credits with Word Count (for Credit Cost)
+      const wordCount = content.trim().split(/\s+/).length;
+      try {
+        await EntitlementService.assertCanUse(userId, "originality_scan", { wordCount });
+      } catch (e: any) {
+        let status = 403;
+        if (e.code === "INSUFFICIENT_CREDITS") status = 402;
+        return res.status(status).json({
+          success: false,
+          message: e.message || "Plan limit reached",
+          code: "PLAN_LIMIT_REACHED"
+        });
+      }
+
       logger.info("Starting originality scan", { userId, projectId, plan });
 
       // Perform scan
@@ -101,8 +116,7 @@ router.post(
         plan
       );
 
-      // Increment usage counter after successful scan
-      await incrementFeatureUsage("originality_scan")(req, res, () => { });
+      // incrementFeatureUsage removed - assertCanUse consumed logic.
 
       return res.status(200).json({
         success: true,
@@ -257,31 +271,20 @@ router.post(
         matchId,
       });
 
-      // User Rule: Dynamic limits based on credits for Free Plan
-      const plan = await SubscriptionService.getActivePlan(userId);
+
       const wordCount = originalText.trim().split(/\s+/).length;
 
-      if (plan === "free") {
-        const creditBalance = await CreditService.getBalance(userId);
-
-        if (creditBalance <= 0) {
-          // Zero credits: Restrict to 500 words (User requested 500 limit if zero credits)
-          if (wordCount > 500) {
-            return res.status(400).json({
-              success: false,
-              message: "Free plan is limited to rephrasing 500 words at a time. Please purchase credits or upgrade to increase this limit.",
-            });
-          }
-        } else {
-          // Has credits: Higher limit (User requested "not limit to only 600")
-          // We'll set a reasonable safety cap, e.g., 2500 words
-          if (wordCount > 2500) {
-            return res.status(400).json({
-              success: false,
-              message: "Content exceeds total processing limit (2500 words). Please reduce the text length.",
-            });
-          }
-        }
+      // Check Entitlements & Credits (Replaces manual free tier logic)
+      try {
+        await EntitlementService.assertCanUse(userId, "rephrase", { inputWords: wordCount });
+      } catch (e: any) {
+        let status = 403;
+        if (e.code === "INSUFFICIENT_CREDITS") status = 402;
+        return res.status(status).json({
+          success: false,
+          message: e.message,
+          code: "PLAN_LIMIT_REACHED"
+        });
       }
 
       // Generate suggestions
@@ -497,16 +500,15 @@ router.post(
 
       // Check Limits
       const wordCount = content.split(/\s+/).length;
-      const eligibility = await SubscriptionService.checkActionEligibility(userId, "rephrase", { wordCount });
-
-      if (!eligibility.allowed) {
+      try {
+        await EntitlementService.assertCanUse(userId, "rephrase", { inputWords: wordCount });
+      } catch (e: any) {
         let status = 403;
-        if (eligibility.code === "INSUFFICIENT_CREDITS") status = 402;
-
+        if (e.code === "INSUFFICIENT_CREDITS") status = 402;
         return res.status(status).json({
-          error: eligibility.message,
-          code: eligibility.code || "PLAN_LIMIT_REACHED",
-          data: { upgrade_url: "/pricing", limit_info: eligibility }
+          error: e.message,
+          code: "PLAN_LIMIT_REACHED",
+          data: { upgrade_url: "/pricing" }
         });
       }
 
@@ -517,8 +519,7 @@ router.post(
 
       const result = await HumanizerService.humanizeText(content);
 
-      // Consume now
-      await SubscriptionService.consumeAction(userId, "rephrase", { wordCount });
+      // EntitlementService already consumed above.
 
       return res.status(200).json({
         success: true,
@@ -581,16 +582,15 @@ router.post(
       if (!selection) return res.status(400).json({ success: false, message: "Selection required" });
 
       const wordCount = selection.split(/\s+/).length;
-      const eligibility = await SubscriptionService.checkActionEligibility(userId, "rephrase", { wordCount });
-
-      if (!eligibility.allowed) {
+      try {
+        await EntitlementService.assertCanUse(userId, "rephrase", { inputWords: wordCount });
+      } catch (e: any) {
         let status = 403;
-        if (eligibility.code === "INSUFFICIENT_CREDITS") status = 402;
-
+        if (e.code === "INSUFFICIENT_CREDITS") status = 402;
         return res.status(status).json({
-          error: eligibility.message,
-          code: eligibility.code || "PLAN_LIMIT_REACHED",
-          data: { upgrade_url: "/pricing", limit_info: eligibility }
+          error: e.message,
+          code: "PLAN_LIMIT_REACHED",
+          data: { upgrade_url: "/pricing" }
         });
       }
 
@@ -598,8 +598,7 @@ router.post(
       const { HumanizerService } = await import("../../services/humanizerService");
       const result = await HumanizerService.rewriteSelection(selection, context);
 
-      // Deduct credits/usage after success
-      await SubscriptionService.consumeAction(userId, "rephrase", { wordCount });
+      // EntitlementService already consumed above.
 
       return res.status(200).json({ success: true, data: result });
     } catch (e: any) {

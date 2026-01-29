@@ -279,12 +279,14 @@ export class SubscriptionService {
   /**
    * Check if user is eligible to perform an action (Dry Run)
    * Returns detailed result including blocking reason and error code.
+   * @deprecated USE EntitlementService.assertCanUse() INSTEAD.
    */
   static async checkActionEligibility(
     userId: string,
     feature: string,
     metadata?: any
   ): Promise<ConsumptionResult> {
+    logger.warn("DEPRECATED: SubscriptionService.checkActionEligibility called. Switch to EntitlementService.", { userId, feature });
     const plan = await this.getActivePlan(userId);
     const limits = this.getPlanLimits(plan);
     const normalizedPlan = plan.toLowerCase();
@@ -594,8 +596,11 @@ export class SubscriptionService {
       update: data,
     });
 
-    // REBUILD ENTITLEMENTS ON CHANGE
-    await EntitlementService.rebuildEntitlements(userId);
+    // REBUILD ENTITLEMENTS ON CHANGE (ASYNC FIRE-AND-FORGET)
+    // We do not await this to prevent blocking the webhook response or login flow.
+    EntitlementService.rebuildEntitlements(userId).catch(err => {
+      logger.error("Failed to rebuild entitlements async", { userId, error: err.message });
+    });
 
     logger.info("Subscription upserted", {
       userId,

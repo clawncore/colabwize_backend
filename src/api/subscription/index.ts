@@ -53,8 +53,9 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       });
     }
 
-    // Ensure Lemon Squeezy customer exists silently (no-op if already exists)
-    await SubscriptionService.ensureLemonCustomer(user);
+    // OPTIMIZATION: Removed strict ensureLemonCustomer check to prevent blocking login.
+    // We now rely on lazy creation during checkout/portal access or asynchronous background sync.
+    // await SubscriptionService.ensureLemonCustomer(user);
 
     // Helper for timeout wrapping
     const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | "TIMEOUT"> => {

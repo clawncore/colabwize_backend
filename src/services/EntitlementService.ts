@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
-import { SubscriptionService } from "./subscriptionService"; // We will need constants from here, or move them
+import { SubscriptionService } from "./subscriptionService";
+import { CreditService } from "./CreditService"; // Added for credit fallback
 import logger from "../monitoring/logger";
 
 /**
@@ -235,7 +236,7 @@ export class EntitlementService {
         // Mapping
         let targetFeature = feature;
         if (feature === 'scan') targetFeature = 'scans_per_month';
-        if (feature === 'citation_check') targetFeature = 'citation_audit';
+        if (feature === 'citation_check') targetFeature = 'citation_audit'; // Fix mapping
         const rights = features[targetFeature];
 
         if (!rights) return { allowed: false };
@@ -244,5 +245,120 @@ export class EntitlementService {
 
         const allowed = rights.remaining > 0;
         return { allowed, remaining: rights.remaining, unlimited: false };
+    }
+
+    /**
+     * ASSERT that a user can use a feature.
+     * The SINGLE SOURCE OF TRUTH for enforcement.
+     * Throws an error if blocked.
+     * Consumes entitlement or credits if allowed.
+     */
+    static async assertCanUse(userId: string, feature: string, metadata?: any): Promise<boolean> {
+        // 1. Get Entitlements
+        let ent = await this.getEntitlements(userId);
+
+        // SELF-HEALING GUARD:
+        // If user has an active paid subscription but entitlements say "free", REBUILD.
+        // This prevents race conditions where subscription updated but entitlements lag.
+        try {
+            const sub = await SubscriptionService.getUserSubscription(userId);
+            if (sub && ["active", "trialing"].includes(sub.status) && ent?.plan === "free" && sub.plan !== "free") {
+                logger.warn("Self-healing: Active subscription with free entitlements found. Rebuilding.", { userId, subPlan: sub.plan });
+                await this.rebuildEntitlements(userId);
+                ent = await this.getEntitlements(userId);
+            }
+        } catch (e) {
+            logger.error("Self-healing check failed", { userId, error: e });
+        }
+
+        if (!ent) {
+            throw new Error("Entitlements not found"); // Should not happen due to getEntitlements logic
+        }
+
+        // 2. Map Feature to Entitlement Key
+        let targetFeature = feature;
+        // Canonical mapping
+        if (feature === 'scan') targetFeature = 'scans_per_month';
+        if (feature === 'citation_check') targetFeature = 'citation_audit';
+
+        const features = ent.features as Record<string, any>;
+        const rights = features[targetFeature];
+
+        // 3. Check Plan Restrictions (Is it even allowed?)
+        // If rights is undefined/null, it means the feature is likely not in the plan at all (unless it's a new feature).
+        // OR if it's explicitly disabled (we need to check how disablement is stored. usually limit 0).
+        if (!rights) {
+            throw new Error(`Feature ${feature} is not available on your current plan.`);
+        }
+
+        // 4. Check Entitlement (Primary Gate)
+        if (rights.unlimited) {
+            return true; // Allowed (Unlimited)
+        }
+
+        if (rights.remaining > 0) {
+            // CONSUME ENTITLEMENT
+            rights.used += 1;
+            rights.remaining -= 1;
+            features[targetFeature] = rights;
+
+            // Optimistic update
+            await prisma.userEntitlement.update({
+                where: { user_id: userId },
+                data: { features }
+            });
+
+            // Also track in legacy UsageTracking for data continuity?
+            // Yes, let's keep UsageTracking as a log.
+            // We can do this asynchronously or import UsageService.
+            // avoiding circular dep with UsageService if possible.
+            // UsageService imports EntitlementService, so EntitlementService importing UsageService is circular.
+            // We can just log it or write to prisma directly if needed, or rely on UsageService calling consumeEntitlement (OLD WAY).
+            // NEW WAY: assertCanUse DOES the consumption.
+            // We should ideally fire-and-forget a usage tracking call, slightly risky if it fails but acceptable for analytics.
+            // Or just verify if UsageTracking is critical for anything else.
+            // It's used for history. Let's write to it directly or via a detached helper.
+            // For now, focus on the GATE.
+
+            return true;
+        }
+
+        // 5. Entitlement Exhausted -> Check Credits (Secondary Gate)
+        // Rule: Can only use credits if the plan *allows* the feature (which is checked by existence of rights usually).
+        // Some features might be Hard Blocked (e.g. Student Plan scan limit?).
+        // Prompt Check: "Student Plan: Hard Block if limit reached".
+        // We need to know if we are on a plan that allows Pay-As-You-Go.
+        // The implementation check in SubscriptionService had:
+        // if (normalizedPlan === "student") -> BLOCKED.
+
+        const planName = ent.plan.toLowerCase();
+        if (planName === 'student') {
+            throw new Error("Monthly plan limit reached. Upgrade to Researcher for more.");
+        }
+
+        // Check Auto-Use Preference
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { auto_use_credits: true } });
+        if (user && user.auto_use_credits === false) {
+            throw new Error("Plan limit reached. Enable Auto-Use Credits to continue.");
+        }
+
+        // Calculate Cost
+        const cost = CreditService.calculateCost(feature, metadata);
+
+        if (cost > 0) {
+            const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
+            if (hasCredits) {
+                await CreditService.deductCredits(userId, cost, undefined, `Auto-use: ${feature}`);
+                return true;
+            } else {
+                // Throw specific error for frontend to handle (402/Upgrade)
+                const error: any = new Error("Plan limit reached and insufficient credits.");
+                error.code = "INSUFFICIENT_CREDITS";
+                throw error;
+            }
+        }
+
+        // If cost is 0 (should shouldn't happen for consumable features) or generic block
+        throw new Error("Plan limit reached.");
     }
 }

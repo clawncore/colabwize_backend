@@ -44,25 +44,21 @@ router.post("/audit", async (req: Request, res: Response) => {
         // User rule: "Citation audit consumes credits based on document length"
         const docWordCount = wordCount || 1000;
 
-        const { SubscriptionService } = await import("../../services/subscriptionService");
+        const { EntitlementService } = await import("../../services/EntitlementService");
 
-        // Check if user has enough balance/limit roughly
-        // Check if user has enough balance/limit roughly
-        const eligibility = await SubscriptionService.checkActionEligibility(userId, "citation_audit", { wordCount: docWordCount });
-
-        if (!eligibility.allowed) {
-            // Map reason to status code
+        try {
+            // Unified Check & Consumption
+            await EntitlementService.assertCanUse(userId, "citation_audit", { wordCount: docWordCount });
+        } catch (error: any) {
             let status = 403;
-            if (eligibility.code === "INSUFFICIENT_CREDITS") {
-                status = 402; // Payment required/insufficient funds
+            if (error.code === "INSUFFICIENT_CREDITS") {
+                status = 402;
             }
-
             return res.status(status).json({
-                error: eligibility.message || "Plan limit reached.",
-                code: eligibility.code || "PLAN_LIMIT_REACHED",
+                error: error.message || "Plan limit reached.",
+                code: error.code || "PLAN_LIMIT_REACHED",
                 data: {
-                    upgrade_url: "/pricing",
-                    limit_info: eligibility
+                    upgrade_url: "/pricing"
                 }
             });
         }
@@ -281,18 +277,7 @@ router.post("/audit", async (req: Request, res: Response) => {
             console.log(`   📦 Total Results: ${verificationResults.length}`);
         }
 
-        // DEDUCT credits finally
-        const finalConsumption = await SubscriptionService.consumeAction(userId, "citation_audit", { wordCount: docWordCount });
-        if (!finalConsumption.allowed) {
-            // Edge case: User ran out of credits during processing?
-            // Should we return the report? Maybe return with a warning?
-            // Prompt says: "4. If credits < required → block". We blocked at start.
-            // "6. Deduct credits". using consumeAction.
-            // If this fails, let's log error but returning the report seems fair if work is done.
-            // BUT stricter implementation would fail.
-            // Let's assume if pre-check passed, this passes unless race condition.
-            console.error("CRITICAL: Credit deduction failed AFTER work done", { userId });
-        }
+        // Credits already deducted by EntitlementService.assertCanUse at the start.
 
         res.status(200).json(report);
 
