@@ -351,7 +351,27 @@ export class EntitlementService {
 
         // 3. Check Plan Restrictions (Is it even allowed?)
         // If rights is undefined/null, it means the feature is likely not in the plan at all (unless it's a new feature).
-        // OR if it's explicitly disabled (we need to check how disablement is stored. usually limit 0).
+
+        // SELF-HEALING: If feature is missing from entitlements but SHOULD be in the plan, rebuild.
+        if (!rights) {
+            try {
+                const currentLimits = SubscriptionService.getPlanLimits(ent.plan);
+                if (currentLimits && (currentLimits[targetFeature] !== undefined)) {
+                    logger.warn("Self-healing: Feature missing from entitlements but present in plan. Rebuilding.", { userId, feature: targetFeature });
+                    await this.rebuildEntitlements(userId);
+                    ent = await this.getEntitlements(userId);
+
+                    // Re-fetch rights after rebuild
+                    const newFeatures = ent?.features as Record<string, any>;
+                    if (newFeatures) {
+                        rights = newFeatures[targetFeature];
+                    }
+                }
+            } catch (e) {
+                logger.error("Self-healing for missing feature failed", { userId, error: e });
+            }
+        }
+
         if (!rights) {
             throw new Error(`Feature ${feature} is not available on your current plan.`);
         }

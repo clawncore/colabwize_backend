@@ -132,16 +132,63 @@ async function processDocumentImport(fileData: any, userId: string) {
 }
 
 // Generate PDF export
+// Generate PDF export
 async function generatePDFExport(fileData: any, userId: string) {
   try {
     // Validate user exists
     const user = await prisma.user.findUnique({
       where: { id: userId },
+      include: { subscription: true },
     });
 
     if (!user) {
       throw new Error("User not found");
     }
+
+    // --- Subscription & Limit Logic ---
+    // Check if user is on a paid plan
+    const isPaid = user.subscription?.status === "active" && user.subscription?.plan !== "free"; // Adjust based on your plan names
+
+    if (!isPaid) {
+      // Free User Logic: Check limits
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      // Count PDF exports this month
+      const exportCount = await prisma.export.count({
+        where: {
+          user_id: userId,
+          file_type: "pdf",
+          status: "completed",
+          created_at: { gte: firstDayOfMonth },
+        },
+      });
+
+      // Limit: 2 Free, then Charge
+      if (exportCount >= 2) {
+        // Check Credit Balance
+        const { CreditService } = await import("../../services/CreditService");
+        const balance = await CreditService.getBalance(userId);
+
+        // Charge 1 Credit (Int schema doesn't support 0.5)
+        // User requested 0.5, but system is Int based. Using 1 as minimum unit.
+        const COST = 1;
+
+        if (balance < COST) {
+          throw new Error("INSUFFICIENT_CREDITS"); // Specific error code for frontend
+        }
+
+        // Deduct Credit
+        await CreditService.addCredits(
+          userId,
+          -COST,
+          "USAGE",
+          `export_pdf_${Date.now()}`,
+          "PDF Export (Free Limit Exceeded)"
+        );
+      }
+    }
+    // ----------------------------------
 
     let project;
     // Check if we have project data directly or need to fetch from DB
@@ -241,28 +288,31 @@ async function generatePDFExport(fileData: any, userId: string) {
     logger.error("Error generating PDF export", { error });
 
     // Store failed export record in database
-    try {
-      const project = await prisma.project.findUnique({
-        where: {
-          id: fileData.projectId,
-        },
-      });
-
-      if (project) {
-        await prisma.export.create({
-          data: {
-            user_id: userId,
-            project_id: project.id,
-            file_name: `${project.title}.pdf`,
-            file_size: 0,
-            file_type: "pdf",
-            download_url: "",
-            status: "failed",
+    // Only if it wasn't a credit error (optional, but good for tracking)
+    if ((error as any).message !== "INSUFFICIENT_CREDITS") {
+      try {
+        const project = await prisma.project.findUnique({
+          where: {
+            id: fileData.projectId,
           },
         });
+
+        if (project) {
+          await prisma.export.create({
+            data: {
+              user_id: userId,
+              project_id: project.id,
+              file_name: `${project.title}.pdf`,
+              file_size: 0,
+              file_type: "pdf",
+              download_url: "",
+              status: "failed",
+            },
+          });
+        }
+      } catch (dbError) {
+        logger.error("Error storing failed export record", { dbError });
       }
-    } catch (dbError) {
-      logger.error("Error storing failed export record", { dbError });
     }
 
     throw error;

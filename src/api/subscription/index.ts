@@ -79,11 +79,14 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
 
     // EXECUTE CORE LOGIC WRAPPED IN TOTAL DEADLINE
     const executeLogic = async () => {
-      // EXECUTE IN PARALLEL
-      // We avoid calling SubscriptionService.getActivePlan() afterwards to prevent 2nd DB call
-      const [subResult, usageResult, creditResult, totalResult] = await Promise.all([
-        withTimeout(SubscriptionService.getUserSubscription(user.id), DB_TIMEOUT_MS),
-        withTimeout(UsageService.getCurrentUsage(user.id), DB_TIMEOUT_MS),
+      // 1. FETCH SUBSCRIPTION FIRST (Critical Path)
+      const subResult = await withTimeout(SubscriptionService.getUserSubscription(user.id), DB_TIMEOUT_MS);
+
+      const subscriptionForUsage = subResult === "TIMEOUT" ? undefined : subResult;
+
+      // 2. FETCH OTHERS IN PARALLEL (Dependent on Step 1 for optimization)
+      const [usageResult, creditResult, totalResult] = await Promise.all([
+        withTimeout(UsageService.getCurrentUsage(user.id, subscriptionForUsage), DB_TIMEOUT_MS),
         withTimeout(CreditService.getBalance(user.id), DB_TIMEOUT_MS),
         withTimeout(prisma.originalityScan.count({ where: { user_id: user.id } }), DB_TIMEOUT_MS)
       ]);

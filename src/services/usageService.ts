@@ -60,7 +60,7 @@ export class UsageService {
   /**
    * Get current usage for user
    */
-  static async getCurrentUsage(userId: string) {
+  static async getCurrentUsage(userId: string, subscription?: any) {
     const now = new Date();
 
     // Default to Calendar Month
@@ -70,7 +70,11 @@ export class UsageService {
 
     // Try to get subscription billing cycle to align with recording logic
     try {
-      const subscription = await SubscriptionService.getUserSubscription(userId);
+      // If subscription not provided, try to fetch it
+      if (subscription === undefined) {
+        subscription = await SubscriptionService.getUserSubscription(userId);
+      }
+
       if (subscription && subscription.current_period_start) {
         period_start = new Date(subscription.current_period_start);
       }
