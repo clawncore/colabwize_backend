@@ -815,8 +815,8 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
           limit: limits.originality_scan === -1 ? null : limits.originality_scan,
         },
         citationChecks: {
-          used: usage?.citation_check || 0,
-          limit: limits.citation_check === -1 ? null : limits.citation_check,
+          used: usage?.citation_audit || 0,
+          limit: limits.citation_audit === -1 ? null : limits.citation_audit,
         },
         certificates: {
           used: usage?.certificate || 0,
