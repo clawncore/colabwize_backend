@@ -372,6 +372,29 @@ export class EntitlementService {
             }
         }
 
+        // 3a. SELF-HEALING: Check for Stale Unlimited Rights
+        // Usage Scenario: User is 'researcher' but citation_audit has a limit from old data.
+        if (rights && !rights.unlimited) {
+            try {
+                // Check what the plan SAYS it should be
+                const currentLimits = SubscriptionService.getPlanLimits(ent.plan) as Record<string, any>;
+                const planLimit = currentLimits[targetFeature];
+
+                // If plan says it should be unlimited (-1) but rights says it's not
+                if (planLimit === -1) {
+                    logger.warn("Self-healing: Feature should be unlimited for plan but is restricted. Rebuilding.", { userId, plan: ent.plan, feature: targetFeature });
+                    await this.rebuildEntitlements(userId);
+                    ent = await this.getEntitlements(userId);
+                    if (ent) {
+                        const newFeatures = ent.features as Record<string, any>;
+                        rights = newFeatures[targetFeature];
+                    }
+                }
+            } catch (e) {
+                logger.error("Self-healing for stale rights failed", { userId, error: e });
+            }
+        }
+
         if (!rights) {
             throw new Error(`Feature ${feature} is not available on your current plan.`);
         }
