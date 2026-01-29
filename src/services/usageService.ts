@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { SubscriptionService } from "./subscriptionService";
+import { EntitlementService } from "./EntitlementService";
 
 /**
  * Usage Service for tracking feature usage
@@ -17,6 +18,9 @@ export class UsageService {
     return { period_start, period_end };
   }
 
+  /**
+   * Track feature usage
+   */
   /**
    * Track feature usage
    */
@@ -44,6 +48,9 @@ export class UsageService {
         },
       },
     });
+
+    // SYNC TO ENTITLEMENTS (Consume)
+    await EntitlementService.consumeEntitlement(userId, feature);
 
     logger.info("Usage tracked", { userId, feature, count: usage.count });
 
@@ -95,35 +102,15 @@ export class UsageService {
     userId: string,
     feature: string
   ): Promise<{ allowed: boolean; current: number; limit: number }> {
-    // Get user's plan
-    const plan = await SubscriptionService.getActivePlan(userId);
-    const limits = SubscriptionService.getPlanLimits(plan);
+    // NEW: Entitlement-Based Check
+    const result = await EntitlementService.checkEligibility(userId, feature);
 
-    // Get feature limit
-    const limit = limits[feature as keyof typeof limits] as number;
-
-    if (limit === undefined) {
-      return { allowed: false, current: 0, limit: 0 };
-    }
-
-    if (limit === Infinity) {
-      return { allowed: true, current: 0, limit: Infinity };
-    }
-
-    // Get current usage
-    const usage = await this.getCurrentUsage(userId);
-    const current = usage[feature] || 0;
-
-    // FIX: Handle -1 as Unlimited (Researcher)
-    // Also explicitly check for high-tier plans to be safe
-    if (limit === -1) {
-      return { allowed: true, current, limit: -1 };
-    }
-
-
-    const allowed = current < limit;
-
-    return { allowed, current, limit };
+    // Convert to legacy return format for compatibility
+    return {
+      allowed: result.allowed,
+      current: 0, // Deprecated/Unknown in this view, or we fetch it if needed.
+      limit: result.unlimited ? -1 : (result.remaining !== undefined ? result.remaining : 0) // Approximation
+    };
   }
 
   /**

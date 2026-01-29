@@ -65,6 +65,7 @@ model User {
   credit_transactions   CreditTransaction[]
   annotations           Annotation[]
   source_interactions   SourceInteraction[]
+  entitlement           UserEntitlement?
 
   @@index([email])
   @@map("users")
@@ -774,4 +775,18 @@ model WebhookEvent {
   @@index([event_id])
   @@index([provider])
   @@map("webhook_events")
+}
+
+model UserEntitlement {
+  id                String   @id @default(uuid())
+  user_id           String   @unique
+  plan              String   // Snapshotted plan name at the time of calculation
+  features          Json     // { [feature]: { limit: number, used: number, remaining: number, unlimited: boolean } }
+  billing_cycle_start DateTime
+  billing_cycle_end   DateTime
+  last_updated      DateTime @default(now())
+  user              User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("user_entitlements")
 }

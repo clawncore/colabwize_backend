@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { EntitlementService } from "./EntitlementService";
 import logger from "../monitoring/logger";
 import { LemonSqueezyService } from "./lemonSqueezyService";
 import { CreditService, CREDIT_COSTS } from "./CreditService";
@@ -308,6 +309,17 @@ export class SubscriptionService {
       };
     }
 
+    // 4. Entitlements Check (The New Truth)
+    const entitlement = await EntitlementService.checkEligibility(userId, feature);
+    if (entitlement.allowed) {
+      return { allowed: true, source: "PLAN", remaining: entitlement.remaining };
+    }
+
+    // 5. Fallback logic for Student/Payg (already handled by logic above/below or by Entitlement check?)
+    // In new architecture, Entitlements SHOULD handle the count. 
+    // If Entitlements says NO, we check CREDITS.
+    // The "Student Plan" Hard Block is an Entitlement Rule (no credits allowed for excess).
+
     // Student Plan: Hard Block if limit reached (No Pay-As-You-Go fallback)
     if (normalizedPlan === "student") {
       return {
@@ -580,6 +592,9 @@ export class SubscriptionService {
       update: data,
     });
 
+    // REBUILD ENTITLEMENTS ON CHANGE
+    await EntitlementService.rebuildEntitlements(userId);
+
     logger.info("Subscription upserted", {
       userId,
       plan: data.plan,
@@ -624,6 +639,7 @@ export class SubscriptionService {
 
     logger.info("Subscription canceled", { userId });
 
+    await EntitlementService.rebuildEntitlements(userId);
     return true;
   }
 
@@ -647,6 +663,7 @@ export class SubscriptionService {
 
     logger.info("Subscription reactivated", { userId });
 
+    await EntitlementService.rebuildEntitlements(userId);
     return true;
   }
 
