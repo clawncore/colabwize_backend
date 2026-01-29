@@ -88,19 +88,42 @@ const PLAN_LIMITS = {
   },
   researcher: {
     // Scan Limits
-    scans_per_month: 100,
-    originality_scan: 100,
-    citation_audit: 100,
-    draft_comparison: 100,
-    rephrase_suggestions: 100,
-    paper_search: 100,
-    ai_integrity: 100,
+    scans_per_month: -1, // Unlimited
+    originality_scan: -1, // Unlimited
+    citation_audit: -1, // Unlimited
+    draft_comparison: -1, // Unlimited
+    rephrase_suggestions: -1, // Unlimited
+    paper_search: -1, // Unlimited
+    ai_integrity: -1, // Unlimited
     ai_chat: -1, // Request: Unlimited
-    certificate: 100,
-    max_scan_characters: 200000,
+    certificate: -1, // Unlimited
+    max_scan_characters: 500000,
 
     // Feature Flags
     certificate_retention_days: 90,
+    watermark: false,
+    export_formats: true,
+    priority_scanning: true,
+    advanced_citations: true,
+    advanced_analytics: true,
+    research_gaps: true,
+    insight_map: true,
+  },
+  student_pro: {
+    // Scan Limits
+    scans_per_month: 100,
+    originality_scan: 100,
+    citation_audit: 100,
+    draft_comparison: 50,
+    rephrase_suggestions: 100,
+    paper_search: 100,
+    ai_integrity: 50,
+    ai_chat: 100,
+    certificate: 50,
+    max_scan_characters: 150000,
+
+    // Feature Flags
+    certificate_retention_days: 60,
     watermark: false,
     export_formats: true,
     priority_scanning: true,
@@ -164,7 +187,7 @@ export class SubscriptionService {
    */
   static getPlanLimits(plan: string) {
     let normalizedPlan = plan.toLowerCase().trim();
-    if (normalizedPlan === 'student pro') normalizedPlan = 'student';
+    if (normalizedPlan === 'student pro') normalizedPlan = 'student_pro';
     return PLAN_LIMITS[normalizedPlan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free;
   }
 

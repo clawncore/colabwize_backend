@@ -146,6 +146,29 @@ export class EntitlementService {
             ent = await prisma.userEntitlement.findUnique({ where: { user_id: userId } });
         }
 
+        // Self-Repair: Check for stale Researcher/Student Pro limits (Hotfix)
+        if (ent) {
+            const features = ent.features as Record<string, any>;
+            const scans = features['scans_per_month'];
+            const normalizedPlan = ent.plan.toLowerCase();
+
+            // If Researcher and NOT unlimited, rebuild
+            if (normalizedPlan === 'researcher' && scans && !scans.unlimited) {
+                logger.info("Entitlements stale (Researcher should be unlimited), rebuilding", { userId });
+                await this.rebuildEntitlements(userId);
+                ent = await prisma.userEntitlement.findUnique({ where: { user_id: userId } });
+            }
+
+            // If Student Pro and limit is small (e.g. 25 from student mapping), rebuild
+            if (normalizedPlan === 'student pro' || normalizedPlan === 'student_pro') {
+                if (scans && scans.limit < 50) { // Assuming new limit is > 50 (it's 100)
+                    logger.info("Entitlements stale (Student Pro limit too low), rebuilding", { userId });
+                    await this.rebuildEntitlements(userId);
+                    ent = await prisma.userEntitlement.findUnique({ where: { user_id: userId } });
+                }
+            }
+        }
+
         return ent;
     }
 

@@ -49,9 +49,25 @@ async function main() {
         console.log("Researcher Entitlements:", JSON.stringify(ent?.features, null, 2));
         if (ent?.plan !== 'researcher') throw new Error("Expected researcher plan");
         // @ts-ignore
-        if (ent?.features['ai_chat'].unlimited !== true) throw new Error("Expected unlimited ai_chat");
+        if (ent?.features['scans_per_month'].unlimited !== true) throw new Error("Expected unlimited scans for researcher");
 
-        // 4. Downgrade to Student (Finite Limit)
+        // 4. Downgrade to Student Pro (Higher Limit)
+        console.log("Downgrading to Student Pro...");
+        await SubscriptionService.upsertSubscription(userId, {
+            plan: 'student pro',
+            status: 'active'
+        });
+
+        ent = await EntitlementService.getEntitlements(userId);
+        // @ts-ignore
+        const scanRightsPro = ent?.features['scans_per_month'];
+        console.log("Student Pro Entitlements (Scans):", scanRightsPro);
+
+        // Student Pro should have 100 scans now (vs 25 for Student)
+        if (scanRightsPro.limit !== 100) throw new Error(`Expected 100 scans for student pro, got ${scanRightsPro.limit}`);
+
+
+        // 5. Downgrade to Student (Finite Limit)
         console.log("Downgrading to Student...");
         await SubscriptionService.upsertSubscription(userId, {
             plan: 'student',
