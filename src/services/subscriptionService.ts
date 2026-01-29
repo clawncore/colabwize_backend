@@ -20,7 +20,7 @@ const PLAN_LIMITS = {
     // Scan Limits
     scans_per_month: 3,
     originality_scan: 3,
-    citation_check: 3,
+    citation_audit: 3,
     draft_comparison: false,
     rephrase_suggestions: 3,
     paper_search: 0,
@@ -43,7 +43,7 @@ const PLAN_LIMITS = {
     // Scan Limits (Credit-based)
     scans_per_month: -2,
     originality_scan: -2,
-    citation_check: -2,
+    citation_audit: -2,
     draft_comparison: -2,
     rephrase_suggestions: -2,
     paper_search: -2,
@@ -66,7 +66,7 @@ const PLAN_LIMITS = {
     // Scan Limits
     scans_per_month: 25,
     originality_scan: 25,
-    citation_check: 25,
+    citation_audit: 25,
     draft_comparison: false,
     rephrase_suggestions: 25,
     paper_search: 25,
@@ -89,7 +89,7 @@ const PLAN_LIMITS = {
     // Scan Limits
     scans_per_month: 100,
     originality_scan: 100,
-    citation_check: 100,
+    citation_audit: 100,
     draft_comparison: 100,
     rephrase_suggestions: 100,
     paper_search: 100,
@@ -118,22 +118,9 @@ export class SubscriptionService {
    * Get user's subscription with strict timeout
    */
   static async getUserSubscription(userId: string) {
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("DB_TIMEOUT")), 2000)
-    );
-
-    try {
-      const subscription = await Promise.race([
-        prisma.subscription.findUnique({
-          where: { user_id: userId },
-        }),
-        timeoutPromise,
-      ]);
-      return subscription as any; // Cast to avoid type issues with race result
-    } catch (error) {
-      console.error("SubscriptionService.getUserSubscription timed out or failed:", error);
-      return null;
-    }
+    return prisma.subscription.findUnique({
+      where: { user_id: userId },
+    });
   }
 
   /**
