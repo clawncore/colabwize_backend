@@ -161,8 +161,9 @@ export class EntitlementService {
         const feat = features[feature] || features['scans_per_month']; // Fallback/Mapping if needed?
 
         // Canonical mapping logic similar to SubscriptionService
-        // For now, let's assume strict naming or handle the 'scan' alias
-        const targetFeature = feature === 'scan' ? 'scans_per_month' : feature;
+        let targetFeature = feature;
+        if (feature === 'scan') targetFeature = 'scans_per_month';
+        if (feature === 'citation_check') targetFeature = 'citation_audit';
         const rights = features[targetFeature];
 
         if (!rights) {
@@ -209,7 +210,9 @@ export class EntitlementService {
 
         const features = ent.features as Record<string, any>;
         // Mapping
-        const targetFeature = feature === 'scan' ? 'scans_per_month' : feature;
+        let targetFeature = feature;
+        if (feature === 'scan') targetFeature = 'scans_per_month';
+        if (feature === 'citation_check') targetFeature = 'citation_audit';
         const rights = features[targetFeature];
 
         if (!rights) return { allowed: false };

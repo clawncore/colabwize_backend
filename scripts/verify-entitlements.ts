@@ -84,6 +84,26 @@ async function main() {
 
         if (!check.allowed || check.limit !== 24) throw new Error("UsageService should reflect entitlement remaining");
 
+        // 7. Verify Citation Check Mapping
+        console.log("Verifying citation_check mapping...");
+        // citation_audit limit is 25 for student
+        const auditCheck = await EntitlementService.checkEligibility(userId, 'citation_check');
+        console.log("Citation Check Eligibility:", auditCheck);
+
+        if (!auditCheck.allowed) throw new Error("Should be allowed for citation_check");
+        if (auditCheck.remaining === undefined || auditCheck.remaining !== 25) throw new Error(`Expected 25 remaining for citation_check, got ${auditCheck.remaining}`);
+
+        console.log("Consuming citation_check...");
+        await EntitlementService.consumeEntitlement(userId, 'citation_check');
+
+        const entAfter = await EntitlementService.getEntitlements(userId);
+        // @ts-ignore
+        const auditRights = entAfter?.features['citation_audit'];
+        console.log("After Citation Consumption:", auditRights);
+
+        if (auditRights.remaining !== 24) throw new Error("Expected 24 remaining for citation_audit after consuming citation_check");
+
+
         console.log("SUCCESS: Entitlements Verification Passed!");
 
     } catch (e) {

@@ -390,76 +390,55 @@ export class SubscriptionService {
    * Increment usage counter
    */
   static async incrementUsage(userId: string, feature: string): Promise<void> {
+    // Legacy: We still track in UsageTracking for history
     const plan = await this.getActivePlan(userId);
     const limits = this.getPlanLimits(plan);
 
     // Map feature to limit key
     let limitKey = feature;
     if (feature === "scan") limitKey = "scans_per_month";
+    if (feature === "citation_check") limitKey = "citation_audit";
 
-    let planLimit = 0;
-    if (limitKey in limits) {
-      const val = limits[limitKey as keyof typeof limits];
-      if (typeof val === "number") planLimit = val;
+    // 1. Upsert Usage Tracking (History)
+    const now = new Date();
+    // Default to Calendar Month logic for history consistency with internal tools
+    let periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    let periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    try {
+      const subscription = await this.getUserSubscription(userId);
+      if (subscription && subscription.current_period_start && subscription.current_period_end) {
+        periodStart = new Date(subscription.current_period_start);
+        periodEnd = new Date(subscription.current_period_end);
+      }
+    } catch (e) {
+      // Fallback
     }
 
-    // Check if we should use Plan or Credits
-    let usePlan = false;
-
-    if (planLimit === -1) {
-      usePlan = true;
-    } else if (planLimit > 0) {
-      const currentUsage = await this.checkMonthlyUsage(userId, feature);
-      if (currentUsage < planLimit) {
-        usePlan = true;
-      }
-    }
-
-    if (usePlan) {
-      const now = new Date();
-      // Fix 3: Usage Increment - Align with Billing Cycle
-      let periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      let periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-
-      try {
-        const subscription = await this.getUserSubscription(userId);
-        if (subscription && subscription.current_period_start && subscription.current_period_end) {
-          periodStart = new Date(subscription.current_period_start);
-          periodEnd = new Date(subscription.current_period_end);
-        }
-      } catch (e) {
-        // Fallback
-      }
-
-      await prisma.usageTracking.upsert({
-        where: {
-          user_id_feature_period_start: {
-            user_id: userId,
-            feature,
-            period_start: periodStart,
-          },
-        },
-        create: {
+    await prisma.usageTracking.upsert({
+      where: {
+        user_id_feature_period_start: {
           user_id: userId,
           feature,
-          count: 1,
           period_start: periodStart,
-          period_end: periodEnd,
         },
-        update: {
-          count: { increment: 1 },
-        },
-      });
-      logger.info("Plan Usage incremented", { userId, feature });
-    } else {
-      // Use Credits - BUT this method (incrementUsage) is legacy-ish if it assumes flat deduction implicitly.
-      // Better to check context. But for now, let's just log or deduct min cost.
-      // Actually consumeAction handles the deduction. incrementUsage is mostly for PLAN usage.
-      // If we are here, it means we ARE relying on credits, but incrementUsage doesn't know cost.
-      // STRICT RULE: If not using plan, DO NOT increment plan usage.
-      // Credit deduction happens via CreditService.deductCredits, which is called in consumeAction.
-      // So here we do nothing for credits.
-    }
+      },
+      create: {
+        user_id: userId,
+        feature,
+        count: 1,
+        period_start: periodStart,
+        period_end: periodEnd,
+      },
+      update: {
+        count: { increment: 1 },
+      },
+    });
+
+    // 2. Consume Entitlement (The Check Gate)
+    await EntitlementService.consumeEntitlement(userId, feature);
+
+    logger.info("Usage incremented", { userId, feature });
   }
 
   /**
