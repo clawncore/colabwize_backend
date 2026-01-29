@@ -66,7 +66,7 @@ export class CreditService {
     static async addCredits(
         userId: string,
         amount: number,
-        type: "PURCHASE" | "BONUS" | "REFUND",
+        type: "PURCHASE" | "BONUS" | "REFUND" | "USAGE",
         referenceId?: string,
         description?: string
     ) {

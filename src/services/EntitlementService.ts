@@ -347,7 +347,7 @@ export class EntitlementService {
         if (feature === 'citation_check') targetFeature = 'citation_audit';
 
         const features = ent.features as Record<string, any>;
-        const rights = features[targetFeature];
+        let rights = features[targetFeature];
 
         // 3. Check Plan Restrictions (Is it even allowed?)
         // If rights is undefined/null, it means the feature is likely not in the plan at all (unless it's a new feature).
@@ -355,7 +355,7 @@ export class EntitlementService {
         // SELF-HEALING: If feature is missing from entitlements but SHOULD be in the plan, rebuild.
         if (!rights) {
             try {
-                const currentLimits = SubscriptionService.getPlanLimits(ent.plan);
+                const currentLimits = SubscriptionService.getPlanLimits(ent.plan) as Record<string, any>;
                 if (currentLimits && (currentLimits[targetFeature] !== undefined)) {
                     logger.warn("Self-healing: Feature missing from entitlements but present in plan. Rebuilding.", { userId, feature: targetFeature });
                     await this.rebuildEntitlements(userId);
