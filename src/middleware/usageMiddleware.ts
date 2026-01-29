@@ -38,7 +38,7 @@ export const checkUsageLimit = (feature: string) => {
 
         res.status(403).json({
           success: false,
-          error: `${feature} usage limit reached`,
+          error: `${feature} usage limit reached. Please upgrade your plan.`,
           data: {
             upgrade_url: "/pricing",
             message: e.message

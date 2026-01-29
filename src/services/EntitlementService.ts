@@ -380,9 +380,18 @@ export class EntitlementService {
                 const currentLimits = SubscriptionService.getPlanLimits(ent.plan) as Record<string, any>;
                 const planLimit = currentLimits[targetFeature];
 
-                // If plan says it should be unlimited (-1) but rights says it's not
-                if (planLimit === -1) {
-                    logger.warn("Self-healing: Feature should be unlimited for plan but is restricted. Rebuilding.", { userId, plan: ent.plan, feature: targetFeature });
+                // If plan definitions don't match stored entitlements (stale data)
+                // This covers: 
+                // 1. Should be unlimited (-1) but is not
+                // 2. Limit value mismatch (e.g. Plan says 100, Entitlement says 3)
+                if (planLimit !== rights.limit) {
+                    logger.warn("Self-healing: Entitlement limit mismatch. Rebuilding.", {
+                        userId,
+                        plan: ent.plan,
+                        feature: targetFeature,
+                        planned: planLimit,
+                        stored: rights.limit
+                    });
                     await this.rebuildEntitlements(userId);
                     ent = await this.getEntitlements(userId);
                     if (ent) {
