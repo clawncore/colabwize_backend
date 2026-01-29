@@ -1,3 +1,4 @@
+// Server Entry Point - Triggering Restart...
 import dotenv from "dotenv";
 // Load environment variables immediately
 dotenv.config();

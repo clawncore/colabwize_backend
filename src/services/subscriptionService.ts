@@ -88,16 +88,16 @@ const PLAN_LIMITS = {
   },
   researcher: {
     // Scan Limits
-    scans_per_month: -1, // Unlimited
-    originality_scan: -1, // Unlimited
-    citation_audit: -1, // Unlimited
-    draft_comparison: -1, // Unlimited
-    rephrase_suggestions: -1, // Unlimited
-    paper_search: -1, // Unlimited
-    ai_integrity: -1, // Unlimited
-    ai_chat: -1, // Request: Unlimited
-    certificate: -1, // Unlimited
-    max_scan_characters: 500000,
+    scans_per_month: 100, // Updated to 100 as per design
+    originality_scan: 100, // Match citation limit
+    citation_audit: 100, // Explicitly 100 as per design
+    draft_comparison: 100, // Finite limit
+    rephrase_suggestions: 100, // Explicitly 100 as per design
+    paper_search: 100,
+    ai_integrity: 100,
+    ai_chat: 100,
+    certificate: 100,
+    max_scan_characters: 200000, // Updated to 200k as per design
 
     // Feature Flags
     certificate_retention_days: 90,

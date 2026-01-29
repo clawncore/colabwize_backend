@@ -448,11 +448,6 @@ export class EntitlementService {
         // The implementation check in SubscriptionService had:
         // if (normalizedPlan === "student") -> BLOCKED.
 
-        const planName = ent.plan.toLowerCase();
-        if (planName === 'student') {
-            throw new Error("Monthly plan limit reached. Upgrade to Researcher for more.");
-        }
-
         // Check Auto-Use Preference
         const user = await prisma.user.findUnique({ where: { id: userId }, select: { auto_use_credits: true } });
         if (user && user.auto_use_credits === false) {

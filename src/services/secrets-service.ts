@@ -276,6 +276,15 @@ export class SecretsService {
     return this.getSecret("COPYLEAKS_API_KEY");
   }
 
+  // Get Copyscape configuration
+  static async getCopyscapeUsername(): Promise<string | null> {
+    return this.getSecret("COPYSCAPE_USERNAME");
+  }
+
+  static async getCopyscapeApiKey(): Promise<string | null> {
+    return this.getSecret("COPYSCAPE_API_KEY");
+  }
+
   // Get Anthropic API key
   static async getAnthropicApiKey(): Promise<string | null> {
     return this.getSecret("ANTHROPIC_API_KEY");
