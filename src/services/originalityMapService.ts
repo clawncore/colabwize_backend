@@ -165,22 +165,80 @@ export class OriginalityMapService {
       throw new Error("Scan not found or access denied");
     }
 
-    return scan;
+    // Map snake_case to camelCase for frontend
+    return {
+      id: scan.id,
+      projectId: scan.project_id,
+      userId: scan.user_id,
+      overallScore: scan.overall_score,
+      classification: scan.classification,
+      scanStatus: scan.scan_status,
+      scannedAt: scan.scanned_at,
+      wordsScanned: scan.words_scanned,
+      costAmount: scan.cost_amount,
+      matchCount: scan.match_count,
+      matches: scan.matches?.map((m: any) => ({
+        id: m.id,
+        scanId: m.scan_id,
+        sentenceText: m.sentence_text,
+        matchedSource: m.matched_source,
+        sourceUrl: m.source_url,
+        viewUrl: m.view_url,
+        matchedWords: m.matched_words,
+        sourceWords: m.source_words,
+        matchPercent: m.match_percent,
+        similarityScore: m.similarity_score,
+        positionStart: m.position_start,
+        positionEnd: m.position_end,
+        classification: m.classification,
+      })) || []
+    };
   }
 
   /**
    * Get all scans for a project
    */
   static async getProjectScans(projectId: string, userId: string) {
-    return prisma.originalityScan.findMany({
+    const scans = await prisma.originalityScan.findMany({
       where: {
         project_id: projectId,
         user_id: userId
       },
       orderBy: {
         created_at: "desc"
+      },
+      include: {
+        matches: true
       }
     });
+
+    return scans.map((scan: any) => ({
+      id: scan.id,
+      projectId: scan.project_id,
+      userId: scan.user_id,
+      overallScore: scan.overall_score,
+      classification: scan.classification,
+      scanStatus: scan.scan_status,
+      scannedAt: scan.scanned_at,
+      wordsScanned: scan.words_scanned,
+      costAmount: scan.cost_amount,
+      matchCount: scan.match_count,
+      matches: scan.matches?.map((m: any) => ({
+        id: m.id,
+        scanId: m.scan_id,
+        sentenceText: m.sentence_text,
+        matchedSource: m.matched_source,
+        sourceUrl: m.source_url,
+        viewUrl: m.view_url,
+        matchedWords: m.matched_words,
+        sourceWords: m.source_words,
+        matchPercent: m.match_percent,
+        similarityScore: m.similarity_score,
+        positionStart: m.position_start,
+        positionEnd: m.position_end,
+        classification: m.classification,
+      })) || []
+    }));
   }
 
   /**
