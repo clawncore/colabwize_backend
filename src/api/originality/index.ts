@@ -3,10 +3,7 @@ import { OriginalityMapService } from "../../services/originalityMapService";
 import { RephraseService } from "../../services/rephraseService";
 import logger from "../../monitoring/logger";
 import rateLimit from "express-rate-limit";
-import {
-  checkUsageLimit,
-  incrementFeatureUsage,
-} from "../../middleware/usageMiddleware";
+
 import { SubscriptionService } from "../../services/subscriptionService";
 import { CreditService } from "../../services/CreditService";
 import compareRouter from "./compare";
@@ -233,7 +230,7 @@ router.get("/project/:projectId", async (req: Request, res: Response) => {
 router.post(
   "/rephrase",
   rephraseLimiter,
-  checkUsageLimit("originality_scan"),
+  // checkUsageLimit removed - using internal entitlement check
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;

@@ -41,6 +41,7 @@ export class CreditService {
                 return Math.ceil(words / 2000);
 
             case 'originality':
+            case 'originality_scan':
                 // Originality: Higher cost (Future) - e.g. / 500
                 words = metadata.wordCount || 0;
                 return Math.ceil(words / 500);

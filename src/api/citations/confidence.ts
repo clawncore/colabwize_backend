@@ -2,7 +2,7 @@ import express, { Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import { CitationConfidenceService } from "../../services/citationConfidenceService";
 import logger from "../../monitoring/logger";
-import { checkUsageLimit, incrementFeatureUsage } from "../../middleware/usageMiddleware";
+
 import { getSafeString } from "../../utils/requestHelpers";
 
 const router = express.Router();
@@ -13,7 +13,7 @@ const router = express.Router();
  */
 router.get(
   "/confidence/:projectId",
-  checkUsageLimit("citation_check"),  // Changed from "scan" to "citation_check"
+
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
@@ -52,13 +52,7 @@ router.get(
         data: analysis,
       });
 
-      // Increment usage counter after successful analysis
-      await incrementFeatureUsage("scan")(req, res, () => { });
 
-      return res.status(200).json({
-        success: true,
-        data: analysis,
-      });
     } catch (error: any) {
       logger.error("Error getting citation confidence", {
         error: error.message,
@@ -78,7 +72,7 @@ router.get(
  */
 router.get(
   "/recency/:projectId",
-  checkUsageLimit("citation_check"),
+
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
