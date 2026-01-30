@@ -129,6 +129,9 @@ model OriginalityScan {
   content_hash   String
   overall_score  Float
   classification String
+  words_scanned  Int                  @default(0)
+  cost_amount    Float                @default(0.0)
+  match_count    Int                  @default(0)
   scan_status    String               @default("pending")
   scanned_at     DateTime             @default(now())
   created_at     DateTime             @default(now())
@@ -150,6 +153,10 @@ model SimilarityMatch {
   sentence_text    String
   matched_source   String
   source_url       String?
+  view_url         String?              // Copyscape comparison URL
+  matched_words    Int                  @default(0)
+  source_words     Int                  @default(0)          // Words on source page (urlwords)
+  match_percent    Float                @default(0)          // % of source matched (percentmatched)
   similarity_score Float
   position_start   Int
   position_end     Int
@@ -672,9 +679,9 @@ model ContactRequest {
 
 model CreditBalance {
   user_id            String   @id
-  balance            Int      @default(0)
-  lifetime_purchased Int      @default(0)
-  lifetime_used      Int      @default(0)
+  balance            Float    @default(0)
+  lifetime_purchased Float    @default(0)
+  lifetime_used      Float    @default(0)
   updated_at         DateTime @updatedAt
   user               User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
@@ -684,7 +691,7 @@ model CreditBalance {
 model CreditTransaction {
   id           String   @id @default(uuid())
   user_id      String
-  amount       Int
+  amount       Float
   type         String   // PURCHASE, USAGE, BONUS, REFUND
   reference_id String?  // usage_id or payment_id
   description  String?

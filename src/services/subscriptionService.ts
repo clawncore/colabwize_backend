@@ -20,13 +20,13 @@ const PLAN_LIMITS = {
   free: {
     // Scan Limits
     scans_per_month: 3,
-    originality_scan: 3,
+    originality_scan: 0, // Request: Service not available for Free
     citation_audit: 3,
     draft_comparison: false,
     rephrase_suggestions: 3,
     paper_search: 0,
     ai_integrity: 0,
-    ai_chat: 5, // Request: Limited access for Free Tier
+    ai_chat: 5,
     certificate: 0,
     max_scan_characters: 20000,
 
@@ -66,13 +66,13 @@ const PLAN_LIMITS = {
   student: {
     // Scan Limits
     scans_per_month: 25,
-    originality_scan: 25,
+    originality_scan: 10, // Request: Increased to 10
     citation_audit: 25,
     draft_comparison: false,
     rephrase_suggestions: 25,
     paper_search: 25,
     ai_integrity: 0,
-    ai_chat: 50, // Request: Student Limit
+    ai_chat: 50,
     certificate: 25,
     max_scan_characters: 80000,
 
@@ -88,16 +88,16 @@ const PLAN_LIMITS = {
   },
   researcher: {
     // Scan Limits
-    scans_per_month: 100, // Updated to 100 as per design
-    originality_scan: 100, // Match citation limit
-    citation_audit: 100, // Explicitly 100 as per design
-    draft_comparison: 100, // Finite limit
-    rephrase_suggestions: 100, // Explicitly 100 as per design
+    scans_per_month: 100,
+    originality_scan: 100, // Premium Feature
+    citation_audit: 100,
+    draft_comparison: 100,
+    rephrase_suggestions: 100,
     paper_search: 100,
     ai_integrity: 100,
     ai_chat: 100,
     certificate: 100,
-    max_scan_characters: 200000, // Updated to 200k as per design
+    max_scan_characters: 200000,
 
     // Feature Flags
     certificate_retention_days: 90,
@@ -111,13 +111,13 @@ const PLAN_LIMITS = {
   },
   student_pro: {
     // Scan Limits
-    scans_per_month: 100,
-    originality_scan: 100,
-    citation_audit: 100,
+    scans_per_month: 50,
+    originality_scan: 25, // Intermediate
+    citation_audit: 50,
     draft_comparison: 50,
-    rephrase_suggestions: 100,
-    paper_search: 100,
-    ai_integrity: 50,
+    rephrase_suggestions: 50,
+    paper_search: 50,
+    ai_integrity: 25,
     ai_chat: 100,
     certificate: 50,
     max_scan_characters: 150000,
@@ -686,10 +686,9 @@ export class SubscriptionService {
         interval: "month",
         features: [
           "3 document scans per month",
-          "3 Rephrase Suggestions for improvement",
-          "3 Paper Searches",
-          "Max 100,000 characters (~15k words)",
-          "Basic originality check",
+          "3 Rephrase Suggestions",
+          "No Originality Checks",
+          "Max 20,000 characters (~3k words)",
           "Export to PDF/Word",
           "Watermarked certificate",
         ],
@@ -701,11 +700,10 @@ export class SubscriptionService {
         price: 4.99,
         interval: "month",
         features: [
-          "50 document scans per month",
-          "50 Rephrase Suggestions for improvement",
+          "25 document scans per month",
+          "10 Originality Scans (Limited)",
           "50 Paper Searches",
-          "Max 300,000 characters (~50k words)",
-          "Full originality map",
+          "Max 80,000 characters (~13k words)",
           "Citation confidence auditor",
           "Export to PDF/Word",
           "Professional certificate (no watermark)",
@@ -720,10 +718,9 @@ export class SubscriptionService {
         price: 12.99,
         interval: "month",
         features: [
-          "Unlimited document scans",
-          "Unlimited Rephrase Suggestions for improvement",
-          "Max 500,000 characters (~80k words)",
-          "Everything in Student plan",
+          "100 document scans per month",
+          "100 Originality Scans (Premium)",
+          "Max 200,000 characters (~33k words)",
           "Priority scanning",
           "Advanced citation suggestions",
           "Draft comparison",

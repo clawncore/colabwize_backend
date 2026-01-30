@@ -42,7 +42,8 @@ export class OriginalityMapService {
 
     try {
       // 3. Call Copyscape (Source of Truth)
-      const matches: PlagiarismMatch[] = await CopyscapeService.scanText(content);
+      // New return signature: { matches, summary }
+      const { matches, summary } = await CopyscapeService.scanText(content);
 
       let maxSimilarity = 0;
 
@@ -57,7 +58,7 @@ export class OriginalityMapService {
           if (match.similarity >= 40) classification = "yellow";
           if (match.similarity >= 70) classification = "red";
 
-          // Track max score
+          // Track max score locally for match-level logic
           if (match.similarity > maxSimilarity) maxSimilarity = match.similarity;
 
           await prisma.similarityMatch.create({
@@ -66,6 +67,10 @@ export class OriginalityMapService {
               sentence_text: content.substring(match.start, match.end),
               matched_source: match.sourceUrl,
               source_url: match.sourceUrl,
+              view_url: match.viewUrl || null,
+              matched_words: match.matchedWords || 0,
+              source_words: match.sourceWords || 0,
+              match_percent: match.matchPercent || 0,
               similarity_score: match.similarity,
               position_start: match.start,
               position_end: match.end,
@@ -76,14 +81,19 @@ export class OriginalityMapService {
       }
 
       // 4. Update Final Status
-      const status = maxSimilarity > 20 ? "action_required" : "safe";
+      // Use Copyscape's official "All Percent Matched" as the Overall Score
+      const finalScore = summary.allPercentMatched || maxSimilarity; // Fallback only if 0
+      const status = finalScore > 10 ? "action_required" : "safe"; // >10% is usually significant
 
       await prisma.originalityScan.update({
         where: { id: scan.id },
         data: {
-          overall_score: maxSimilarity,
+          overall_score: finalScore,
           classification: status,
-          scan_status: "completed"
+          scan_status: "completed",
+          words_scanned: summary.queryWords || 0,
+          cost_amount: summary.cost || 0,
+          match_count: summary.count || 0
         }
       });
 
@@ -93,9 +103,29 @@ export class OriginalityMapService {
     } catch (e: any) {
       logger.error("Copyscape Scan Failed", { error: e.message });
 
-      // Fail safely - mark as failed or complete with error note?
-      // User rule: "Never crash the pipeline". 
-      // We will mark it as completed but with 0 score (Safe) to allow user to proceed, but log error.
+      const isCreditError =
+        e.message?.toLowerCase().includes("credit") ||
+        e.message?.toLowerCase().includes("balance") ||
+        e.message?.toLowerCase().includes("limit") ||
+        e.message?.toLowerCase().includes("quota");
+
+      if (isCreditError) {
+        // Mark as failed so we don't return a false negative (Safe)
+        await prisma.originalityScan.update({
+          where: { id: scan.id },
+          data: {
+            scan_status: "failed",
+            classification: "action_required", // blocked
+            overall_score: 0
+          }
+        });
+
+        // Throw specific error for Frontend to catch
+        throw new Error("SERVICE_MAINTENANCE: Originality checks are temporarily paused. Please check back later.");
+      }
+
+      // Fail safely for other unknown errors - mark as completed but with 0 score (Safe)
+      // User rule: "Never crash the pipeline" for minor glitches.
       await prisma.originalityScan.update({
         where: { id: scan.id },
         data: {

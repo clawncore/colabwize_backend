@@ -42,9 +42,14 @@ export class CreditService {
 
             case 'originality':
             case 'originality_scan':
-                // Originality: Higher cost (Future) - e.g. / 500
+                // Dynamic: 0.5 credits per 1000 words. Minimum 1.5.
+                // 1500 words -> 2 * 0.5 = 1.0 -> Min imposed -> 1.5
+                // 3500 words -> 4 * 0.5 = 2.0
+                // 5000 words -> 5 * 0.5 = 2.5
                 words = metadata.wordCount || 0;
-                return Math.ceil(words / 500);
+                const chunks = Math.ceil(words / 1000);
+                const rawCost = chunks * 0.5;
+                return Math.max(1.5, rawCost);
 
             default:
                 return 1; // Default safety cost

@@ -65,17 +65,23 @@ router.post(
         });
       }
 
-      if (content.length > 100000) {
+      // Get user's plan limits
+      const planName = await SubscriptionService.getActivePlan(userId);
+      const limits = SubscriptionService.getPlanLimits(planName);
+      const characterLimit = limits.max_scan_characters || 20000; // Default safe fallback
+
+      if (content.length > characterLimit) {
         return res.status(400).json({
           success: false,
-          message: "Content too large (max 100,000 characters)",
+          message: `Content too large for your plan. Limit: ${characterLimit.toLocaleString()} chars. Upgrade for more!`,
+          limit: characterLimit
         });
       }
 
       logger.info("Starting enhanced originality scan", { userId, projectId });
 
-      // Get user's plan to determine scan depth (Basic vs Full)
-      const plan = await SubscriptionService.getActivePlan(userId);
+      // Plan fetched above
+      // const plan = await SubscriptionService.getActivePlan(userId);
 
       // Perform enhanced scan with academic database integration + Copyleaks
       // Use OriginalityMapService to orchestrate both
