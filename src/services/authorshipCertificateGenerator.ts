@@ -1,7 +1,6 @@
 import logger from "../monitoring/logger";
 import { AuthorshipReportService } from "./authorshipReportService";
 import QRCode from "qrcode";
-import puppeteer from "puppeteer";
 import { config } from "../config/env";
 
 export interface CertificateOptions {
@@ -665,7 +664,14 @@ export class AuthorshipCertificateGenerator {
   /**
    * Helper to launch browser with fallbacks
    */
+  /**
+   * Helper to launch browser with fallbacks
+   */
   private static async launchBrowser() {
+    // Dynamic import to prevent startup blocking
+    const puppeteerModule = await import("puppeteer");
+    const puppeteer = puppeteerModule.default;
+
     const launchArgs = [
       "--no-sandbox",
       "--disable-setuid-sandbox",
