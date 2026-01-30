@@ -41,15 +41,106 @@ export class CopyscapeService {
      * Scan text using Copyscape Premium API
      */
     static async scanText(content: string): Promise<{ matches: PlagiarismMatch[], summary: any }> {
+        // ============================================
+        // TEMPORARY: Mock mode for testing WITHOUT credits
+        // Remove this block after UI testing is complete
+        // ============================================
+        const USE_MOCK_DATA = true; // Set to false to use real Copyscape
+
+        if (USE_MOCK_DATA) {
+            logger.info("MOCK MODE: Returning test data (no Copyscape API call)");
+
+            // Simulate API delay
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            // Calculate positions based on actual content length
+            const contentLength = content.length;
+            const words = content.split(/\s+/);
+            const wordCount = words.length;
+
+            // Create 3 matches at different positions in the document
+            const mockMatches: PlagiarismMatch[] = [];
+
+            // Match 1: First ~15-20% of document (high similarity)
+            const match1Start = Math.floor(contentLength * 0.05);
+            const match1End = Math.min(match1Start + 150, Math.floor(contentLength * 0.20));
+            if (match1End > match1Start) {
+                mockMatches.push({
+                    start: match1Start,
+                    end: match1End,
+                    similarity: 85,
+                    sourceUrl: "https://www.archives.gov/founding-docs/declaration-transcript",
+                    viewUrl: "https://www.copyscape.com/view.php?o=123456",
+                    matchedWords: Math.floor((match1End - match1Start) / 5), // Approx words
+                    sourceWords: 250,
+                    matchPercent: 38,
+                    provider: "copyscape",
+                    confidence: "high"
+                });
+            }
+
+            // Match 2: Middle ~30-45% of document (moderate similarity)
+            const match2Start = Math.floor(contentLength * 0.30);
+            const match2End = Math.min(match2Start + 120, Math.floor(contentLength * 0.45));
+            if (match2End > match2Start && contentLength > 300) {
+                mockMatches.push({
+                    start: match2Start,
+                    end: match2End,
+                    similarity: 72,
+                    sourceUrl: "https://en.wikipedia.org/wiki/United_States_Declaration_of_Independence",
+                    viewUrl: "https://www.copyscape.com/view.php?o=789012",
+                    matchedWords: Math.floor((match2End - match2Start) / 5),
+                    sourceWords: 180,
+                    matchPercent: 36,
+                    provider: "copyscape",
+                    confidence: "high"
+                });
+            }
+
+            // Match 3: Later ~60-75% of document (lower similarity)
+            const match3Start = Math.floor(contentLength * 0.60);
+            const match3End = Math.min(match3Start + 100, Math.floor(contentLength * 0.75));
+            if (match3End > match3Start && contentLength > 500) {
+                mockMatches.push({
+                    start: match3Start,
+                    end: match3End,
+                    similarity: 65,
+                    sourceUrl: "https://www.britannica.com/topic/Declaration-of-Independence",
+                    viewUrl: "https://www.copyscape.com/view.php?o=345678",
+                    matchedWords: Math.floor((match3End - match3Start) / 5),
+                    sourceWords: 145,
+                    matchPercent: 36,
+                    provider: "copyscape",
+                    confidence: "medium"
+                });
+            }
+
+            const mockSummary = {
+                queryWords: wordCount,
+                cost: 0.0050,
+                count: mockMatches.length,
+                allPercentMatched: 78  // Overall score
+            };
+
+            logger.info(`MOCK: Generated ${mockMatches.length} matches for ${wordCount} words`);
+
+            return { matches: mockMatches, summary: mockSummary };
+        }
+        // ============================================
+        // END MOCK MODE
+        // ============================================
+
         const username = await SecretsService.getCopyscapeUsername();
         const apiKey = await SecretsService.getCopyscapeApiKey();
 
         if (!username || !apiKey) {
-            logger.warn("Copyscape credentials not configured. Returning empty results.");
-            return { matches: [], summary: { allWordsMatched: 0, allPercentMatched: 0, allTextMatched: "", count: 0, queryWords: 0, cost: 0 } }; // Fail safe
+            logger.error("Copyscape credentials missing");
+            throw new Error("MISSING_CREDENTIALS");
         }
 
         try {
+            logger.info("Calling Copyscape API", { length: content.length });
+
             // Using 'csearch' operation for text checking
             // o=csearch: checks content against the web
             // f=xml: returns XML result
@@ -81,7 +172,7 @@ export class CopyscapeService {
             // Check for API errors
             if (data.error) {
                 logger.error("Copyscape API Error", { error: data.error });
-                return { matches: [], summary: { allWordsMatched: 0, allPercentMatched: 0, allTextMatched: "", count: 0, queryWords: 0, cost: 0 } };
+                throw new Error(data.error);
             }
 
             // Parse response
@@ -104,9 +195,8 @@ export class CopyscapeService {
             };
 
         } catch (error: any) {
-            // ... error handling ...
             logger.error("Copyscape Scan Failed", { error: error.message });
-            return { matches: [], summary: { allWordsMatched: 0, allPercentMatched: 0, allTextMatched: "", count: 0, queryWords: 0, cost: 0 } }; // Fail safe
+            throw error;
         }
     }
 

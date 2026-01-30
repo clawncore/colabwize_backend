@@ -123,7 +123,7 @@ export class EntitlementService {
                     last_updated: new Date(),
                     rebuild_status: "idle",  // Success!
                     last_rebuilt_at: new Date(),
-                    version: { increment: 1 }
+                    version: 1
                 },
                 update: {
                     plan: plan,
