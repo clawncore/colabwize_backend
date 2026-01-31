@@ -67,8 +67,8 @@ export class AnalyticsService {
         VALUES (${event.userId}, ${Object.values(updates).join(", ")})
         ON CONFLICT (user_id) DO UPDATE SET
           ${Object.keys(updates)
-            .map((key) => `${key} = EXCLUDED.${key}`)
-            .join(", ")}
+          .map((key) => `${key} = EXCLUDED.${key}`)
+          .join(", ")}
       `;
     } catch (error: any) {
       logger.error("Error updating user metrics", { error: error.message });
@@ -254,10 +254,110 @@ export class AnalyticsService {
       });
 
       return trends.sort((a, b) => a.month_key.localeCompare(b.month_key));
-
-      return trends as any[];
     } catch (error: any) {
       logger.error("Error getting usage trends", { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get yearly overview trends
+   */
+  static async getYearlyTrends(userId: string): Promise<any[]> {
+    try {
+      const projects = await prisma.project.findMany({
+        where: { user_id: userId },
+        select: { created_at: true },
+      });
+
+      const yearMap = new Map<number, number>();
+      projects.forEach((p: any) => {
+        const year = new Date(p.created_at).getFullYear();
+        yearMap.set(year, (yearMap.get(year) || 0) + 1);
+      });
+
+      return Array.from(yearMap.entries())
+        .map(([name, docs]) => ({ name: String(name), docs }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    } catch (error: any) {
+      logger.error("Error getting yearly trends", { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get productivity insight (most productive day)
+   */
+  static async getProductivityInsight(userId: string): Promise<any> {
+    try {
+      const activities = await prisma.authorshipActivity.findMany({
+        where: { user_id: userId },
+        select: { session_start: true, word_count: true },
+      });
+
+      if (activities.length === 0) return null;
+
+      const dayMap = new Map<number, number>(); // 0-6 (Sun-Sat)
+      activities.forEach((a: any) => {
+        const day = new Date(a.session_start).getDay();
+        dayMap.set(day, (dayMap.get(day) || 0) + (a.word_count || 0));
+      });
+
+      let topDay = 0;
+      let maxWords = -1;
+      const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+      dayMap.forEach((words, day) => {
+        if (words > maxWords) {
+          maxWords = words;
+          topDay = day;
+        }
+      });
+
+      const totalWords = Array.from(dayMap.values()).reduce((a, b) => a + b, 0);
+      const percent = totalWords > 0 ? Math.round((maxWords / totalWords) * 100) : 0;
+
+      return {
+        most_productive_day: days[topDay],
+        percentage_contribution: percent,
+        total_words: totalWords
+      };
+    } catch (error: any) {
+      logger.error("Error getting productivity insight", { error: error.message });
+      return null;
+    }
+  }
+
+  /**
+   * Get billing trends (payments per month)
+   */
+  static async getBillingTrends(userId: string): Promise<any[]> {
+    try {
+      const payments = await prisma.paymentHistory.findMany({
+        where: { user_id: userId, status: "paid" },
+        select: { created_at: true, amount: true },
+      });
+
+      const monthMap = new Map<string, number>();
+      payments.forEach((p: any) => {
+        const date = new Date(p.created_at);
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+        monthMap.set(key, (monthMap.get(key) || 0) + (p.amount / 100)); // Convert cents to dollars if stored as cents
+      });
+
+      return Array.from(monthMap.entries())
+        .map(([monthKey, total]) => {
+          const [year, month] = monthKey.split("-").map(Number);
+          const date = new Date(year, month - 1, 1);
+          return {
+            name: date.toLocaleString("default", { month: "short" }),
+            total,
+            monthKey
+          };
+        })
+        .sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+    } catch (error: any) {
+      logger.error("Error getting billing trends", { error: error.message });
       return [];
     }
   }

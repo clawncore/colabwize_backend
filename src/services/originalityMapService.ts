@@ -38,7 +38,8 @@ export class OriginalityMapService {
         content_hash: contentHash,
         overall_score: 0,
         classification: "safe", // Default until proven guilty
-        scan_status: "processing"
+        scan_status: "processing",
+        scanned_content: content // Store snapshot of text
       }
     });
 
@@ -181,6 +182,42 @@ export class OriginalityMapService {
         classification: m.classification,
       })) || []
     };
+  }
+
+  /**
+   * Get all scans for a user (History)
+   */
+  static async getUserScans(userId: string) {
+    const scans = await prisma.originalityScan.findMany({
+      where: {
+        user_id: userId
+      },
+      orderBy: {
+        created_at: "desc"
+      },
+      include: {
+        project: {
+          select: {
+            title: true
+          }
+        },
+        matches: true
+      }
+    });
+
+    return scans.map((scan: any) => ({
+      id: scan.id,
+      projectId: scan.project_id,
+      documentTitle: scan.project?.title || "Untitled Document",
+      userId: scan.user_id,
+      overallScore: scan.overall_score,
+      classification: scan.classification,
+      scanStatus: scan.scan_status,
+      scannedAt: scan.scanned_at,
+      scannedContent: scan.scanned_content,
+      wordsScanned: scan.words_scanned,
+      matchCount: scan.match_count,
+    }));
   }
 
   /**

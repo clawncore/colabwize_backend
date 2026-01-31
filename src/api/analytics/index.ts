@@ -151,6 +151,29 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       where: { user_id: userId },
     });
 
+    // Get upcoming deadlines
+    const upcomingDeadlines = await prisma.project.findMany({
+      where: {
+        user_id: userId,
+        due_date: { not: null }
+      },
+      orderBy: { due_date: "asc" },
+      take: 5,
+      select: {
+        id: true,
+        title: true,
+        due_date: true,
+        word_count: true
+      }
+    });
+
+    // Get document creation trends (last 7 months for bar chart)
+    const trendData = await AnalyticsService.getUsageTrends(userId, 7);
+    const formattedTrendData = trendData.map((t: any) => ({
+      name: t.month_name,
+      documents: t.count
+    }));
+
     // Extract the actual values from the database records
     const originalityScore = latestOriginalityScan?.overall_score || undefined;
 
@@ -182,6 +205,8 @@ router.get("/dashboard", async (req: Request, res: Response) => {
         citation_status: citationStatus,
         citation_count: citationCount,
         authorship_verified: authorshipVerified,
+        trend_data: formattedTrendData,
+        upcoming_deadlines: upcomingDeadlines
       },
     });
   } catch (error: any) {
@@ -222,6 +247,47 @@ router.get("/trends", async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: "Failed to get usage trends",
+    });
+  }
+});
+
+/**
+ * GET /api/analytics/detailed
+ * Get comprehensive analytics for the Trends tab
+ */
+router.get("/detailed", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const [monthlyGrowth, yearlyOverview, productivityInsight, billingTrends] = await Promise.all([
+      AnalyticsService.getUsageTrends(userId, 12),
+      AnalyticsService.getYearlyTrends(userId),
+      AnalyticsService.getProductivityInsight(userId),
+      AnalyticsService.getBillingTrends(userId)
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        monthlyGrowth,
+        yearlyOverview,
+        productivityInsight,
+        billingTrends
+      },
+    });
+  } catch (error: any) {
+    logger.error("Error getting detailed analytics", { error: error.message });
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get detailed analytics",
     });
   }
 });

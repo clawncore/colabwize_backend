@@ -181,6 +181,37 @@ router.get("/scan/:scanId", async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/originality/history
+ * Get all scans for current user
+ */
+router.get("/history", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const results = await OriginalityMapService.getUserScans(userId);
+
+    return res.status(200).json({
+      success: true,
+      data: results,
+    });
+  } catch (error: any) {
+    logger.error("Error getting scan history", { error: error.message });
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to get scan history",
+    });
+  }
+});
+
+/**
  * GET /api/originality/project/:projectId
  * Get all scans for a project
  */

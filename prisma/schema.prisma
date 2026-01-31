@@ -137,6 +137,7 @@ model OriginalityScan {
   cost_amount    Float                @default(0.0)
   match_count    Int                  @default(0)
   scan_status    String               @default("pending")
+  scanned_content String?              @db.Text
   scanned_at     DateTime             @default(now())
   created_at     DateTime             @default(now())
   updated_at     DateTime             @updatedAt
@@ -251,6 +252,7 @@ model Project {
   file_path             String?
   file_type             String?
   citation_style        String?
+  due_date              DateTime?
   created_at            DateTime             @default(now())
   updated_at            DateTime             @updatedAt
   analytics_events      AnalyticsEvent[]
