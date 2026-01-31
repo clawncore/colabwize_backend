@@ -70,12 +70,12 @@ export class OriginalityMapService {
               matched_source: match.sourceUrl,
               source_url: match.sourceUrl,
               view_url: match.viewUrl || null,
-              matched_words: match.matchedWords || 0,
-              source_words: match.sourceWords || 0,
-              match_percent: match.matchPercent || 0,
-              similarity_score: match.similarity,
-              position_start: match.start,
-              position_end: match.end,
+              matched_words: Math.floor(Number(match.matchedWords || 0)),
+              source_words: Math.floor(Number(match.sourceWords || 0)),
+              match_percent: Number(match.matchPercent || 0),
+              similarity_score: Number(match.similarity || 0),
+              position_start: Math.floor(Number(match.start)),
+              position_end: Math.floor(Number(match.end)),
               classification: classification,
             }
           });
@@ -90,12 +90,12 @@ export class OriginalityMapService {
       await prisma.originalityScan.update({
         where: { id: scan.id },
         data: {
-          overall_score: finalScore,
+          overall_score: Number(finalScore),
           classification: status,
           scan_status: "completed",
-          words_scanned: summary.queryWords || 0,
-          cost_amount: summary.cost || 0,
-          match_count: summary.count || 0
+          words_scanned: Math.floor(Number(summary.queryWords || 0)),
+          cost_amount: Number(summary.cost || 0),
+          match_count: Math.floor(Number(summary.count || 0))
         }
       });
 

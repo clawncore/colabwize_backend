@@ -235,8 +235,12 @@ export class CopyscapeService {
                     results.push({
                         start,
                         end: start + snippet.length, // Simplified for brevity in this replace block, use original logic ideally
-                        similarity: wordCount > 50 ? 90 : (wordCount > 20 ? 70 : 40),
+                        similarity: Number(match.percentmatched || (wordCount > 50 ? 90 : (wordCount > 20 ? 70 : 40))),
                         sourceUrl: match.url,
+                        viewUrl: match.viewurl || match.viewUrl,
+                        matchedWords: Number(match.wordsmatched || wordCount),
+                        sourceWords: Number(match.urlwords || 0),
+                        matchPercent: Number(match.percentmatched || 0),
                         provider: "copyscape",
                         confidence: wordCount > 50 ? "high" : (wordCount > 20 ? "medium" : "low")
                     });
