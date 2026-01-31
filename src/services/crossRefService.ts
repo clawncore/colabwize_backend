@@ -52,4 +52,23 @@ export class CrossRefService {
             source: "crossref"
         };
     }
+    /**
+     * Fetch a single work by DOI
+     */
+    static async getWorkByDOI(doi: string): Promise<AcademicPaper | null> {
+        try {
+            const response = await axios.get(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
+                headers: { "User-Agent": "ColabWize/1.0 (mailto:support@colabwize.com)" },
+                timeout: 10000,
+            });
+
+            if (response.data && response.data.message) {
+                return this.mapToAcademicPaper(response.data.message);
+            }
+            return null;
+        } catch (error: any) {
+            logger.error("CrossRef DOI lookup failed", { error: error.message, doi });
+            return null;
+        }
+    }
 }

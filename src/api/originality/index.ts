@@ -612,4 +612,30 @@ router.post(
   }
 );
 
+/**
+ * POST /api/originality/explain-risk
+ * PROMPT 4: Explain academic risk
+ */
+router.post(
+  "/explain-risk",
+  scanLimiter,
+  async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ success: false, message: "Authentication required" });
+
+      const { matchText, sourceText, riskLevel } = req.body;
+      if (!matchText || !sourceText) return res.status(400).json({ success: false, message: "Missing text to explain" });
+
+      // No credit usage for explanation - it's a value add for the scan
+      const Explanation = await EnhancedOriginalityDetectionService.explainRiskWithAI(matchText, sourceText, riskLevel || "Moderate");
+
+      return res.status(200).json({ success: true, data: { explanation: Explanation } });
+    } catch (e: any) {
+      logger.error("Error explaining risk", { error: e.message });
+      return res.status(500).json({ success: false, message: "Failed to generate explanation" });
+    }
+  }
+);
+
 export default router;

@@ -61,8 +61,8 @@ ${constructHumanizeUserPrompt(text)}
 `;
 
             const result = await OpenAIService.generateCompletion(combinedPrompt, {
-                model: "gpt-4o", // Use GPT-4o for best fallback quality
-                maxTokens: 4096,
+                model: "gpt-3.5-turbo", // Use GPT-3.5-turbo for wider compatibility
+                maxTokens: 2000,
                 temperature: 0.7
             });
 

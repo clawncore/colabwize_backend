@@ -120,60 +120,9 @@ export class OriginalityMapService {
       const result = await this.getScanResults(scan.id, userId);
 
       // Check if it was a System Credit/Maintenance error
+      // Check if it was a System Credit/Maintenance error
       if (e.message && (e.message.includes("Insufficient credit") || e.message.includes("credits"))) {
-        // TEMPORARY: Add dummy data for UI testing
-        const dummyResult = {
-          ...result,
-          failureCode: "MAINTENANCE",
-          // Override with dummy data for testing
-          scanStatus: "completed", // Fake success to show UI
-          overallScore: 78, // Example score
-          classification: "moderate_risk",
-          matchCount: 3,
-          matches: [
-            {
-              sentenceText: "Artificial intelligence tools are increasingly used in academic writing to enhance research quality and speed.",
-              matchedSource: "AI tools are increasingly used in academic writing to enhance research quality and speed in education.",
-              sourceUrl: "https://example.com/academic-ai-tools",
-              viewUrl: "https://www.copyscape.com/view.php?o=123456",
-              similarityScore: 85,
-              classification: "high_risk",
-              positionStart: 0,
-              positionEnd: 110,
-              matchedWords: 45,
-              sourceWords: 120,
-              matchPercent: 37
-            },
-            {
-              sentenceText: "However, concerns about originality, authorship, and ethical usage remain prevalent.",
-              matchedSource: "However, concerns about originality and authorship remain prevalent in academic circles.",
-              sourceUrl: "https://journal.example.org/article/456",
-              viewUrl: "https://www.copyscape.com/view.php?o=789012",
-              similarityScore: 72,
-              classification: "moderate_risk",
-              positionStart: 150,
-              positionEnd: 235,
-              matchedWords: 35,
-              sourceWords: 50,
-              matchPercent: 70
-            },
-            {
-              sentenceText: "This paper explores how AI affects academic writing practices and research integrity.",
-              matchedSource: "This paper explores how AI tools affect academic writing practices.",
-              sourceUrl: "https://research.example.edu/paper/789",
-              viewUrl: "https://www.copyscape.com/view.php?o=345678",
-              similarityScore: 65,
-              classification: "moderate_risk",
-              positionStart: 300,
-              positionEnd: 385,
-              matchedWords: 28,
-              sourceWords: 45,
-              matchPercent: 62
-            }
-          ]
-        };
-
-        return dummyResult;
+        return { ...result, failureCode: "SYSTEM_CREDITS" };
       }
 
       return result;

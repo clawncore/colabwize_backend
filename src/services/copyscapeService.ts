@@ -45,7 +45,7 @@ export class CopyscapeService {
         // TEMPORARY: Mock mode for testing WITHOUT credits
         // Remove this block after UI testing is complete
         // ============================================
-        const USE_MOCK_DATA = true; // Set to false to use real Copyscape
+        const USE_MOCK_DATA = false; // Set to false to use real Copyscape
 
         if (USE_MOCK_DATA) {
             logger.info("MOCK MODE: Returning test data (no Copyscape API call)");

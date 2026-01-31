@@ -12,7 +12,7 @@ export class OpenAIService {
    * Generate text completion using OpenAI API
    */
   static async generateCompletion(
-    prompt: string,
+    input: string | { role: "system" | "user" | "assistant"; content: string }[],
     options: {
       maxTokens?: number;
       temperature?: number;
@@ -35,17 +35,17 @@ export class OpenAIService {
         throw new Error("OpenAI API key not configured");
       }
 
+      // Prepare messages
+      const messages = Array.isArray(input)
+        ? input
+        : [{ role: "user", content: input }];
+
       // Call OpenAI API
       const response = await axios.post(
         "https://api.openai.com/v1/chat/completions",
         {
           model,
-          messages: [
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
+          messages,
           max_tokens: maxTokens,
           temperature,
         },

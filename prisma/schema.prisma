@@ -34,6 +34,8 @@ model User {
   first_upload_at       DateTime?
   onboarding_completed  Boolean              @default(false)
   onboarding_skipped    Boolean              @default(false)
+  editor_tour_completed  Boolean              @default(false)
+  editor_tour_skipped    Boolean              @default(false)
   ai_usage              AIUsage[]
   analytics_events      AnalyticsEvent[]
   authorship_activities AuthorshipActivity[]
@@ -66,6 +68,8 @@ model User {
   annotations           Annotation[]
   source_interactions   SourceInteraction[]
   entitlement           UserEntitlement?
+  search_alerts         SearchAlert[]
+  research_topics       ResearchTopic[]
 
   @@index([email])
   @@map("users")
@@ -800,3 +804,36 @@ model UserEntitlement {
   @@index([user_id])
   @@map("user_entitlements")
 }
+
+model SearchAlert {
+  id                String   @id @default(uuid())
+  user_id           String
+  query             String
+  frequency         String   @default("weekly") // 'daily', 'weekly', 'monthly'
+  is_active         Boolean  @default(true)
+  new_matches_count Int      @default(0)
+  last_checked      DateTime?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+  user              User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([frequency])
+  @@map("search_alerts")
+}
+
+model ResearchTopic {
+  id           String   @id @default(uuid())
+  user_id      String
+  title        String
+  description  String?
+  sources      Int      @default(0)
+  sources_data Json?    // To store formatted sources
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("research_topics")
+}
+

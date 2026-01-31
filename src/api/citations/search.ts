@@ -73,6 +73,46 @@ router.get("/search", async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/citations/search-external
+ * Mirror /search for ResearchAssistant compatibility
+ */
+router.get("/search-external", async (req: Request, res: Response) => {
+  try {
+    const authReq = req as AuthenticatedRequest;
+    const userId = authReq.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const query = req.query.q as string;
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        message: "Search query is required",
+      });
+    }
+
+    // Call search directly - we can apply separate limits later if needed
+    const papers = await AcademicSearchService.searchPapers(query);
+
+    return res.status(200).json({
+      success: true,
+      data: papers
+    });
+  } catch (error: any) {
+    logger.error("Error in search-external", { error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "External search failed",
+    });
+  }
+});
+
+/**
  * POST /api/citations/legitimize
  * Find evidence for a specific factual claim
  */

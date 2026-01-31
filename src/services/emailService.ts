@@ -1760,4 +1760,80 @@ export class EmailService {
     }
   }
 
+  // Send search alert notification
+  static async sendSearchAlertEmail(
+    to: string,
+    fullName: string,
+    query: string,
+    matchCount: number,
+    results: any[]
+  ): Promise<boolean> {
+    try {
+      if (!resend) {
+        console.error("Resend client not initialized");
+        return false;
+      }
+
+      const resultsHtml = results.slice(0, 5).map(paper => `
+        <div style="margin-bottom: 20px; padding: 15px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;">
+          <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #1e40af;">${paper.title}</h3>
+          <p style="margin: 0 0 5px 0; font-size: 14px; color: #475569;">${paper.authors ? paper.authors.join(', ') : 'Unknown Authors'}${paper.year ? ` • ${paper.year}` : ''}</p>
+          ${paper.url ? `<a href="${paper.url}" style="font-size: 13px; color: #4f46e5; text-decoration: none;">View Paper →</a>` : ''}
+        </div>
+      `).join('');
+
+      const { data, error } = await resend.emails.send({
+        from: "ColabWize Alerts <alerts@email.colabwize.com>",
+        to,
+        subject: `🔔 New Research Found: ${query}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; background-color: #f4f4f5; padding: 20px;">
+            <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
+              <div style="margin-bottom: 30px; text-align: center;">
+                <img src="https://image2url.com/r2/bucket2/images/1767558424944-e48e15a4-5587-40ac-99b0-ee82c5d68042.png" alt="ColabWize Logo" style="width: 180px; height: auto; margin-bottom: 15px;">
+                <h1 style="color: #1e40af; font-size: 24px; margin: 10px 0;">New Research Matches</h1>
+              </div>
+              
+              <p style="color: #475569; font-size: 16px; line-height: 1.6;">
+                Hello ${fullName || "there"},
+              </p>
+              
+              <p style="color: #475569; font-size: 16px; line-height: 1.6;">
+                We found <strong>${matchCount}</strong> new research papers matching your alert for: <span style="color: #1e40af; font-weight: bold;">"${query}"</span>.
+              </p>
+
+              <div style="margin: 30px 0;">
+                ${resultsHtml}
+              </div>
+              
+              <div style="margin: 35px 0; text-align: center;">
+                <a href="${await SecretsService.getFrontendUrl()}/dashboard" style="background-color: #1e40af; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                  View All Matches
+                </a>
+              </div>
+              
+              <div style="border-top: 1px solid #e2e8f0; margin-top: 30px; padding-top: 20px;">
+                <p style="color: #64748b; font-size: 13px; margin: 0;">
+                  You requested ${query} alerts. You can manage them in your dashboard.
+                </p>
+                <p style="color: #94a3b8; font-size: 13px; margin-top: 20px;">
+                  © ${new Date().getFullYear()} ColabWize. All rights reserved.
+                </p>
+              </div>
+            </div>
+          </div>
+        `,
+      });
+
+      if (error) {
+        console.error("Resend search alert email error:", error);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Error sending search alert email:", error);
+      return false;
+    }
+  }
 }

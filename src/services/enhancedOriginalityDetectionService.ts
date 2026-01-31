@@ -140,6 +140,47 @@ export class EnhancedOriginalityDetectionService {
   private static readonly REVIEW_THRESHOLD = 49; // 25-49% = Yellow
   // 50%+ = Red (action required)
 
+  // PROMPT 0 — ORIGINALITY ENGINE ROLE
+  private static readonly FORENSIC_SYSTEM_PROMPT = `You are an originality analysis engine.
+Your role is to identify textual similarity between a user document and external sources.
+You do NOT judge intent.
+You do NOT rewrite content.
+You ONLY:
+- Identify overlap
+- Classify similarity type
+- Report evidence`;
+
+  /**
+   * PROMPT 1 — TEXT SEGMENTATION (NO AI HEAVY LIFTING)
+   * Split the document into overlapping text windows of 25–40 words.
+   * Preserve original ordering.
+   * Return segment IDs and text only.
+   */
+  private static splitIntoWindows(text: string, windowSize: number = 30, overlap: number = 10): Array<{ id: string, text: string, start: number, end: number }> {
+    const words = text.split(/\s+/);
+    const windows = [];
+    let currentWordIndex = 0;
+
+    // Simple word-based pointer tracking to map back to char positions (approximate but fast)
+    // For a real production system, we'd need exact character mapping, but for MVP this suffices
+    // if we just need the text segments.
+
+    for (let i = 0; i < words.length; i += (windowSize - overlap)) {
+      const windowWords = words.slice(i, i + windowSize);
+      if (windowWords.length < 10) break; // Skip tiny tail fragments
+
+      const windowText = windowWords.join(" ");
+      windows.push({
+        id: `seg-${i}`,
+        text: windowText,
+        start: i,
+        end: i + windowSize
+      });
+    }
+
+    return windows;
+  }
+
   /**
    * Enhanced main scan function - scans document for originality with academic database integration
    */
@@ -183,19 +224,20 @@ export class EnhancedOriginalityDetectionService {
         },
       });
 
-      // Split content into sentences
-      const sentences = this.splitIntoSentences(content);
-      logger.info(`Processing ${sentences.length} sentences`);
+      // Split content into overlapping windows (PROMPT 1)
+      const windows = this.splitIntoWindows(content, 30, 10);
+      logger.info(`Processing ${windows.length} overlapping windows`);
 
       // Initialize enhanced transformer model
       await EnhancedTransformerService.getInstance();
 
-      // Process each sentence with enhanced detection
+      // Process each window with enhanced detection
       const matches: SimilarityMatchResult[] = [];
       let totalSimilarity = 0;
-      let position = 0;
 
-      for (const sentence of sentences) {
+      for (const window of windows) {
+        const sentence = window.text; // Treating window as the unit of analysis now
+        let position = window.start; // Approximate start index (word based in our simple impl)
         // Skip very short sentences
         if (sentence.trim().length < 20) {
           position += sentence.length;
@@ -241,13 +283,35 @@ export class EnhancedOriginalityDetectionService {
           );
           const similarityPercentage = similarity * 100;
 
-          // Only store if similarity is significant (>15% for academic content)
+          // Only store if similarity is significant
           if (similarityPercentage > 15) {
-            const classification = this.classifyMatch(
-              similarityPercentage,
-              sentence,
-              bestMatch.sourceDatabase
-            );
+            let classification = "safe";
+            let riskLevel = "Low";
+
+            // AI COST CONTROL: Only trigger AI if similarity > 40% (Pattern-first)
+            if (similarityPercentage > 40) {
+              const aiClass = await EnhancedOriginalityDetectionService.classifyMatchWithAI(sentence, bestMatch.title); // Prompt 2
+              const aiRisk = await EnhancedOriginalityDetectionService.assessRiskWithAI(
+                similarityPercentage,
+                sentence.split(" ").length,
+                bestMatch.sourceDatabase,
+                false // citation check simplified for now
+              ); // Prompt 3
+
+              // Map AI Risk to our schema
+              if (aiRisk.level === "High") classification = "red";
+              else if (aiRisk.level === "Moderate") classification = "yellow";
+              else classification = "green";
+
+              riskLevel = aiRisk.level;
+            } else {
+              // Fallback to pattern-based classification
+              classification = this.classifyMatch(
+                similarityPercentage,
+                sentence,
+                bestMatch.sourceDatabase
+              );
+            }
 
             const match = await prisma.similarityMatch.create({
               data: {
@@ -256,8 +320,8 @@ export class EnhancedOriginalityDetectionService {
                 matched_source: bestMatch.title,
                 source_url: bestMatch.url,
                 similarity_score: similarityPercentage,
-                position_start: position,
-                position_end: position + sentence.length,
+                position_start: position, // This is word index now, be careful if frontend expects char index
+                position_end: position + sentence.split(" ").length, // Approximate
                 classification,
               },
             });
@@ -272,17 +336,17 @@ export class EnhancedOriginalityDetectionService {
               positionStart: match.position_start,
               positionEnd: match.position_end,
               classification: classification as "green" | "yellow" | "red",
-              confidence: 90, // High confidence for academic matches
+              confidence: 90,
             });
 
             totalSimilarity += similarityPercentage;
           }
         }
 
-        position += sentence.length;
+        position += window.text.split(" ").length; // Increment position by word count
 
-        // Rate limiting - wait to avoid hitting API limits
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        // Rate limiting
+        await new Promise((resolve) => setTimeout(resolve, 50)); // Faster than 150ms since we have more windows
       }
 
       // Calculate overall score
@@ -682,6 +746,114 @@ export class EnhancedOriginalityDetectionService {
     }
 
     return "safe";
+  }
+
+  /**
+   * PROMPT 2 — SIMILARITY CLASSIFICATION (LIGHT AI)
+   * Triggered only when match % > threshold.
+   */
+  private static async classifyMatchWithAI(
+    userSegment: string,
+    sourceSegment: string
+  ): Promise<{ classification: string; explanation: string }> {
+    try {
+      const prompt = `Given:
+- User text segment: "${userSegment}"
+- External source text segment: "${sourceSegment}"
+
+Classify similarity as one of:
+- Near-verbatim
+- Structural paraphrase
+- Common knowledge
+- Accidental overlap
+
+Explain classification in one sentence.
+Return JSON: { "classification": "...", "explanation": "..." }`;
+
+      const response = await import("./openaiService").then(m => m.OpenAIService.generateCompletion(
+        [
+          { role: "system", content: this.FORENSIC_SYSTEM_PROMPT },
+          { role: "user", content: prompt }
+        ],
+        { temperature: 0.2, maxTokens: 150 } // Low temp for deterministic classification
+      ));
+
+      // Simple JSON extraction (robust enough for MVP)
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+      return { classification: "Structural paraphrase", explanation: "AI response parsing failed, defaulting to paraphrase." };
+    } catch (error) {
+      logger.error("AI Classification failed", { error });
+      return { classification: "Structural paraphrase", explanation: "AI Classification unavailable." };
+    }
+  }
+
+  /**
+   * PROMPT 3 — RISK ASSESSMENT (CRITICAL)
+   */
+  private static async assessRiskWithAI(
+    similarityPercentage: number,
+    matchLength: number,
+    sourceType: string,
+    hasCitation: boolean
+  ): Promise<{ level: "Low" | "Moderate" | "High"; reason: string }> {
+    try {
+      const prompt = `Assess academic risk level based on:
+- Similarity percentage: ${similarityPercentage}%
+- Match length: ${matchLength} words
+- Source type: ${sourceType}
+- Presence of citation nearby: ${hasCitation}
+
+Return JSON: { "level": "Low" | "Moderate" | "High", "reason": "One sentence reason" }`;
+
+      const response = await import("./openaiService").then(m => m.OpenAIService.generateCompletion(
+        [
+          { role: "system", content: this.FORENSIC_SYSTEM_PROMPT },
+          { role: "user", content: prompt }
+        ],
+        { temperature: 0.2, maxTokens: 100 }
+      ));
+
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+      return { level: "Moderate", reason: "AI Assessment parsing failed." };
+    } catch (error) {
+      return { level: "Moderate", reason: "AI Assessment unavailable." };
+    }
+  }
+
+  /**
+   * PROMPT 4 — USER-INITIATED ASSISTANCE (OPTIONAL)
+   */
+  public static async explainRiskWithAI(
+    matchText: string,
+    sourceText: string,
+    riskLevel: string
+  ): Promise<string> {
+    const prompt = `The user has requested an explanation for a "${riskLevel}" risk match.
+    
+User Text: "${matchText}"
+Source Text: "${sourceText}"
+
+Explain why this similarity may be problematic in an academic context.
+Suggest general corrective strategies WITHOUT rewriting the text.
+Keep it advisory, not intrusive.`;
+
+    try {
+      return await import("./openaiService").then(m => m.OpenAIService.generateCompletion(
+        [
+          { role: "system", content: this.FORENSIC_SYSTEM_PROMPT },
+          { role: "user", content: prompt }
+        ],
+        { temperature: 0.5 }
+      ));
+    } catch (error) {
+      return "Unable to generate explanation at this time. Please review the source manualy.";
+    }
   }
 
   /**

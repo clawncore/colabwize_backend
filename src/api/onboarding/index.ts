@@ -36,6 +36,8 @@ router.get(
         select: {
           onboarding_completed: true,
           onboarding_skipped: true,
+          editor_tour_completed: true,
+          editor_tour_skipped: true,
           first_upload_at: true,
         },
       });
@@ -52,9 +54,13 @@ router.get(
         data: {
           completed: user.onboarding_completed,
           skipped: user.onboarding_skipped,
+          editorTourCompleted: user.editor_tour_completed,
+          editorTourSkipped: user.editor_tour_skipped,
           hasUploaded: !!user.first_upload_at,
           shouldShowTour:
             !user.onboarding_completed && !user.onboarding_skipped,
+          shouldShowEditorTour:
+            !user.editor_tour_completed && !user.editor_tour_skipped,
         },
       });
     } catch (error: any) {
@@ -444,6 +450,88 @@ router.post(
       return res.status(500).json({
         success: false,
         message: "Failed to update profile",
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/onboarding/editor-tour/complete
+ * Mark editor tour as completed
+ */
+router.post(
+  "/editor-tour/complete",
+  authenticateExpressRequest,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Authentication required",
+        });
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          editor_tour_completed: true,
+        },
+      });
+
+      logger.info("Editor tour completed", { userId });
+
+      return res.status(200).json({
+        success: true,
+        message: "Editor tour completed successfully",
+      });
+    } catch (error: any) {
+      logger.error("Error completing editor tour", { error: error.message });
+      return res.status(500).json({
+        success: false,
+        message: "Failed to complete editor tour",
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/onboarding/editor-tour/skip
+ * Mark editor tour as skipped
+ */
+router.post(
+  "/editor-tour/skip",
+  authenticateExpressRequest,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Authentication required",
+        });
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          editor_tour_skipped: true,
+        },
+      });
+
+      logger.info("Editor tour skipped", { userId });
+
+      return res.status(200).json({
+        success: true,
+        message: "Editor tour skipped",
+      });
+    } catch (error: any) {
+      logger.error("Error skipping editor tour", { error: error.message });
+      return res.status(500).json({
+        success: false,
+        message: "Failed to skip editor tour",
       });
     }
   }

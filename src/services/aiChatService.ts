@@ -1,9 +1,11 @@
-import { streamText } from "ai";
+import { streamText, tool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { config } from "../config/env";
 import logger from "../monitoring/logger";
 import { SecretsService } from "./secrets-service";
 import { SubscriptionService } from "./subscriptionService";
+import { AcademicSearchService } from "./academicSearchService";
+import { z } from "zod";
 
 interface ChatContext {
   documentContent: string;
@@ -13,6 +15,7 @@ interface ChatContext {
   citationSuggestions?: any;
   projectTitle?: string;
   projectDescription?: string;
+  projectSources?: any[]; // Added for library context
   // Document Context Loader Fields
   documentType?: string;
   academicLevel?: string;
@@ -31,23 +34,23 @@ Defines what the AI is allowed and forbidden to do across the entire editor.
 
 This prompt is always active.
 
-You are an AI Integrity Co-Pilot embedded in an academic writing editor.
+You are an AI Research Assistant & Integrity Co-Pilot embedded in an academic writing editor.
 
-Your role is strictly observational and advisory.
+Your role is strictly observational, advisory, and research-oriented.
 
 You MUST:
-- Observe text without modifying it
-- Flag issues without interrupting the user
-- Explain issues only when the user clicks a flag
+- Answer user questions about research topics using available tools
+- Search for academic sources when asked
+- Explain findings from the user's library or external search results
+- Flag issues without interrupting the user (via specific explanation modes)
 - Preserve the author’s voice and intent
 - Explain originality detection results and similarity flags
 - Clarify citation requirements and academic integrity rules
-- Provide educational guidance on academic writing practices
 
 You MUST NOT:
-- Rewrite text automatically
-- Insert or edit citations
-- Fabricate sources or references
+- Rewrite text automatically (Ghostwriting)
+- Edit the document content directly
+- Fabricate sources or references (Hallucination)
 - Change document structure
 - Trigger popups or messages uninvited
 
@@ -59,14 +62,14 @@ If this prompt is violated → your product loses trust.
 # OPERATIONAL GUIDELINES (COMPLIANT WITH GUARD)
 
 **YOUR ROLE**:
-- Explain originality detection results and similarity flags
-- Clarify citation requirements and academic integrity rules
-- Provide educational guidance on academic writing practices
+- Research Assistant: "What do these sources say about X?" -> You answer by synthesizing the sources.
+- Librarian: "Find me papers on Y" -> You use the search tool.
+- Integrity Guard: "Is this plagiarism?" -> You explain the flag.
 
 **CRITICAL RULES (NON-NEGOTIABLE)**:
-1. **EXPLAIN ONLY**: You may explain concepts, analyze text, and offer educational advice.
-2. **NO WRITING**: You MUST NOT write, rewrite, paraphrase, or edit the student's work for them.
-3. **NO GENERATION**: Do not generate new content to be pasted into the document.
+1. **EXPLAIN & SYNTHESIZE**: You may explain concepts, analyze text, and offer educational advice. You MAY synthesize information from sources to answer a question.
+2. **NO GHOSTWRITING**: You MUST NOT write, rewrite, paraphrase, or edit the student's work for them to copy-paste as their own submission. (e.g. If asked "Write my introduction", REFUSE and offer an outline or research points instead).
+3. **NO GENERATION**: Do not generate new content to be pasted into the document as the final product.
 4. **EDUCATIONAL FOCUS**: Always explain the "why" behind academic integrity requirements.
 5. **CITE YOUR REASONING**: Reference academic standards and best practices when explaining.
 
@@ -79,8 +82,9 @@ If this prompt is violated → your product loses trust.
 - For similarity flags: Explain the classification (red=needs citation, green=common phrase, blue=properly cited, yellow=close paraphrase)
 - For citation questions: Explain when and how to cite according to academic standards
 - For policy questions: Clarify institutional and general academic integrity policies
+- For research questions: Use the provided tools (searchExternalSources) or context (projectSources) to provide a grounded answer.
 
-You have access to the student's document content and scan results. Use this context to provide specific, actionable explanations.
+You have access to the student's document content, scan results, and source library. Use this context to provide specific, actionable explanations.
 `;
 
   private static readonly CITATION_EXPLANATION_PROMPT = `
@@ -362,8 +366,23 @@ Excerpt (around cursor): "${context.selectedText || context.documentContent.slic
 [END DOCUMENT CONTEXT]
 `;
 
+      // Add project source library context
+      if (context.projectSources && context.projectSources.length > 0) {
+        const sourcesSummary = context.projectSources.map((s: any) => `- ${s.title} (${s.authors?.map((a: any) => a.name).join(", ") || "Unknown User"}, ${s.year || "n.d."})`).join("\n");
+        contextMessage += `
+[USER LIBRARY CONTEXT]
+The user has the following sources in their library. You should prioritize these when answering questions about "what these sources say":
+${sourcesSummary}
+
+Full metadata for top 5 sources (for reference):
+${JSON.stringify(context.projectSources.slice(0, 5), null, 2)}
+[END USER LIBRARY CONTEXT]
+`;
+      }
+
       // Add originality results if available
       if (context.originalityResults) {
+        // ... (originality logic remains same but needs to be inside this block)
         // PRIORITY: Filter and sort matches to ensure RED/YELLOW flags are seen by the AI
         const allMatches = context.originalityResults.matches || [];
 
@@ -427,6 +446,10 @@ ${JSON.stringify(context.citationSuggestions, null, 2)}
 
       const enhancedSystemPrompt = this.SYSTEM_PROMPT + contextMessage;
 
+      const searchParams = z.object({
+        query: z.string().describe('The search query for academic papers'),
+      });
+
       try {
         const openaiProvider = createOpenAI({ apiKey: apiKey || undefined });
         const result = await streamText({
@@ -434,17 +457,39 @@ ${JSON.stringify(context.citationSuggestions, null, 2)}
           system: enhancedSystemPrompt,
           messages: coreMessages,
           temperature: 0.3, // Lower temperature for more consistent, factual explanations
-
-          onFinish: async ({ text }) => {
+          tools: {
+            searchExternalSources: {
+              description: 'Search for academic papers and sources using external databases (CrossRef, OpenAlex, PubMed, etc.)',
+              inputSchema: searchParams,
+              execute: async (args: z.infer<typeof searchParams>) => {
+                const { query } = args;
+                logger.info(`AI Tool Execution: searchExternalSources for "${query}"`);
+                const results = await AcademicSearchService.searchPapers(query, 5);
+                return results.map((p: any) => ({
+                  title: p.title,
+                  authors: p.authors?.map((a: any) => a.name).join(", "),
+                  year: p.year,
+                  venue: p.venue,
+                  abstract: p.abstract?.slice(0, 300) + "...",
+                  url: p.url
+                }));
+              },
+            },
+          },
+          onFinish: async ({ text, toolCalls, toolResults }) => {
             if (sessionId && userId) {
               try {
-                await prisma.chatMessage.create({
-                  data: {
-                    session_id: sessionId,
-                    role: "assistant",
-                    content: text,
-                  },
-                });
+                // If there were tool calls, we might want to save the final text response
+                // For now just saving the text content
+                if (text) {
+                  await prisma.chatMessage.create({
+                    data: {
+                      session_id: sessionId,
+                      role: "assistant",
+                      content: text,
+                    },
+                  });
+                }
               } catch (err) {
                 logger.error("Failed to save assistant message", {
                   error: err,

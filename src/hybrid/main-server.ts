@@ -41,7 +41,10 @@ import behavioralTrackingRouter from "../api/behavioral-tracking/index";
 import proxyRouter from "../api/proxy/index";
 import sourcesRouter from "../api/sources/index";
 import unsplashRouter from "../api/integrations/unsplash";
+import searchAlertsRouter from "../api/search-alerts/index";
+import researchRouter from "../api/research/index";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
+import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
 
 const app: Application = express();
 // Port assignment moved to startServer function
@@ -311,6 +314,12 @@ app.use("/api/sources", authMiddleware, sourcesRouter);
 // Integrations API (Unsplash Proxy)
 app.use("/api/integrations/unsplash", authMiddleware, unsplashRouter);
 
+// Search Alerts API
+app.use("/api/search-alerts", authMiddleware, searchAlertsRouter);
+
+// Research Assistant API
+app.use("/api/research", authMiddleware, researchRouter);
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
@@ -347,6 +356,7 @@ const startServer = async () => {
         // Initialize scheduled jobs
         RecycleBinService.scheduleCleanup();
         initializeSubscriptionJobs();
+        initializeSearchAlertJobs();
         logger.info("✅ Scheduled jobs initialized");
 
       } catch (initError: any) {
