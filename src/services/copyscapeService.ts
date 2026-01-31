@@ -141,35 +141,45 @@ export class CopyscapeService {
         try {
             logger.info("Calling Copyscape API", { length: content.length });
 
-            // Using 'csearch' operation for text checking
-            // o=csearch: checks content against the web
-            // f=xml: returns XML result
+            // Prepare parameters
+            const params = new URLSearchParams();
+            params.append("u", username);
+            params.append("k", apiKey);
+            params.append("o", "csearch");
+            params.append("f", "json");
+            params.append("c", "3");
+            params.append("t", content);
+
             const response = await axios.post(
                 this.API_URL,
-                `t=${encodeURIComponent(content)}`, // Send text in body
+                params.toString(),
                 {
-                    params: {
-                        u: username,
-                        k: apiKey,
-                        o: "csearch",
-                        f: "json",
-                        c: "3" // Enable Full Comparison for top 3 results
-                    },
                     headers: {
                         "Content-Type": "application/x-www-form-urlencoded"
                     }
                 }
             );
 
-            // If JSON format is requested and supported (check standard docs, usually 'fmt=json' or 'f=json')
-            // Copyscape historically XML only, but 'f=json' works in newer revisions. 
-            // Let's implement robust fallback or assume XML if JSON fails, but standardizing on parsing logic is safer.
-            // Actually, official docs say 'f=xml' is default. 'f=json' is supported.
-            // Let's try to assume JSON response if 'f=json' passed.
+            // Copyscape sometimes returns a string (XML) even if JSON is requested on certain errors
+            // or if the account is misconfigured.
+            let data = response.data;
 
-            const data = response.data;
+            if (typeof data === "string") {
+                try {
+                    // Try to parse if it's a JSON string
+                    data = JSON.parse(data);
+                } catch (e) {
+                    // If it's XML or other text, handle as error
+                    logger.error("Copyscape returned non-JSON response", { data: data.substring(0, 500) });
+                    if (data.includes("<error>")) {
+                        const errorMatch = data.match(/<error>(.*?)<\/error>/);
+                        throw new Error(errorMatch ? errorMatch[1] : "Format Mismatch (XML returned)");
+                    }
+                    throw new Error("Copyscape service returned an unexpected format. Please check your account configuration.");
+                }
+            }
 
-            // Check for API errors
+            // Check for API errors in JSON structure
             if (data.error) {
                 logger.error("Copyscape API Error", { error: data.error, response: data });
                 throw new Error(data.error);
@@ -178,8 +188,7 @@ export class CopyscapeService {
             // Parse response
             const rawMatches: CopyscapeMatch[] = Array.isArray(data.result) ? data.result : (data.result ? [data.result] : []);
 
-            // The main logical step: Map snippets to Text Indices
-            // We now return a comprehensive result object
+            // Map snippets to Text Indices
             const matches = this.mapSnippetsToIndices(content, rawMatches);
 
             return {
