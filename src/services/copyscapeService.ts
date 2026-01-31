@@ -171,7 +171,7 @@ export class CopyscapeService {
 
             // Check for API errors
             if (data.error) {
-                logger.error("Copyscape API Error", { error: data.error });
+                logger.error("Copyscape API Error", { error: data.error, response: data });
                 throw new Error(data.error);
             }
 

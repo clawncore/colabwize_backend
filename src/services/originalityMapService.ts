@@ -120,12 +120,11 @@ export class OriginalityMapService {
       const result = await this.getScanResults(scan.id, userId);
 
       // Check if it was a System Credit/Maintenance error
-      // Check if it was a System Credit/Maintenance error
       if (e.message && (e.message.includes("Insufficient credit") || e.message.includes("credits"))) {
-        return { ...result, failureCode: "SYSTEM_CREDITS" };
+        return { ...result, failureCode: "SYSTEM_CREDITS", failureMessage: e.message };
       }
 
-      return result;
+      return { ...result, failureMessage: e.message };
     }
   }
 
