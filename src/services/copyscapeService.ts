@@ -211,40 +211,95 @@ export class CopyscapeService {
 
     /**
      * MAP SNIPPETS TO EXACT INDICES
+     * Uses a mapping approach to find snippets in original text even with formatting differences.
      */
     static mapSnippetsToIndices(originalText: string, matches: any[]): PlagiarismMatch[] {
         const results: PlagiarismMatch[] = [];
-        // ... implementation remains same, just returns array ...
-        const normalizedOriginal = this.normalizeText(originalText);
+
+        // 1. Create a character map for normalization
+        // This allows us to find matches in normalized text and map back to original indices
+        const mapping: number[] = [];
+        let normalizedOriginal = "";
+
+        for (let i = 0; i < originalText.length; i++) {
+            const char = originalText[i];
+            const lowerChar = char.toLowerCase();
+
+            // Only keep alphanumeric and single spaces in normalized version
+            if (/[a-z0-9]/.test(lowerChar)) {
+                normalizedOriginal += lowerChar;
+                mapping.push(i);
+            } else if (/\s/.test(char)) {
+                // Collapse multiple spaces into one
+                if (normalizedOriginal.length > 0 && normalizedOriginal[normalizedOriginal.length - 1] !== " ") {
+                    normalizedOriginal += " ";
+                    mapping.push(i);
+                }
+            }
+        }
 
         matches.forEach(match => {
-            // ... (keep existing matching logic) ...
             const snippet = match.text || match.textsnippet || "";
             if (!snippet) return;
-            const normalizedSnippet = this.normalizeText(snippet);
-            const index = normalizedOriginal.indexOf(normalizedSnippet);
+
+            // Normalize snippet similarly
+            let normalizedSnippet = "";
+            for (let i = 0; i < snippet.length; i++) {
+                const char = snippet[i].toLowerCase();
+                if (/[a-z0-9]/.test(char)) {
+                    normalizedSnippet += char;
+                } else if (/\s/.test(char)) {
+                    if (normalizedSnippet.length > 0 && normalizedSnippet[normalizedSnippet.length - 1] !== " ") {
+                        normalizedSnippet += " ";
+                    }
+                }
+            }
+            normalizedSnippet = normalizedSnippet.trim();
+            if (normalizedSnippet.length < 10) return; // Ignore very short snippets to avoid false positives
+
+            // Find in normalized original
+            let index = normalizedOriginal.indexOf(normalizedSnippet);
+
+            // If not found, try a slightly harder search (removing all spaces)
+            if (index === -1) {
+                const noSpaceOriginal = normalizedOriginal.replace(/\s/g, "");
+                const noSpaceSnippet = normalizedSnippet.replace(/\s/g, "");
+                const noSpaceIndex = noSpaceOriginal.indexOf(noSpaceSnippet);
+
+                if (noSpaceIndex !== -1) {
+                    // This is a bit more complex to map back, but for now we find the start 
+                    // by counting non-space chars
+                    let nonSpaceCount = 0;
+                    for (let i = 0; i < normalizedOriginal.length; i++) {
+                        if (normalizedOriginal[i] !== " ") {
+                            if (nonSpaceCount === noSpaceIndex) {
+                                index = i;
+                                break;
+                            }
+                            nonSpaceCount++;
+                        }
+                    }
+                }
+            }
 
             if (index !== -1) {
-                // ... (keep existing mapping logic) ...
-                let start = originalText.indexOf(snippet);
-                // ...
-                if (start !== -1) {
-                    // ...
-                    const wordCount = snippet.split(/\s+/).length;
-                    // ...
-                    results.push({
-                        start,
-                        end: start + snippet.length, // Simplified for brevity in this replace block, use original logic ideally
-                        similarity: Number(match.percentmatched || (wordCount > 50 ? 90 : (wordCount > 20 ? 70 : 40))),
-                        sourceUrl: match.url,
-                        viewUrl: match.viewurl || match.viewUrl,
-                        matchedWords: Number(match.wordsmatched || wordCount),
-                        sourceWords: Number(match.urlwords || 0),
-                        matchPercent: Number(match.percentmatched || 0),
-                        provider: "copyscape",
-                        confidence: wordCount > 50 ? "high" : (wordCount > 20 ? "medium" : "low")
-                    });
-                }
+                const start = mapping[index];
+                // Approximate end by looking at the last mapped character
+                const end = mapping[Math.min(index + normalizedSnippet.length - 1, mapping.length - 1)] + 1;
+
+                const wordCount = snippet.split(/\s+/).length;
+                results.push({
+                    start,
+                    end,
+                    similarity: Number(match.percentmatched || (wordCount > 50 ? 90 : (wordCount > 20 ? 70 : 40))),
+                    sourceUrl: match.url,
+                    viewUrl: match.viewurl || match.viewUrl || `https://www.copyscape.com/view.php?o=${match.handle || ""}`,
+                    matchedWords: Number(match.wordsmatched || wordCount),
+                    sourceWords: Number(match.urlwords || 0),
+                    matchPercent: Number(match.percentmatched || 0),
+                    provider: "copyscape",
+                    confidence: wordCount > 50 ? "high" : (wordCount > 20 ? "medium" : "low")
+                });
             }
         });
 
