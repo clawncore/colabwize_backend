@@ -126,6 +126,12 @@ export class HybridAuthService {
         const metadata = supabaseUser.user_metadata || {};
         const email = supabaseUser.email!; // Email returns string | undefined
 
+        // Determine if this is a truly new user or a returning user being synced for the first time
+        // If the user was created more than 5 minutes ago, they're a returning user
+        const userCreatedAt = new Date(supabaseUser.created_at);
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+        const isNewUser = userCreatedAt > fiveMinutesAgo;
+
         // Create user in our DB
         const newUser = await prisma.user.create({
           data: {
@@ -133,7 +139,7 @@ export class HybridAuthService {
             email: email,
             full_name: metadata.full_name || metadata.name || "",
             email_verified: !!supabaseUser.email_confirmed_at, // Trust Supabase verification status
-            survey_completed: false, // Default to false if just syncing
+            survey_completed: !isNewUser, // Only show survey to truly new users (created < 5 min ago)
             otp_method: "email",
           },
         });

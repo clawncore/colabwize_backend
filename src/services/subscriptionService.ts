@@ -71,7 +71,7 @@ const PLAN_LIMITS = {
     draft_comparison: false,
     rephrase_suggestions: 25,
     paper_search: 25,
-    ai_integrity: 0,
+    ai_integrity: 25,
     ai_chat: 50,
     certificate: 25,
     max_scan_characters: 80000,
