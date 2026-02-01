@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
-import { AnyZodObject, ZodError } from "zod";
+// Fix: AnyZodObject is not exported by Zod directly in some versions, use ZodObject<any> or ZodSchema
+import { ZodSchema, ZodError } from "zod";
 import logger from "../monitoring/logger";
 
 /**
@@ -8,7 +9,7 @@ import logger from "../monitoring/logger";
  * 
  * @param schema - The Zod schema to validate against (usually z.object({...}))
  */
-export const validateRequest = (schema: AnyZodObject) => {
+export const validateRequest = (schema: ZodSchema) => {
     return async (req: Request, res: Response, next: NextFunction) => {
         try {
             // safeParse is used so we can handle errors gracefully
@@ -42,13 +43,13 @@ export const validateRequest = (schema: AnyZodObject) => {
                 logger.warn("Validation failed", {
                     path: req.path,
                     ip: req.ip,
-                    errors: error.errors.map(e => ({ path: e.path, message: e.message }))
+                    errors: error.issues.map(e => ({ path: e.path, message: e.message }))
                 });
 
                 return res.status(400).json({
                     success: false,
                     error: "Invalid request data",
-                    details: error.errors.map((e) => ({
+                    details: (error as ZodError).issues.map((e: any) => ({
                         field: e.path.join("."),
                         message: e.message,
                     })),

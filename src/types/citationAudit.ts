@@ -7,7 +7,9 @@ export type PatternType =
     | "et_al_no_period"   // et al
     | "et_al_with_period" // et al.
     | "AMPERSAND_IN_PAREN" // (Smith & Jones)
-    | "AND_IN_PAREN";      // (Smith and Jones)
+    | "AMPERSAND_IN_PAREN" // (Smith & Jones)
+    | "AND_IN_PAREN"      // (Smith and Jones)
+    | "MIXED_STYLE";       // Multiple styles detected
 
 export interface DocumentMeta {
     language: string;
@@ -83,8 +85,17 @@ export interface VerificationResult {
     reason?: string;
     action?: string;
     source?: string;
-    title?: string;
     suggestions?: any[]; // "Find Papers" remediation suggestions
+    similarity?: number;
+}
+
+export type ExistenceStatus = "CONFIRMED" | "NOT_FOUND" | "SERVICE_ERROR" | "PENDING" | "UNMATCHED_REFERENCE";
+export type SupportStatus = "SUPPORTED" | "WEAKLY_SUPPORTED" | "UNSUPPORTED" | "AMBIGUOUS" | "NOT_EVALUATED" | "PLAUSIBLE" | "CONTRADICTORY" | "UNRELATED";
+
+export interface VerificationProvenance {
+    source: string;
+    status: "SUCCESS" | "FAILED";
+    latencyMs: number;
 }
 
 /**
