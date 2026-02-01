@@ -76,10 +76,13 @@ export interface CitationFlag {
     source?: string;  // Forensic requirement: Normalized citation reference
 }
 
+export type ExistenceStatus = "CONFIRMED" | "NOT_FOUND" | "SERVICE_ERROR" | "PENDING" | "UNMATCHED_REFERENCE";
+export type SupportStatus = "SUPPORTED" | "WEAKLY_SUPPORTED" | "UNSUPPORTED" | "AMBIGUOUS" | "NOT_EVALUATED" | "PLAUSIBLE" | "CONTRADICTORY" | "UNRELATED";
+
 export interface VerificationResult {
     inlineLocation?: { start: number; end: number; text: string };
-    existenceStatus: "CONFIRMED" | "NOT_FOUND" | "SERVICE_ERROR" | "PENDING" | "UNMATCHED_REFERENCE";
-    supportStatus: "SUPPORTED" | "WEAKLY_SUPPORTED" | "UNSUPPORTED" | "AMBIGUOUS" | "NOT_EVALUATED";
+    existenceStatus: ExistenceStatus;
+    supportStatus: SupportStatus;
     provenance: any[];
     message: string;
     reason?: string;
@@ -87,10 +90,21 @@ export interface VerificationResult {
     source?: string;
     suggestions?: any[]; // "Find Papers" remediation suggestions
     similarity?: number;
+    foundPaper?: {
+        title?: string;
+        authors?: string[];
+        year?: number | string;
+        url?: string;
+        doi?: string;
+        database?: string;
+        abstract?: string;
+        isRetracted?: boolean;
+    };
+    semanticAnalysis?: {
+        reasoning?: string;
+        confidence?: number;
+    };
 }
-
-export type ExistenceStatus = "CONFIRMED" | "NOT_FOUND" | "SERVICE_ERROR" | "PENDING" | "UNMATCHED_REFERENCE";
-export type SupportStatus = "SUPPORTED" | "WEAKLY_SUPPORTED" | "UNSUPPORTED" | "AMBIGUOUS" | "NOT_EVALUATED" | "PLAUSIBLE" | "CONTRADICTORY" | "UNRELATED";
 
 export interface VerificationProvenance {
     source: string;
