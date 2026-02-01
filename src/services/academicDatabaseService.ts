@@ -2,6 +2,7 @@ import { SecretsService } from "./secrets-service";
 import logger from "../monitoring/logger";
 import axios from "axios";
 import { compareTwoStrings } from "string-similarity";
+import { OpenAlexService } from "./openAlexService";
 
 export class AcademicDatabaseService {
     // API keys will be retrieved via SecretsService
@@ -17,7 +18,7 @@ export class AcademicDatabaseService {
             url: string;
             year?: number;
             similarity: number;
-            database: "crossref" | "semantic_scholar" | "arxiv" | "ieee" | "pubmed";
+            database: "crossref" | "semantic_scholar" | "arxiv" | "ieee" | "pubmed" | "openalex";
             isRetracted?: boolean;
         }>
     > {
@@ -28,7 +29,7 @@ export class AcademicDatabaseService {
             abstract: string;
             url: string;
             similarity: number;
-            database: "crossref" | "semantic_scholar" | "arxiv" | "ieee" | "pubmed";
+            database: "crossref" | "semantic_scholar" | "arxiv" | "ieee" | "pubmed" | "openalex";
             isRetracted?: boolean;
         }> = [];
 
@@ -60,6 +61,14 @@ export class AcademicDatabaseService {
             logger.warn("PubMed search failed", { error: (error as Error).message });
         }
 
+        // Search OpenAlex (Free & Good for Abstracts)
+        try {
+            const openAlexResults = await this.searchOpenAlex(text);
+            results.push(...openAlexResults);
+        } catch (error) {
+            logger.warn("OpenAlex search failed", { error: (error as Error).message });
+        }
+
         // Semantic Scholar & IEEE skipped (require API keys)
 
         return results;
@@ -78,11 +87,30 @@ export class AcademicDatabaseService {
             if (response.data && response.data.message) {
                 const item = response.data.message;
                 const year = item.published?.["date-parts"]?.[0]?.[0] || item.created?.["date-parts"]?.[0]?.[0];
+                const abstract = item.abstract || "";
+
+                // If CrossRef has no abstract, try OpenAlex for enrichment
+                if (!abstract) {
+                    try {
+                        const oaResults = await OpenAlexService.searchPapers(doi, 1);
+                        if (oaResults.length > 0 && oaResults[0].abstract) {
+                            return {
+                                title: oaResults[0].title,
+                                authors: oaResults[0].authors,
+                                abstract: oaResults[0].abstract,
+                                url: oaResults[0].url,
+                                year: oaResults[0].year,
+                                database: "openalex",
+                                isRetracted: item["is-retracted"] // Keep CrossRef retraction status as it's authoritative
+                            };
+                        }
+                    } catch (ignore) { }
+                }
 
                 return {
                     title: Array.isArray(item.title) ? item.title[0] : item.title,
                     authors: item.author?.map((auth: any) => `${auth.family || ""} ${auth.given || ""}`.trim()) || [],
-                    abstract: item.abstract || "",
+                    abstract: abstract,
                     url: `https://doi.org/${item.DOI}`,
                     year: year,
                     database: "crossref",
@@ -91,8 +119,62 @@ export class AcademicDatabaseService {
             }
         } catch (error) {
             logger.warn("DOI search failed", { doi, error: (error as Error).message });
+
+            // Fallback to OpenAlex if CrossRef completely failed
+            try {
+                const oaResults = await OpenAlexService.searchPapers(doi, 1);
+                if (oaResults.length > 0) {
+                    return {
+                        title: oaResults[0].title,
+                        authors: oaResults[0].authors,
+                        abstract: oaResults[0].abstract || "",
+                        url: oaResults[0].url,
+                        year: oaResults[0].year,
+                        database: "openalex",
+                        isRetracted: false // Unknown
+                    };
+                }
+            } catch (e) {
+                // Ignore
+            }
         }
         return null;
+    }
+
+    private static async searchOpenAlex(text: string): Promise<
+        Array<{
+            title: string;
+            authors: string[];
+            abstract: string;
+            url: string;
+            similarity: number;
+            year?: number;
+            database: "crossref" | "semantic_scholar" | "arxiv" | "ieee" | "pubmed" | "openalex";
+        }>
+    > {
+        try {
+            // Use existing OpenAlexService
+            const results = await OpenAlexService.searchPapers(text, 3);
+
+            return results.map(paper => {
+                const titleScore = this.calculateTextSimilarity(text, paper.title);
+                const fullScore = this.calculateTextSimilarity(text, `${paper.title} ${paper.abstract || ""}`);
+
+                return {
+                    title: paper.title,
+                    authors: paper.authors,
+                    abstract: paper.abstract || "",
+                    url: paper.url || "",
+                    year: paper.year,
+                    similarity: Math.max(titleScore, fullScore),
+                    database: "openalex" as const
+                };
+            }).filter(item => item.similarity > 0.3);
+
+        } catch (error) {
+            logger.warn("OpenAlex search adapter failed", { error: (error as Error).message });
+            return [];
+        }
     }
 
     private static async searchCrossRef(

@@ -239,28 +239,6 @@ export class CitationConfidenceService {
     };
   }> {
     try {
-      // Check usage limits
-      const usageCheck = await UsageService.checkUsageLimit(
-        userId,
-        "citation_check"
-      );
-
-      // Special handling for 0 limit (feature not available) vs limit reached
-      if (!usageCheck.allowed) {
-        if (usageCheck.limit === 0) {
-          throw new Error(
-            "Citation Confidence Check is not available on your current plan. Please upgrade to access this feature."
-          );
-        } else {
-          throw new Error(
-            `Usage limit reached for Citation Checks. Limit: ${usageCheck.limit}`
-          );
-        }
-      }
-
-      // Track usage
-      await UsageService.trackUsage(userId, "citation_check");
-
       // Fetch project citations
       const citations = await prisma.citation.findMany({
         where: {

@@ -2,8 +2,6 @@ import express, { Request, Response } from "express";
 import { CitationConfidenceService } from "../../services/citationConfidenceService";
 import logger from "../../monitoring/logger";
 import {
-  checkUsageLimit,
-  incrementFeatureUsage,
 } from "../../middleware/usageMiddleware";
 import { prisma } from "../../lib/prisma";
 
@@ -15,7 +13,6 @@ const router = express.Router();
  */
 router.post(
   "/content-scan",
-  checkUsageLimit("citation_check"),
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
@@ -66,9 +63,6 @@ router.post(
 
       const suggestions =
         CitationConfidenceService.scanContentForCitations(textToScan);
-
-      // Increment usage
-      await incrementFeatureUsage("citation_check")(req, res, () => {});
 
       return res.status(200).json({
         success: true,

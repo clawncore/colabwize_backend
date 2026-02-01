@@ -13,6 +13,7 @@ interface HtmlExportOptions {
     course?: string;
     instructor?: string;
     runningHead?: string;
+    abstract?: string;
   };
 }
 
@@ -57,6 +58,17 @@ export class HtmlExportService {
         height: 9in; /* Approximate centering on page */
         text-align: center;
         page-break-after: always;
+      }
+      .abstract-page {
+        page-break-after: always;
+        text-align: left;
+        margin-top: 2em;
+      }
+      .abstract-title {
+         text-align: center;
+         font-weight: bold;
+         margin-bottom: 1em;
+         text-indent: 0;
       }
       .cover-page div {
         margin-bottom: 1em;
@@ -172,6 +184,14 @@ export class HtmlExportService {
       html += this.generateCoverPage(project, options);
     }
 
+    // 1b. Abstract
+    if (options.metadata?.abstract) {
+      html += `<div class="abstract-page">
+        <div class="abstract-title">Abstract</div>
+        <p style="text-indent: 0;">${options.metadata.abstract}</p>
+      </div>`;
+    }
+
     // 2. TOC (Placeholder - hard to do accurate page numbers in HTML before PDF render)
     // For MVP PDF via Puppeteer, TOC with page numbers is tricky without a multi-pass render.
     // We will skip TOC for now or just list headings without page numbers if strictly requested.
@@ -183,7 +203,11 @@ export class HtmlExportService {
     if (!options.includeCoverPage) {
       html += `<div style="text-align: center; font-weight: bold; margin-bottom: 1em; text-indent: 0;">${project.title}</div>`;
     }
-    html += await this.convertTipTapToHtml(project.content);
+    html += await this.convertTipTapToHtml(
+      project.content,
+      project.citations || [],
+      options.citationStyle || "apa"
+    );
     html += `</div>`;
 
     // 4. References
@@ -281,49 +305,66 @@ export class HtmlExportService {
     `;
   }
 
-  private static async convertTipTapToHtml(content: any): Promise<string> {
+  private static async convertTipTapToHtml(
+    content: any,
+    citations: any[] = [],
+    style: string = "apa"
+  ): Promise<string> {
     if (!content || !content.content) return "";
 
     let html = "";
 
     for (const node of content.content) {
       if (node.type === "paragraph") {
-        html += `<p>${this.extractTextHtml(node)}</p>`;
+        html += `<p>${this.extractTextHtml(node, citations, style)}</p>`;
       } else if (node.type === "heading") {
         const level = node.attrs?.level || 1;
-        html += `<h${level}>${this.extractTextHtml(node)}</h${level}>`;
+        html += `<h${level}>${this.extractTextHtml(node, citations, style)}</h${level}>`;
       } else if (node.type === "blockquote") {
-        html += `<blockquote>${this.extractTextHtml(node)}</blockquote>`;
+        html += `<blockquote>${this.extractTextHtml(node, citations, style)}</blockquote>`;
       } else if (node.type === "bulletList") {
-        html += `<ul>${await this.convertTipTapToHtml(node)}</ul>`;
+        html += `<ul>${await this.convertTipTapToHtml(node, citations, style)}</ul>`;
       } else if (node.type === "orderedList") {
-        html += `<ol>${await this.convertTipTapToHtml(node)}</ol>`;
+        html += `<ol>${await this.convertTipTapToHtml(node, citations, style)}</ol>`;
       } else if (node.type === "listItem") {
-        html += `<li>${await this.convertTipTapToHtml(node)}</li>`;
-      } else if (node.type === "image") {
+        html += `<li>${await this.convertTipTapToHtml(node, citations, style)}</li>`;
+      } else if (node.type === "image" || node.type === "imageExtension") {
         let src = node.attrs?.src || "";
         const alt = node.attrs?.alt || "";
 
-        // Resolve relative URLs
-        if (src && !src.startsWith("http") && !src.startsWith("data:")) {
+        // Skip blob URLs - they can't be resolved for PDF
+        if (src.startsWith("blob:")) {
+          console.warn("Skipping blob URL in PDF export", { src });
+          continue;
+        }
+
+        // For data URLs, use directly
+        if (src.startsWith("data:")) {
+          html += `<img src="${src}" alt="${alt}" style="max-width: 100%; height: auto; display: block; margin: 1em auto;" />`;
+          continue;
+        }
+
+        // Resolve relative URLs to full HTTP URLs
+        if (src && !src.startsWith("http")) {
           const appUrl = await SecretsService.getAppUrl();
           src = src.startsWith("/") ? `${appUrl}${src}` : `${appUrl}/${src}`;
         }
 
+        // For HTTP URLs, Puppeteer will fetch them when rendering PDF
         html += `<img src="${src}" alt="${alt}" style="max-width: 100%; height: auto; display: block; margin: 1em auto;" />`;
       } else if (node.type === "figure") {
         html += `<figure style="margin: 1em auto; text-align: center;">`;
-        html += await this.convertTipTapToHtml(node);
+        html += await this.convertTipTapToHtml(node, citations, style);
         html += `</figure>`;
       } else if (node.type === "figcaption") {
-        html += `<figcaption style="font-style: italic; margin-top: 0.5em;">${this.extractTextHtml(node)}</figcaption>`;
+        html += `<figcaption style="font-style: italic; margin-top: 0.5em;">${this.extractTextHtml(node, citations, style)}</figcaption>`;
       } else if (node.type === "columns") {
         // Handle multi-column layout
         html += `<div class="columns">`;
         if (node.content) {
           for (const column of node.content) {
             if (column.type === "column") {
-              html += `<div class="column">${await this.convertTipTapToHtml(column)}</div>`;
+              html += `<div class="column">${await this.convertTipTapToHtml(column, citations, style)}</div>`;
             }
           }
         }
@@ -338,9 +379,9 @@ export class HtmlExportService {
               if (row.content) {
                 for (const cell of row.content) {
                   if (cell.type === "tableHeader") {
-                    html += `<th>${await this.convertTipTapToHtml(cell)}</th>`;
+                    html += `<th>${await this.convertTipTapToHtml(cell, citations, style)}</th>`;
                   } else if (cell.type === "tableCell") {
-                    html += `<td>${await this.convertTipTapToHtml(cell)}</td>`;
+                    html += `<td>${await this.convertTipTapToHtml(cell, citations, style)}</td>`;
                   }
                 }
               }
@@ -355,7 +396,7 @@ export class HtmlExportService {
     return html;
   }
 
-  private static extractTextHtml(node: any): string {
+  private static extractTextHtml(node: any, citations: any[] = [], style: string = "apa"): string {
     if (!node.content) return "";
     let html = "";
 
@@ -391,12 +432,52 @@ export class HtmlExportService {
       } else if (child.type === "hardBreak") {
         html += "<br>";
       } else if (child.type === "citation") {
-        const label = child.attrs?.label || child.attrs?.text || "[Citation]";
-        html += `<span>${label}</span>`;
+        const citationId = child.attrs?.citationId;
+        const fallback = child.attrs?.fallback || "[Citation]";
+
+        if (citationId && citations.length > 0) {
+          const citationData = citations.find((c: any) => c.id === citationId);
+          if (citationData) {
+            const inText = this.formatInTextCitation(citationData, style);
+            html += `<span class="citation">${inText}</span>`;
+          } else {
+            html += `<span class="citation" style="color: red;">${fallback}</span>`;
+          }
+        } else {
+          html += `<span class="citation">${fallback}</span>`;
+        }
       }
     });
 
     return html || "&nbsp;"; // Return non-breaking space if empty to maintain height
+  }
+
+  /**
+   * Format in-text citation
+   */
+  private static formatInTextCitation(citation: any, style: string): string {
+    const authors = Array.isArray(citation.authors) ? citation.authors : [citation.author || "Unknown"];
+    const year = citation.year || "n.d.";
+
+    // Get last name of first author
+    const firstAuthor = authors[0] || "Unknown";
+    let authorText = typeof firstAuthor === 'string' ? firstAuthor : (firstAuthor.lastName || firstAuthor.firstName || "Unknown");
+
+    if (authors.length > 2) {
+      authorText += " et al.";
+    } else if (authors.length === 2) {
+      const secondAuthor = authors[1];
+      const secondAuthorText = typeof secondAuthor === 'string' ? secondAuthor : (secondAuthor.lastName || "Unknown");
+      authorText += ` & ${secondAuthorText}`;
+    }
+
+    if (style === "apa") {
+      return `(${authorText}, ${year})`;
+    } else if (style === "mla") {
+      return `(${authorText})`;
+    }
+
+    return `(${authorText}, ${year})`;
   }
 
   private static formatCitation(citation: any, style: string): string {

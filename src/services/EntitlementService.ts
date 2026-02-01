@@ -266,6 +266,7 @@ export class EntitlementService {
         let targetFeature = feature;
         if (feature === 'scan') targetFeature = 'scans_per_month';
         if (feature === 'citation_check') targetFeature = 'citation_audit';
+        if (feature === 'rephrase') targetFeature = 'rephrase_suggestions';
 
         const rights = features[targetFeature];
 
@@ -319,6 +320,7 @@ export class EntitlementService {
         let targetFeature = feature;
         if (feature === 'scan') targetFeature = 'scans_per_month';
         if (feature === 'citation_check') targetFeature = 'citation_audit';
+        if (feature === 'rephrase') targetFeature = 'rephrase_suggestions';
 
         const features = ent.features as Record<string, any>;
         let rights = features[targetFeature];

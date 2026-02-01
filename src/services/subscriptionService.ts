@@ -24,7 +24,7 @@ const PLAN_LIMITS = {
     citation_audit: 3,
     draft_comparison: false,
     rephrase_suggestions: 3,
-    paper_search: 0,
+    paper_search: 3,
     ai_integrity: 0,
     ai_chat: 5,
     certificate: 0,
@@ -248,10 +248,16 @@ export class SubscriptionService {
       logger.warn("Failed to fetch subscription for usage check, defaulting to calendar month", { userId });
     }
 
+    // Map feature to limit key to ensure consistency with PLAN_LIMITS
+    let limitKey = feature;
+    if (feature === "scan") limitKey = "scans_per_month";
+    if (feature === "citation_check") limitKey = "citation_audit";
+    if (feature === "rephrase") limitKey = "rephrase_suggestions";
+
     const usage = await prisma.usageTracking.findFirst({
       where: {
         user_id: userId,
-        feature,
+        feature: limitKey,
         // We check for usage records that START on or after the period start
         // This assumes usage records are created with the correct period_start
         period_start: { gte: periodStart },
@@ -337,7 +343,7 @@ export class SubscriptionService {
     // 4. Entitlements Check (The New Truth)
     const entitlement = await EntitlementService.checkEligibility(userId, feature);
     if (entitlement.allowed) {
-      return { allowed: true, source: "PLAN", remaining: entitlement.remaining };
+      return { allowed: true, source: "PLAN", remaining: Math.max(0, entitlement.remaining || 0) };
     }
 
     // 5. Fallback logic for Student/Payg (already handled by logic above/below or by Entitlement check?)
@@ -423,6 +429,7 @@ export class SubscriptionService {
     let limitKey = feature;
     if (feature === "scan") limitKey = "scans_per_month";
     if (feature === "citation_check") limitKey = "citation_audit";
+    if (feature === "rephrase") limitKey = "rephrase_suggestions";
 
     // 1. Upsert Usage Tracking (History)
     const now = new Date();
@@ -444,13 +451,13 @@ export class SubscriptionService {
       where: {
         user_id_feature_period_start: {
           user_id: userId,
-          feature,
+          feature: limitKey,
           period_start: periodStart,
         },
       },
       create: {
         user_id: userId,
-        feature,
+        feature: limitKey,
         count: 1,
         period_start: periodStart,
         period_end: periodEnd,
@@ -499,6 +506,7 @@ export class SubscriptionService {
     // Map feature to limit key (e.g., 'scan' -> 'scans_per_month')
     let limitKey = feature;
     if (feature === "scan") limitKey = "scans_per_month";
+    if (feature === "rephrase") limitKey = "rephrase_suggestions";
 
     let planLimit = 0;
     if (limitKey in limits) {
@@ -524,7 +532,8 @@ export class SubscriptionService {
     // 3. Consume Plan if Available
     if (planAvailable) {
       await this.incrementUsage(userId, feature);
-      return { allowed: true, source: "PLAN", remaining: planLimit - (await this.checkMonthlyUsage(userId, feature)) };
+      const newUsage = await this.checkMonthlyUsage(userId, feature);
+      return { allowed: true, source: "PLAN", remaining: Math.max(0, planLimit - newUsage) };
     }
 
     // 4. If Plan Exhausted / Unavailable / -2 -> Check Credits (Auto-Fallback)
@@ -535,9 +544,9 @@ export class SubscriptionService {
     // Check if feature is "Plan Restricted" (never allowed on this plan)
     // We assume if planLimit is defined and > 0, it is allowed. 
     // If planLimit is 0 or undefined, effectively "Not Included".
-    // EXCEPTION: "scan", "rephrase", "citation_audit" are generally "Base Features" available to all via credits.
+    // EXCEPTION: "scan", "rephrase", "citation_audit", "paper_search" are generally "Base Features" available to all via credits.
 
-    const isPlanRestricted = planLimit === 0 && !["scan", "rephrase", "citation_audit"].includes(feature);
+    const isPlanRestricted = planLimit === 0 && !["scan", "rephrase", "citation_audit", "paper_search"].includes(feature);
 
     if (isPlanRestricted) {
       return { allowed: false, source: "BLOCKED", message: "This feature is not available on your current plan." };

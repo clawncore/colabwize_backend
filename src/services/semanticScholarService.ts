@@ -12,6 +12,7 @@ export interface AcademicPaper {
     citationCount: number;
     openAccessPdf?: string;
     venue?: string; // Journal or Conference
+    similarity?: number; // [NEW] For ranking/display
     source: "semantic_scholar" | "openalex" | "arxiv" | "pubmed" | "ieee" | "doaj" | "crossref";
 }
 

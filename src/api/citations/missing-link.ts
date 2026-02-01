@@ -24,7 +24,6 @@ const missingLinkLimiter = rateLimit({
 router.post(
   "/find-missing-link",
   missingLinkLimiter,
-  checkUsageLimit("citation_check"),
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;

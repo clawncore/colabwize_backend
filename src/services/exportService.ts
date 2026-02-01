@@ -23,6 +23,14 @@ interface ExportOptions {
     course?: string;
     instructor?: string;
     runningHead?: string;
+    abstract?: string;
+  };
+  contentOverride?: any;
+  citationPolicy?: {
+    mode: string;
+    excludeOrphanReferences: boolean;
+    markUnsupportedClaims: boolean;
+    violations?: any[];
   };
 }
 
@@ -60,6 +68,10 @@ export class ExportService {
 
       if (!project) {
         throw new Error("Project not found or access denied");
+      }
+
+      if (options.contentOverride) {
+        project.content = options.contentOverride;
       }
 
       let buffer: Buffer;
@@ -108,11 +120,12 @@ export class ExportService {
         citationStyle: options.citationStyle,
         includeCoverPage: true,
         coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
-        includeTOC: true,
+        includeTOC: false, // Disabled per user request - academic papers don't need TOC
         includeAuthorshipCertificate: options.includeAuthorshipCertificate,
         performStructuralAudit: false,
         metadata: options.metadata,
         template: options.journalTemplate,
+        citationPolicy: options.citationPolicy
       }
     );
 
@@ -122,9 +135,6 @@ export class ExportService {
     };
   }
 
-  /**
-   * Export as PDF (placeholder - in real implementation, convert DOCX to PDF)
-   */
   /**
    * Export as PDF using Puppeteer
    */
@@ -149,7 +159,7 @@ export class ExportService {
     // 2. Generate HTML
     const html = await HtmlExportService.generateProjectHtml(project, {
       citationStyle: options.citationStyle,
-      includeCoverPage: true, // Defaulting to true for PDF export as per general academic desires
+      includeCoverPage: false, // DISABLED: User requested raw export for PDF too
       coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
       includeAuthorshipCertificate: options.includeAuthorshipCertificate,
       metadata: options.metadata,

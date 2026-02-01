@@ -16,8 +16,22 @@ import {
   BorderStyle,
   TableOfContents,
   StyleLevel,
+  CommentRangeStart,
+  CommentRangeEnd,
+  CommentReference,
 } from "docx";
 import { PublicationService } from "./publicationService";
+import AdmZip from "adm-zip";
+
+// --- NUCLEAR OPTION: DEBUG FLAGS ---
+// Granular control to isolate the crash source.
+const DEBUG_FLAGS = {
+  SKIP_IMAGES: false,   // ✅ Re-enable Images
+  SKIP_TABLES: false,  // ✅ Keep Tables enabled
+  SKIP_COMMENTS: true, // ⚠️ Keep comments DISABLED
+  SKIP_COLUMNS: true,  // ⚠️ Keep columns DISABLED
+  USE_PLACEHOLDER_IMAGES: false, // ✅ Disable placeholder, test REAL images
+};
 
 interface PublicationExportOptions {
   format: "pdf" | "docx";
@@ -29,12 +43,21 @@ interface PublicationExportOptions {
   includeAuthorshipCertificate?: boolean;
   performStructuralAudit: boolean;
   minWordCount?: number;
+  wordSafeMode?: boolean; // Enable strict Word compatibility (disables TOC, columns, complex features)
   metadata?: {
     author?: string;
     institution?: string;
     course?: string;
     instructor?: string;
     runningHead?: string;
+    abstract?: string;
+  };
+  citationPolicy?: {
+    mode: string;
+    excludeOrphanReferences: boolean;
+    markUnsupportedClaims: boolean;
+    violations?: any[];
+    wordSafeMode?: boolean; // Pass through to image processing
   };
 }
 
@@ -114,6 +137,7 @@ export class PublicationExportService {
 
       // 4. Generate document components
       let coverPageParagraphs: Paragraph[] | undefined;
+      /* DISABLED PER USER REQUEST - MANUAL COVER PAGE ONLY
       if (options.includeCoverPage) {
         const metadata = {
           title: project.title,
@@ -134,10 +158,38 @@ export class PublicationExportService {
           metadata,
         });
       }
+      */
 
-      // 5. Native TOC Generation
+      // 4b. Generate Abstract Page
+      let abstractParagraphs: Paragraph[] | undefined;
+      /* DISABLED PER USER REQUEST - CONTENT ABSTRACT ONLY
+      if (options.metadata?.abstract) {
+        abstractParagraphs = [
+          new Paragraph({
+            text: "Abstract",
+            heading: HeadingLevel.HEADING_1,
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 240 },
+            pageBreakBefore: true, // Abstract on new page after title
+          }),
+          new Paragraph({
+            text: options.metadata.abstract,
+            alignment: AlignmentType.LEFT, // APA 7 abstract is not indented
+            spacing: { line: 360 }, // Double spaced
+          }),
+          // Keywords could go here if we collected them
+          new Paragraph({
+            text: "",
+            pageBreakBefore: true, // Body starts on new page
+          }),
+        ];
+      }
+      */
+
+
+      // 5. Native TOC Generation (DISABLED IN WORD-SAFE MODE)
       let tocParagraphs: (Paragraph | TableOfContents)[] | undefined;
-      if (options.includeTOC) {
+      if (options.includeTOC && !options.wordSafeMode) {
         // Using Native Word TOC instead of manual paragraphs
         // This allows Word to handle page numbers and updates
         tocParagraphs = [
@@ -155,85 +207,59 @@ export class PublicationExportService {
             text: "",
             pageBreakBefore: true,
           }),
+          // REMOVED explicit page break paragraph here, rely on mergeDocumentComponents separator
         ];
+      } else if (options.includeTOC && options.wordSafeMode) {
+        logger.info("TOC disabled in Word-safe mode to prevent section break issues");
       }
 
-      // 6. Convert body content to paragraphs
-      const bodyParagraphs = await this.convertTipTapToDOCXParagraphs(
-        project.content
+      // 6. Convert body content to paragraphs (Collect comments here)
+      const comments: any[] = [];
+      const usedCitationIds = new Set<string>();
+      let bodyParagraphs = await this.convertTipTapToDOCXParagraphs(
+        project.content,
+        project.citations || [],
+        options.citationStyle || "apa",
+        {
+          ...options.citationPolicy,
+          wordSafeMode: options.wordSafeMode // Pass through for image/column processing
+        },
+        comments,
+        usedCitationIds
       );
 
-      // 7b. Generate Authorship Certificate
-      if (options.includeAuthorshipCertificate) {
-        try {
-          const { AuthorshipCertificateGenerator } = require("./authorshipCertificateGenerator");
-          const { AuthorshipReportService } = require("./authorshipReportService");
-          const { config } = require("../config/env");
+      // --- FIX: Filter empty paragraphs logic ---
+      // Simple heuristic: if we could inspect content, we would.
+      // For now, let's rely on convertTipTapToDOCXParagraphs mostly,
+      // but strictly preventing empty Body paragraphs if they have no Runs is hard without strict typing.
+      // We will perform HEADINGS CHECK here.
 
-          const userMetadata = await PublicationService.getUserMetadata(userId);
-          const userName = options.metadata?.author || userMetadata.author || "Author";
-
-          const stats = await AuthorshipReportService.getAuthorshipMetrics(project.id);
-          const verificationUrl = `${config.appUrl}/verify/${project.id}`;
-
-          const qrCodeDataUrl = await AuthorshipCertificateGenerator.generateQRCodeDataURL(verificationUrl);
-
-          const certHtml = await AuthorshipCertificateGenerator.generateCertificateHTML(
-            {
-              projectId: project.id,
-              userId: userId,
-              userName: userName,
-              projectTitle: project.title,
-              certificateType: "authorship",
-              includeQRCode: true,
-              verificationUrl: verificationUrl
-            },
-            stats,
-            qrCodeDataUrl
-          );
-
-          const imageBuffer = await AuthorshipCertificateGenerator.generatePreviewImage(certHtml);
-
-          // Add page break and image
-          bodyParagraphs.push(
-            new Paragraph({
-              children: [
-                new ImageRun({
-                  data: imageBuffer,
-                  transformation: {
-                    width: 600, // Full width (approx)
-                    height: 450, // Aspect ratio
-                  },
-                  type: "png"
-                }),
-              ],
-              pageBreakBefore: true,
-            })
-          );
-
-        } catch (error) {
-          logger.error("Failed to append authorship certificate to DOCX", error);
+      const contentHeadings = new Set<string>();
+      const extractHeadings = (node: any) => {
+        if (node.type === 'heading') {
+          const text = node.content?.map((c: any) => c.text).join('') || '';
+          contentHeadings.add(text.toLowerCase().trim());
         }
+        if (node.content) node.content.forEach(extractHeadings);
+      };
+      if (project.content) extractHeadings(project.content);
+
+      const hasAbstract = contentHeadings.has("abstract");
+      const hasReferences = contentHeadings.has("references") || contentHeadings.has("bibliography") || contentHeadings.has("works cited");
+
+      // 4b. Re-Evaluate Abstract Page (since we moved logic down to check content)
+      // Note: We defined abstractParagraphs earlier (lines 149-170). 
+      // We should overwrite it if hasAbstract is true.
+      if (hasAbstract && abstractParagraphs) {
+        abstractParagraphs = undefined; // Suppress auto-generated abstract
+        logger.info("Suppressing auto-abstract because document already has Abstract heading");
       }
 
-      // 8. Generate references section (renumbered from 7 to match flow, but references usually last? 
-      // Actually certificate should be VERY LAST or before references? 
-      // User likely wants it as an addendum.
-      // Let's keep references as is, and we appended to bodyParagraphs which come BEFORE references in mergeDocumentComponents?
-      // Wait, mergeDocumentComponents puts body then references.
-
-      // If I want certificate AFTER references, I should add it to a new list or append to referencesParagraphs.
-      // Let's append to referencesParagraphs if they exist, or create a new component.
-
-      // Better: Create `certificateParagraphs` and pass to mergeDocumentComponents.
-      // But mergeDocumentComponents signature is fixed in PublicationService?
-      // Let's check PublicationService.mergeDocumentComponents (it's imported).
-      // If I can't change it easily, I'll append to referencesParagraphs.
-
+      // 7b. Generate Authorship Certificate
       const certificateParagraphs: Paragraph[] = [];
       if (options.includeAuthorshipCertificate) {
-        // Re-implement logic here to populate certificateParagraphs instead of bodyParagraphs
         try {
+          // Dynamic imports to avoid excessive boilerplate in this method if not needed
           const { AuthorshipCertificateGenerator } = require("./authorshipCertificateGenerator");
           const { AuthorshipReportService } = require("./authorshipReportService");
           const { config } = require("../config/env");
@@ -267,8 +293,8 @@ export class PublicationExportService {
                 new ImageRun({
                   data: imageBuffer,
                   transformation: {
-                    width: 700,
-                    height: 500,
+                    width: 600,
+                    height: 450,
                   },
                   type: "png"
                 }),
@@ -276,23 +302,32 @@ export class PublicationExportService {
               pageBreakBefore: true,
             })
           );
-        } catch (e) { logger.error("Cert generation failed", e); }
+
+        } catch (error) {
+          logger.error("Failed to append authorship certificate to DOCX", error);
+        }
       }
 
-      // 7. Generate references section (original 7)
+      // 7. Generate references section (Conditional)
       const referencesParagraphs: Paragraph[] = [];
-      if (project.citations && project.citations.length > 0) {
+
+      let citationsToUse = project.citations || [];
+      // Filter orphan references
+      if (options.citationPolicy?.excludeOrphanReferences && usedCitationIds.size > 0) {
+        citationsToUse = citationsToUse.filter((c: any) => usedCitationIds.has(c.id));
+      }
+
+      // Only generate References if not already in document
+      if (citationsToUse.length > 0 && !hasReferences) {
         referencesParagraphs.push(
           new Paragraph({
             text: "References",
             heading: HeadingLevel.HEADING_2,
             spacing: { before: 400, after: 200 },
-            pageBreakBefore: true, // References usually start on new page
+            pageBreakBefore: true,
           })
         );
-        // ... existing citation loop ...
-        // Re-inserting the loop logic below because I am replacing the block
-        project.citations.forEach((citation: any, index: number) => {
+        citationsToUse.forEach((citation: any, index: number) => {
           referencesParagraphs.push(
             new Paragraph({
               text: `${index + 1}. ${this.formatCitation(citation, options.citationStyle || "apa")}`,
@@ -300,28 +335,34 @@ export class PublicationExportService {
             })
           );
         });
+      } else if (hasReferences) {
+        logger.info("Suppressing auto-references because document already has References heading");
       }
 
-      // Append certificate paragraphs to references/body if needed
-      // Since mergeDocumentComponents takes specific named args, and I can't see its source but I see usage:
-      // { coverPage, toc, body, references }
-      // I will append certificateParagraphs to referencesParagraphs (if any) or bodyParagraphs (if no references).
-
+      // Append certificate (Certificate usually goes last)
+      // We will append it to references or body
       if (certificateParagraphs.length > 0) {
         if (referencesParagraphs.length > 0) {
           referencesParagraphs.push(...certificateParagraphs);
         } else {
-          bodyParagraphs.push(...certificateParagraphs);
+          // If no references generated (or suppressed), append to body?
+          // But mergeDocumentComponents puts body before references.
+          // So if referencesParagraphs is empty, we must ensure it's passed or append to body.
+          // Let's passed it as references if empty.
+          referencesParagraphs.push(...certificateParagraphs);
         }
       }
 
       // 8. Merge all components
+      // Clean up bodyParagraphs: Filter out truly empty paragraphs (heuristic: no text, no children)
+      // This is hard to do cleanly on Paragraph objects without type issues.
+      // We will trust Tiptap conversion for now but fixing the double page breaks above (suppression) helps.
+
       const allParagraphs = PublicationService.mergeDocumentComponents({
         coverPage: coverPageParagraphs,
-        toc: tocParagraphs,
-        body: bodyParagraphs,
-        references:
-          referencesParagraphs.length > 0 ? referencesParagraphs : undefined,
+        toc: tocParagraphs ? (abstractParagraphs ? [...abstractParagraphs, ...tocParagraphs] : tocParagraphs) : undefined,
+        body: (!options.includeTOC && abstractParagraphs) ? [...abstractParagraphs, ...bodyParagraphs] : bodyParagraphs,
+        references: referencesParagraphs.length > 0 ? referencesParagraphs : undefined,
       });
 
       // 9. Create DOCX document with Template-Aware Styles
@@ -403,6 +444,10 @@ export class PublicationExportService {
         features: {
           updateFields: true, // Forces TOC update on open
         },
+        // Only include comments if they exist AND NOT STRICT MODE
+        comments: (comments.length > 0 && !DEBUG_FLAGS.SKIP_COMMENTS) ? {
+          children: comments,
+        } : undefined,
         sections: [
           {
             properties: {},
@@ -414,6 +459,25 @@ export class PublicationExportService {
       // 10. Generate buffer
       const buffer = await Packer.toBuffer(doc);
       const filename = `${project.title.replace(/\s+/g, "_")}_publication.docx`;
+
+      // 10a. CRITICAL: Validate DOCX package structure for Word compatibility
+      const validation = this.validateDOCXPackage(buffer);
+
+      if (!validation.isValid) {
+        logger.error("❌ DOCX package validation FAILED - Word will reject this file!", {
+          errors: validation.errors,
+          warnings: validation.warnings
+        });
+
+        // Log each error for debugging
+        validation.errors.forEach((error, i) => {
+          logger.error(`Validation Error ${i + 1}:`, { error });
+        });
+      } else {
+        logger.info("✅ DOCX package validation PASSED - file should open in Word", {
+          warningCount: validation.warnings.length
+        });
+      }
 
       logger.info("Publication-ready export complete", {
         projectId,
@@ -451,10 +515,272 @@ export class PublicationExportService {
   }
 
   /**
+   * Sanitize text to remove invalid XML characters (CRITICAL for Word)
+   * Removes control characters forbidden in XML 1.0 (0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F)
+   */
+  private static sanitizeText(text: string | null | undefined): string {
+    if (!text) return "";
+    return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+  }
+
+  /**
+   * Validate and fetch image - CRITICAL for Word compatibility
+   * This method validates images BEFORE creating ImageRun to prevent dangling relationships
+   */
+  private static async validateAndFetchImage(src: string, attrs?: any): Promise<{
+    buffer: Buffer;
+    format: "png" | "jpg" | "gif" | "bmp";
+    dimensions: { width: number; height: number };
+  } | null> {
+
+    // --- DEBUG: USE PLACEHOLDER IMAGE ---
+    if (DEBUG_FLAGS.USE_PLACEHOLDER_IMAGES) {
+      // 1x1 JPEG (Safer than PNG for Word/DOCX compat)
+      const base64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAQAAAAAAAAAAAAAAAAAAAAH/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwB/gA==";
+      return {
+        buffer: Buffer.from(base64, "base64"),
+        format: "jpeg" as any, // 🛑 CRITICAL FIX: Word demands "jpeg"
+        dimensions: { width: 100, height: 100 }
+      };
+    }
+
+    // Skip unsupported sources FIRST
+    if (src.startsWith("blob:")) {
+      logger.warn("Skipping blob URL in export - cannot resolve server-side", { src });
+      return null;
+    }
+
+    logger.debug("Validating and fetching image for DOCX export", { src });
+
+    let data: Buffer | undefined;
+
+    // Fetch image data based on source type
+    if (src.startsWith("data:")) {
+      // Data URI - decode base64
+      const matches = src.match(/^data:image\/([a-zA-Z+]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const base64Data = matches[2];
+        data = Buffer.from(base64Data, "base64");
+      }
+    } else if (src.startsWith("http")) {
+      // HTTP URL - fetch
+      try {
+        const response = await fetch(src, {
+          headers: { 'User-Agent': 'ColabWize-Export-Service' }
+        });
+
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          data = Buffer.from(arrayBuffer);
+        } else {
+          logger.warn("Failed to fetch image", { status: response.status, src });
+          return null;
+        }
+      } catch (e) {
+        logger.warn("Fetch failed", { error: e });
+        return null;
+      }
+    } else {
+      // Relative URL - convert to full URL
+      const appUrl = await SecretsService.getAppUrl();
+      const fullUrl = src.startsWith("/")
+        ? `${appUrl}${src}`
+        : `${appUrl}/${src}`;
+
+      try {
+        const response = await fetch(fullUrl);
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          data = Buffer.from(arrayBuffer);
+        } else {
+          logger.warn("Failed to fetch relative image", { fullUrl });
+          return null;
+        }
+      } catch (err) {
+        logger.warn("Error fetching relative image URL", { error: err, fullUrl });
+        return null;
+      }
+    }
+
+    // Validate data exists and has minimum size
+    if (!data || data.length < 100) {
+      logger.warn("Image data too small or empty", { size: data?.length || 0 });
+      return null;
+    }
+
+    // --- MAGIC BYTE VALIDATION (CRITICAL for Word) ---
+    let detectedType: "png" | "jpg" | "gif" | "bmp" | null = null;
+
+    // Check for PNG: 89 50 4E 47
+    if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47) {
+      detectedType = "png";
+    }
+    // Check for JPEG: FF D8 FF
+    else if (data[0] === 0xFF && data[1] === 0xD8 && data[2] === 0xFF) {
+      detectedType = "jpg";
+    }
+    // Check for GIF: 47 49 46 38
+    else if (data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x38) {
+      detectedType = "gif";
+    }
+    // Check for BMP: 42 4D
+    else if (data[0] === 0x42 && data[1] === 0x4D) {
+      detectedType = "bmp";
+    }
+
+    if (!detectedType) {
+      logger.warn("Invalid or unsupported image format detected", {
+        firstBytes: data.subarray(0, 8).toString('hex'),
+        src
+      });
+      return null;
+    }
+
+    // --- HTML/TEXT CHECK (Prevent 404 pages from being embedded) ---
+    const snippet = data.subarray(0, 100).toString('utf8').toLowerCase();
+    if (snippet.includes("<!doctype") || snippet.includes("<html") || snippet.includes("<body")) {
+      logger.warn("Image buffer contains HTML/text, likely a 404 page. Skipping to prevent DOCX corruption.", { src });
+      return null;
+    }
+
+    // Parse dimensions
+    const parseDim = (val: any) => {
+      const parsed = parseInt(String(val).replace("px", ""), 10);
+      return isNaN(parsed) || parsed <= 0 ? null : parsed;
+    };
+
+    const userWidth = attrs?.width ? parseDim(attrs.width) : null;
+    const userHeight = attrs?.height ? parseDim(attrs.height) : null;
+
+    // ALL VALIDATION PASSED - return image data
+    logger.debug("Image validated successfully", {
+      format: detectedType,
+      size: data.length,
+      dimensions: { width: userWidth || 400, height: userHeight || 300 }
+    });
+
+    return {
+      buffer: data,
+      format: detectedType,
+      dimensions: {
+        width: userWidth || 400,
+        height: userHeight || 300
+      }
+    };
+  }
+
+  /**
+   * Validate DOCX package structure (CRITICAL for Word compatibility)
+   * Inspects the ZIP to check for structural issues that break Word
+   */
+  private static validateDOCXPackage(buffer: Buffer): {
+    isValid: boolean;
+    errors: string[];
+    warnings: string[];
+  } {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    try {
+      const zip = new AdmZip(buffer);
+      const entries = zip.getEntries();
+
+      logger.debug("Validating DOCX package structure", {
+        totalEntries: entries.length
+      });
+
+      // 1. Check for required files
+      const requiredFiles = [
+        'word/document.xml',
+        '[Content_Types].xml',
+        '_rels/.rels'
+      ];
+
+      for (const file of requiredFiles) {
+        const entry = zip.getEntry(file);
+        if (!entry) {
+          errors.push(`Missing required file: ${file}`);
+        }
+      }
+
+      // 2. Check for dangling relationships
+      const relsEntry = zip.getEntry('word/_rels/document.xml.rels');
+      if (relsEntry) {
+        const relsXml = relsEntry.getData().toString('utf8');
+
+        // Extract all Target attributes from relationships
+        const relationshipMatches = relsXml.matchAll(/Target="([^"]+)"/g);
+
+        for (const match of relationshipMatches) {
+          const target = match[1];
+
+          // Skip external  relationships (http://, mailto:, etc.)
+          if (target.startsWith('http://') || target.startsWith('https://') || target.startsWith('mailto:')) {
+            continue;
+          }
+
+          // Build the full path to check
+          const targetPath = target.startsWith('/') ? target.substring(1) : `word/${target}`;
+
+          // Check if target file exists in ZIP
+          const targetEntry = zip.getEntry(targetPath);
+          if (!targetEntry) {
+            errors.push(`Dangling relationship: ${target} → ${targetPath} does not exist in package`);
+          }
+        }
+      }
+
+      // 3. Check media files are non-zero (skip directory entries)
+      const mediaEntries = entries.filter((e: any) =>
+        e.entryName.startsWith('word/media/') && !e.isDirectory
+      );
+      for (const entry of mediaEntries) {
+        if (entry.header.size === 0) {
+          errors.push(`Empty media file: ${entry.entryName}`);
+        }
+      }
+
+      // 4. Check Content_Types.xml
+      const contentTypesEntry = zip.getEntry('[Content_Types].xml');
+      if (contentTypesEntry) {
+        const contentTypesXml = contentTypesEntry.getData().toString('utf8');
+
+        // Check that all media files have content type entries
+        for (const mediaEntry of mediaEntries) {
+          const ext = mediaEntry.entryName.split('.').pop()?.toLowerCase();
+          if (ext && !contentTypesXml.includes(`Extension="${ext}"`)) {
+            warnings.push(`Media file ${mediaEntry.entryName} may not have content type registered`);
+          }
+        }
+      }
+
+      logger.info("DOCX package validation complete", {
+        isValid: errors.length === 0,
+        errorCount: errors.length,
+        warningCount: warnings.length
+      });
+
+    } catch (error: any) {
+      errors.push(`Failed to parse DOCX package: ${error.message}`);
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      warnings
+    };
+  }
+
+  /**
    * Convert TipTap JSON to DOCX Paragraphs (enhanced version)
    */
   private static async convertTipTapToDOCXParagraphs(
-    content: any
+    content: any,
+    citations: any[] = [],
+    style: string = "apa",
+    citationPolicy?: any,
+    commentsRef: any[] = [],
+    usedCitationIds?: Set<string>
   ): Promise<(Paragraph | Table)[]> {
     const paragraphs: (Paragraph | Table)[] = [];
 
@@ -477,8 +803,26 @@ export class PublicationExportService {
     }
 
     for (const node of content.content) {
+      // FIX: Strip empty paragraphs to prevent blank pages
       if (node.type === "paragraph") {
-        const children = this.extractTextRunsFromNode(node);
+        const hasContent = node.content && node.content.some((c: any) => {
+          // Keep if text exists
+          if (c.text && c.text.trim().length > 0) return true;
+          // Keep if it contains non-text nodes like images, mentions, or hardBreaks
+          // Note: hardBreak might be considered "whitespace" but it's explicit formatting.
+          // We'll be conservative and keep anything that isn't just empty text.
+          if (c.type !== 'text') return true;
+          return false;
+        });
+
+        // If content array is empty or all elements are empty text nodes, skip.
+        if (!hasContent) {
+          continue;
+        }
+      }
+
+      if (node.type === "paragraph") {
+        const children = this.extractTextRunsFromNode(node, citations, style, citationPolicy, commentsRef, usedCitationIds);
         paragraphs.push(
           new Paragraph({
             children: children,
@@ -486,7 +830,7 @@ export class PublicationExportService {
           })
         );
       } else if (node.type === "heading") {
-        const children = this.extractTextRunsFromNode(node);
+        const children = this.extractTextRunsFromNode(node, citations, style, citationPolicy, commentsRef, usedCitationIds);
         const level = node.attrs?.level || 1;
         // Map number to HeadingLevel enum
         const headingLevels: Record<number, any> = {
@@ -511,7 +855,7 @@ export class PublicationExportService {
               for (const childNode of listItem.content) {
                 // Simplification: Assume list items contain paragraphs
                 if (childNode.type === "paragraph") {
-                  const children = this.extractTextRunsFromNode(childNode);
+                  const children = this.extractTextRunsFromNode(childNode, citations, style, citationPolicy, commentsRef, usedCitationIds);
                   paragraphs.push(
                     new Paragraph({
                       children: children,
@@ -525,136 +869,53 @@ export class PublicationExportService {
           }
         }
       } else if ((node.type === "image" || node.type === "imageExtension") && node.attrs?.src) {
-        try {
-          const src = node.attrs.src;
-
-          // Skip Blob URLs - they cannot be resolved server-side
-          if (src.startsWith("blob:")) {
-            logger.warn("Skipping blob URL in export", { src });
-            continue; // Skip this node
-          }
-
-          logger.debug("Processing image for DOCX export", { src });
-
-          let data: Buffer | undefined;
-
-          if (src.startsWith("data:")) {
-            const matches = src.match(/^data:image\/([a-zA-Z+]+);base64,(.+)$/);
-            if (matches && matches.length === 3) {
-              const base64Data = matches[2];
-              data = Buffer.from(base64Data, "base64");
-            }
-          } else if (src.startsWith("http")) {
-            try {
-              // Add header to avoid basic blocking or request JSON if API
-              const response = await fetch(src, {
-                headers: { 'User-Agent': 'ColabWize-Export-Service' }
-              });
-
-              if (response.ok) {
-                const arrayBuffer = await response.arrayBuffer();
-                data = Buffer.from(arrayBuffer);
-              } else {
-                logger.warn("Failed to fetch image", { status: response.status, src });
-              }
-            } catch (e) {
-              logger.warn("Fetch failed", { error: e });
-            }
-          } else {
-            // Handle relative URLs
-            const appUrl = await SecretsService.getAppUrl();
-            const fullUrl = src.startsWith("/")
-              ? `${appUrl}${src}`
-              : `${appUrl}/${src}`;
-
-            try {
-              const response = await fetch(fullUrl);
-              if (response.ok) {
-                const arrayBuffer = await response.arrayBuffer();
-                data = Buffer.from(arrayBuffer);
-              }
-            } catch (err) {
-              logger.warn("Error fetching relative image URL", { error: err, fullUrl });
-            }
-          }
-
-          if (data && data.length > 100) {
-            // --- MAGIC BYTE VALIDATION ---
-            // Prevent embedding HTML (like 404 pages) or text as images, which crashes Word
-            let detectedType: "png" | "jpeg" | "gif" | "bmp" | "svg" | null = null;
-
-            // Check for PNG: 89 50 4E 47
-            if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47) {
-              detectedType = "png";
-            }
-            // Check for JPEG: FF D8 FF
-            else if (data[0] === 0xFF && data[1] === 0xD8 && data[2] === 0xFF) {
-              detectedType = "jpeg";
-            }
-            // Check for GIF: 47 49 46 38
-            else if (data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x38) {
-              detectedType = "gif";
-            }
-            // Check for BMP: 42 4D
-            else if (data[0] === 0x42 && data[1] === 0x4D) {
-              detectedType = "bmp";
-            }
-            // Check for simple SVG by starting tag (not perfect but catches most text-based SVGs)
-            // <svg (3c 73 76 67)
-            else if (data.toString('utf8').trim().startsWith('<svg')) {
-              detectedType = "svg";
-            }
-
-            if (!detectedType || detectedType === "svg") {
-              logger.warn("Invalid or unsupported image data detected (unknown signature or SVG), skipping to prevent corruption.", {
-                firstBytes: data.subarray(0, 8).toString('hex'),
-                detected: detectedType
-              });
-              continue;
-            }
-
-            // Respect user dimensions if available
-            const widthAttr = node.attrs.width;
-            const heightAttr = node.attrs.height;
-
-            const parseDim = (val: any) => {
-              const parsed = parseInt(String(val).replace("px", ""), 10);
-              return isNaN(parsed) || parsed <= 0 ? null : parsed;
-            };
-
-            const userWidth = parseDim(widthAttr);
-            const userHeight = parseDim(heightAttr);
-
-            const transformation: any = {
-              width: userWidth || 400,
-              height: userHeight || 300,
-            };
-
-            paragraphs.push(
-              new Paragraph({
-                children: [
-                  new ImageRun({
-                    data: data,
-                    transformation: transformation,
-                    type: detectedType as any,
-                    altText: node.attrs.alt || "Image", // Preserve alt text info
-                  }),
-                ],
-                spacing: { before: 240, after: 240 },
-                alignment:
-                  node.attrs.align === "center"
-                    ? AlignmentType.CENTER
-                    : node.attrs.align === "right"
-                      ? AlignmentType.RIGHT
-                      : AlignmentType.LEFT,
-              })
-            );
-          }
-        } catch (e: any) {
-          logger.warn("Failed to process image for DOCX export", { error: e.message });
+        // STRICT MODE: SKIP ALL IMAGES
+        if (DEBUG_FLAGS.SKIP_IMAGES) {
+          logger.debug("DEBUG MODE: Skipping image node");
+          paragraphs.push(new Paragraph({ text: "[IMAGE REMOVED IN DEBUG MODE]" }));
+          continue;
         }
-      } else if (node.type === "columns" || node.type === "columnLayout") {
-        // Handle multi-column layout
+
+        // CRITICAL: Validate image BEFORE creating ImageRun to prevent dangling relationships
+        const validatedImage = await this.validateAndFetchImage(node.attrs.src, node.attrs);
+
+        if (validatedImage === null) {
+          // Image validation failed - don't create paragraph or ImageRun at all
+          // This prevents dangling relationships in the DOCX package
+          logger.debug("Image validation failed, skipping image node entirely");
+          continue;
+        }
+
+        // Image is valid - create ImageRun (relationship will be created here)
+        paragraphs.push(
+          new Paragraph({
+            children: [
+              new ImageRun({
+                data: validatedImage.buffer,
+                transformation: validatedImage.dimensions,
+                type: validatedImage.format === "jpg" ? "jpeg" as any : validatedImage.format as any, // 🛑 CRITICAL FIX
+                // altText: node.attrs.alt || "Image", // REMOVED for safety
+              }),
+            ],
+            spacing: { before: 240, after: 240 },
+            alignment: node.attrs.align === "center"
+              ? AlignmentType.CENTER
+              : node.attrs.align === "right"
+                ? AlignmentType.RIGHT
+                : AlignmentType.LEFT,
+          })
+        );
+      } else if ((node.type === "columns" || node.type === "columnLayout") && !citationPolicy?.wordSafeMode) {
+        // STRICT MODE: SKIP COLUMNS
+        if (DEBUG_FLAGS.SKIP_COLUMNS) {
+          // Treating columns as simple paragraphs in strict mode to avoid complexity
+          // Fall through or just process content linearly? 
+          // For now, let's just skip the complex layout and extract content if possible, 
+          // or just skip to be safe. Let's just skip layout logic.
+          continue;
+        }
+
+        // Handle multi-column layout (DISABLED IN WORD-SAFE MODE)
         const numColumns = parseInt(node.attrs?.columns || "2", 10);
 
         if (node.content && node.content.length > 0) {
@@ -666,7 +927,7 @@ export class PublicationExportService {
             const columnCells = [];
             for (const column of node.content) {
               if (column.type === "column") {
-                const columnParagraphs = await this.convertTipTapToDOCXParagraphs(column);
+                const columnParagraphs = await this.convertTipTapToDOCXParagraphs(column, citations, style, citationPolicy, commentsRef);
                 columnCells.push(
                   new TableCell({
                     children: columnParagraphs.length > 0 ? columnParagraphs : [new Paragraph({ text: "" })],
@@ -688,7 +949,7 @@ export class PublicationExportService {
 
             for (let i = 0; i < items.length; i++) {
               const item = items[i];
-              const cellParagraphs = await this.convertTipTapToDOCXParagraphs({ content: [item] });
+              const cellParagraphs = await this.convertTipTapToDOCXParagraphs({ content: [item] }, citations, style, citationPolicy, commentsRef);
 
               currentRowCells.push(
                 new TableCell({
@@ -730,22 +991,30 @@ export class PublicationExportService {
           }
         }
       } else if (node.type === "table") {
+        // STRICT MODE: SKIP TABLES
+        if (DEBUG_FLAGS.SKIP_TABLES) {
+          logger.debug("DEBUG MODE: Skipping table node");
+          paragraphs.push(new Paragraph({ text: "[TABLE REMOVED IN DEBUG MODE]" }));
+          continue;
+        }
+
         // Handle table
         const tableRows = [];
         if (node.content) {
+          // Use maxCols from Normalizer to ensure rectangularity
+          const maxCols = node.attrs?.maxCols || 1;
+          const cellWidth = Math.floor(5000 / maxCols);
+
           for (const row of node.content) {
             if (row.type === "tableRow") {
               const cells = [];
               if (row.content) {
-                const colCount = row.content.length;
-                const cellWidth = Math.floor(5000 / Math.max(colCount, 1));
-
                 for (const cell of row.content) {
                   const isHeader = cell.type === "tableHeader";
                   const cellParagraphs = cell.content
                     ? cell.content.map((p: any) => {
                       if (p.type === "paragraph") {
-                        const children = this.extractTextRunsFromNode(p);
+                        const children = this.extractTextRunsFromNode(p, citations, style, citationPolicy, commentsRef, usedCitationIds);
                         return new Paragraph({
                           children: children,
                           alignment: isHeader
@@ -801,11 +1070,11 @@ export class PublicationExportService {
         }
       } else if (node.type === "figure") {
         // Handle figure (container)
-        const figureParagraphs = await this.convertTipTapToDOCXParagraphs(node);
+        const figureParagraphs = await this.convertTipTapToDOCXParagraphs(node, citations, style, citationPolicy, commentsRef, usedCitationIds);
         paragraphs.push(...figureParagraphs);
       } else if (node.type === "figcaption") {
         // Handle figcaption
-        const children = this.extractTextRunsFromNode(node);
+        const children = this.extractTextRunsFromNode(node, citations, style, citationPolicy, commentsRef, usedCitationIds);
         paragraphs.push(
           new Paragraph({
             children: children,
@@ -828,15 +1097,58 @@ export class PublicationExportService {
   /**
    * Extract styled TextRuns from a TipTap node
    */
-  private static extractTextRunsFromNode(node: any): any[] {
-    // Returns TextRun[]
-    const { TextRun } = require("docx"); // Delay import to avoid top-level issues if not needed
+  private static extractTextRunsFromNode(
+    node: any,
+    citations: any[] = [],
+    style: string = "apa",
+    citationPolicy?: any,
+    commentsRef: any[] = [],
+    usedCitationIds?: Set<string>
+  ): any[] {
+    const { TextRun } = require("docx");
     const runs: any[] = [];
+
+    // Check for violations in this node context
+    let violationCommentId: number | null = null;
+
+    // If citationPolicy.markUnsupportedClaims is true and we have violations:
+    if (citationPolicy?.markUnsupportedClaims && citationPolicy.violations && node.content) {
+      // Collect text content of this node for matching
+      const fullText = node.content.map((c: any) => PublicationExportService.sanitizeText(c.text || "")).join("");
+
+      // Find if this text contains any violation context
+      // Matching logic: simple substring check or fuzzy match on start
+      const violation = citationPolicy.violations.find((v: any) =>
+        v.context && fullText.includes(v.context.substring(0, 50))
+      );
+
+      if (violation) {
+        violationCommentId = commentsRef.length + 1;
+        commentsRef.push({
+          id: violationCommentId,
+          author: "Citation Audit",
+          date: new Date(),
+          children: [
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: PublicationExportService.sanitizeText(`[${violation.ruleId}] ${violation.message || "Potential citation issue detected."}`),
+                  bold: true,
+                }),
+              ],
+            }),
+          ],
+        });
+
+        // Add Start Range
+        runs.push(new CommentRangeStart(violationCommentId));
+      }
+    }
 
     if (node.content) {
       node.content.forEach((child: any) => {
         if (child.type === "text") {
-          let textContent = child.text || "";
+          let textContent = PublicationExportService.sanitizeText(child.text || "");
 
           // Normalize line endings and handle unicode paragraph/line separators
           textContent = textContent
@@ -874,14 +1186,65 @@ export class PublicationExportService {
           // Handle hard breaks (Shift+Enter)
           runs.push(new TextRun({ text: "", break: 1 }));
         } else if (child.type === "citation") {
-          // Handle inline citation node
-          // Assuming citation node has attrs.label or similar
-          const label = child.attrs?.label || child.attrs?.text || "[Citation]";
-          runs.push(new TextRun({ text: label }));
+          // Handle inline citation node (Semantic)
+          const citationId = child.attrs?.citationId;
+          const fallback = PublicationExportService.sanitizeText(child.attrs?.fallback || "[Citation]");
+
+          if (citationId && citations.length > 0) {
+            if (usedCitationIds) usedCitationIds.add(citationId);
+            const citationData = citations.find(c => c.id === citationId);
+            if (citationData) {
+              const inText = this.formatInTextCitation(citationData, style);
+              runs.push(new TextRun({ text: inText, bold: child.marks?.some((m: any) => m.type === "bold"), italics: child.marks?.some((m: any) => m.type === "italic") }));
+            } else {
+              runs.push(new TextRun({ text: fallback, color: "FF0000" })); // Red for missing ref?
+            }
+          } else {
+            runs.push(new TextRun({ text: fallback }));
+          }
         }
       });
     }
+
+    // Add End Range if comment was started
+    if (violationCommentId !== null) {
+      runs.push(new CommentRangeEnd(violationCommentId));
+      runs.push(new CommentReference(violationCommentId)); // Visual marker
+    }
+
     return runs;
+  }
+
+  /**
+   * Format in-text citation (e.g., "(Smith, 2023)")
+   */
+  private static formatInTextCitation(citation: any, style: string): string {
+    const authors = Array.isArray(citation.authors) ? citation.authors : [citation.author || "Unknown"];
+    const year = citation.year || "n.d.";
+
+    // Get last name of first author
+    const firstAuthor = authors[0] || "Unknown";
+    let authorText = typeof firstAuthor === 'string' ? firstAuthor : (firstAuthor.lastName || firstAuthor.firstName || "Unknown");
+
+    if (authors.length > 2) {
+      authorText += " et al.";
+    } else if (authors.length === 2) {
+      const secondAuthor = authors[1];
+      const secondAuthorText = typeof secondAuthor === 'string' ? secondAuthor : (secondAuthor.lastName || "Unknown");
+      authorText += ` & ${secondAuthorText}`;
+    }
+
+    if (style === "apa") {
+      return `(${authorText}, ${year})`;
+    } else if (style === "mla") {
+      return `(${authorText})`;
+    } else if (style === "ieee") {
+      // In a real IEEE export, we would need the citation index. 
+      // For now, let's use the author/year format as a readable placeholder until we implement ordering.
+      return `[${authorText}, ${year}]`;
+    }
+
+    return `(${authorText}, ${year})`;
   }
 
   /**

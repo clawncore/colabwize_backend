@@ -4,77 +4,30 @@
     {
       "type": "heading",
       "attrs": {
-        "level": 2,
+        "level": 1,
         "textAlign": null
       },
       "content": [
         {
-          "text": "The Evolution of Artificial Intelligence in Modern Society",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Artificial intelligence (AI) has rapidly transitioned from a theoretical discipline(Nils J. Nilsson, 1996) to a core component of modern technological infrastructure ",
+          "text": "HIV/AIDS: Epidemiology, Pathogenesis, and Current Management",
           "type": "text"
         },
         {
-          "text": "[1]",
-          "type": "text",
-          "marks": [
-            {
-              "type": "citation-highlight",
-              "attrs": {
-                "type": "Style Rule",
-                "color": "amber",
-                "ruleId": "APA_INVALID_NUMERIC",
-                "message": "APA style requires parenthetical citations (Author, Year), not numeric brackets.",
-                "expected": "(Author, Year)",
-                "badgeCode": "STY",
-                "similarity": 0,
-                "aiProbability": 0
-              }
-            }
-          ]
-        },
-        {
-          "text": ". Early conceptual models proposed by Turing laid the groundwork for what would later become machine intelligence (Turing, 19244).",
-          "type": "text"
+          "type": "hardBreak"
         }
       ]
     },
     {
-      "type": "paragraph",
+      "type": "imageExtension",
       "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "In recent decades, AI systems have been integrated into healthcare, finance, transportation, and governance. According to Smith¹, diagnostic algorithms now outperform human clinicians in several narrowly defined tasks. These developments have raised ethical and regulatory concerns that must be addressed systematically.(Stuart Russell et al., 1995)",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Several scholars argue that the adoption of AI must be guided by transparent policy frameworks (Johnson 45). However, others contend that excessive regulation may stifle innovation (Brown, 2019).",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "horizontalRule"
+        "alt": "q6couc3japj.png",
+        "src": "https://bdfdfvwhwrtllcdhzfrc.supabase.co/storage/v1/object/public/uploads/7598b91f-b4dc-47a7-9b63-0bd6f3b6bf3d/temp-project-id/6a9eaa8f-c510-4cfd-9515-8f64303dcd4c.png",
+        "align": "center",
+        "title": null,
+        "width": null,
+        "height": null,
+        "rotate": 0
+      }
     },
     {
       "type": "heading",
@@ -84,26 +37,7 @@
       },
       "content": [
         {
-          "text": "[1]",
-          "type": "text",
-          "marks": [
-            {
-              "type": "citation-highlight",
-              "attrs": {
-                "type": "Style Rule",
-                "color": "amber",
-                "ruleId": "APA_INVALID_NUMERIC",
-                "message": "APA style requires parenthetical citations (Author, Year), not numeric brackets.",
-                "expected": "(Author, Year)",
-                "badgeCode": "STY",
-                "similarity": 0,
-                "aiProbability": 0
-              }
-            }
-          ]
-        },
-        {
-          "text": "Artificial Intelligence in Healthcare",
+          "text": "Abstract",
           "type": "text"
         }
       ]
@@ -115,30 +49,35 @@
       },
       "content": [
         {
-          "text": "The healthcare sector has been one of the most aggressive adopters of AI-based tools. Clinical decision support systems are now used extensively in radiology, oncology, and pathology ",
+          "text": "Human Immunodeficiency Virus (HIV) remains a major global public health challenge despite significant advances in prevention and treatment. HIV targets the immune system, specifically CD4⁺ T lymphocytes, leading to progressive immune dysfunction and, if untreated, Acquired Immunodeficiency Syndrome (AIDS). This paper provides a concise overview of HIV epidemiology, disease mechanisms, and current therapeutic strategies.",
           "type": "text"
         },
         {
-          "text": "[2]",
-          "type": "text",
-          "marks": [
-            {
-              "type": "citation-highlight",
-              "attrs": {
-                "type": "Style Rule",
-                "color": "amber",
-                "ruleId": "APA_INVALID_NUMERIC",
-                "message": "APA style requires parenthetical citations (Author, Year), not numeric brackets.",
-                "expected": "(Author, Year)",
-                "badgeCode": "STY",
-                "similarity": 0,
-                "aiProbability": 0
-              }
-            }
-          ]
-        },
+          "type": "hardBreak"
+        }
+      ]
+    },
+    {
+      "type": "imageExtension",
+      "attrs": {
+        "alt": "Image from URL",
+        "src": "https://www.aidsmap.com/sites/default/files/styles/aidsmap_medium_crop/public/2023-02/hiv-virus-2_0.png?itok=arcGOi9U",
+        "align": "center",
+        "title": null,
+        "width": null,
+        "height": null,
+        "rotate": 0
+      }
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
         {
-          "text": ". Studies conducted in Europe suggest a statistically significant improvement in patient outcomes (Müller, 2021).",
+          "text": "Introduction",
           "type": "text"
         }
       ]
@@ -150,36 +89,17 @@
       },
       "content": [
         {
-          "text": "In one large-scale study, researchers demonstrated that convolutional neural networks could identify malignant  with an accuracy exceeding 94%¹. Similar findings were reported in a longitudinal analysis conducted across five hospitals (Lee et al., 2020).",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Despite these advancements, ethical challenges remain unresolved. The question of accountability in algorithmic decision-making has been widely debated in academic literature ",
+          "text": "HIV is a retrovirus transmitted primarily through unprotected sexual contact, blood exposure, and vertical transmission from mother to child. Since its identification in the early 1980s, HIV has caused millions of deaths worldwide. According to World Health Organization, approximately 39 million people were living with HIV globally in 2022, highlighting the continued burden of the disease ",
           "type": "text"
         },
         {
-          "text": "[3]",
+          "text": "(WHO, 2023)",
           "type": "text",
           "marks": [
             {
-              "type": "citation-highlight",
+              "type": "citation",
               "attrs": {
-                "type": "Style Rule",
-                "color": "amber",
-                "ruleId": "APA_INVALID_NUMERIC",
-                "message": "APA style requires parenthetical citations (Author, Year), not numeric brackets.",
-                "expected": "(Author, Year)",
-                "badgeCode": "STY",
-                "similarity": 0,
-                "aiProbability": 0
+                "citationId": "b11996e6-84ab-4442-ad07-24795c8118f6"
               }
             }
           ]
@@ -191,9 +111,6 @@
       ]
     },
     {
-      "type": "horizontalRule"
-    },
-    {
       "type": "heading",
       "attrs": {
         "level": 2,
@@ -201,7 +118,7 @@
       },
       "content": [
         {
-          "text": "Ethical and Social Implications",
+          "text": "Pathogenesis",
           "type": "text"
         }
       ]
@@ -213,36 +130,17 @@
       },
       "content": [
         {
-          "text": "Ethical considerations surrounding AI extend beyond healthcare. Surveillance systems powered by facial recognition technology have raised concerns regarding privacy and civil liberties (Garcia, 2018). According to recent policy analyses, such systems may disproportionately affect marginalized populations¹.",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Some ethicists advocate for a precautionary approach, emphasizing the importance of human oversight in automated systems (Williams 112). Others argue that technological neutrality should be preserved, allowing innovation to proceed without excessive moral constraints ",
+          "text": "HIV infection begins with viral entry into host cells via the CD4 receptor and co-receptors CCR5 or CXCR4. The virus integrates its genetic material into the host genome, enabling persistent infection. Progressive depletion of CD4⁺ T cells impairs immune responses, increasing susceptibility to opportunistic infections and malignancies. Without treatment, this immunodeficiency culminates in AIDS ",
           "type": "text"
         },
         {
-          "text": "[4]",
+          "text": "(Gallo, 2006)",
           "type": "text",
           "marks": [
             {
-              "type": "citation-highlight",
+              "type": "citation",
               "attrs": {
-                "type": "Style Rule",
-                "color": "amber",
-                "ruleId": "APA_INVALID_NUMERIC",
-                "message": "APA style requires parenthetical citations (Author, Year), not numeric brackets.",
-                "expected": "(Author, Year)",
-                "badgeCode": "STY",
-                "similarity": 0,
-                "aiProbability": 0
+                "citationId": "b11996e6-84ab-4442-ad07-24795c8118f6"
               }
             }
           ]
@@ -250,11 +148,229 @@
         {
           "text": ".",
           "type": "text"
+        },
+        {
+          "type": "hardBreak"
         }
       ]
     },
     {
-      "type": "horizontalRule"
+      "type": "table",
+      "content": [
+        {
+          "type": "tableRow",
+          "content": [
+            {
+              "type": "tableHeader",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "ethtrh",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableHeader",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "ryhty",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableHeader",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "thymjt",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "tableRow",
+          "content": [
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "tyjtyjryj",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "ryhrfyjryj",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "ryjyrjry",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "tableRow",
+          "content": [
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "ryjryjryj",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "rtjryjryj",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {
+                "colspan": 1,
+                "rowspan": 1,
+                "colwidth": null
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "textAlign": null
+                  },
+                  "content": [
+                    {
+                      "text": "ryjryjryj",
+                      "type": "text"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "type": "heading",
@@ -264,7 +380,7 @@
       },
       "content": [
         {
-          "text": "Governance and Regulation of AI Systems",
+          "text": "Treatment and Prevention",
           "type": "text"
         }
       ]
@@ -276,48 +392,41 @@
       },
       "content": [
         {
-          "text": "Governments worldwide have begun implementing regulatory frameworks aimed at controlling the deployment of AI technologies. The European Union’s Artificial Intelligence Act represents one of the most comprehensive legislative efforts to date (European Commission, 2021).",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "In contrast, regulatory approaches in the United States remain fragmented, with oversight distributed across multiple agencies ",
+          "text": "The introduction of combination antiretroviral therapy (ART) has transformed HIV from a fatal disease into a manageable chronic condition. ART suppresses viral replication, restores immune function, and significantly reduces transmission risk. Preventive strategies include pre-exposure prophylaxis (PrEP), safe blood practices, and widespread testing initiatives promoted by UNAIDS ",
           "type": "text"
         },
         {
-          "text": "[5]",
+          "text": "(UNAIDS, 2023)",
           "type": "text",
           "marks": [
             {
-              "type": "citation-highlight",
+              "type": "citation",
               "attrs": {
-                "type": "Style Rule",
-                "color": "amber",
-                "ruleId": "APA_INVALID_NUMERIC",
-                "message": "APA style requires parenthetical citations (Author, Year), not numeric brackets.",
-                "expected": "(Author, Year)",
-                "badgeCode": "STY",
-                "similarity": 0,
-                "aiProbability": 0
+                "citationId": "b11996e6-84ab-4442-ad07-24795c8118f6"
               }
             }
           ]
         },
         {
-          "text": ". Scholars note that this lack of coordination may hinder effective governance (Anderson, 2022).",
+          "text": ".",
           "type": "text"
+        },
+        {
+          "type": "hardBreak"
         }
       ]
     },
     {
-      "type": "horizontalRule"
+      "type": "imageExtension",
+      "attrs": {
+        "alt": "Image from URL",
+        "src": "https://morgridge.org/wp-content/uploads/hiv-particle.png",
+        "align": "center",
+        "title": null,
+        "width": null,
+        "height": null,
+        "rotate": 0
+      }
     },
     {
       "type": "heading",
@@ -339,7 +448,7 @@
       },
       "content": [
         {
-          "text": "Artificial intelligence continues to reshape multiple dimensions of human society. While its benefits are undeniable, the ethical, legal, and social challenges it presents require careful consideration. Future research must prioritize interdisciplinary collaboration to ensure that AI systems are developed and deployed responsibly (Smith 88).",
+          "text": "Although HIV/AIDS remains incurable, sustained global efforts in treatment, prevention, and education have dramatically reduced HIV-related morbidity and mortality. Continued research and equitable access to care are essential to achieving long-term control and eventual eradication of the disease.",
           "type": "text"
         }
       ]
@@ -355,178 +464,7 @@
       },
       "content": [
         {
-          "text": "References",
-          "type": "text"
-        }
-      ]
-    },
-    {
-      "type": "orderedList",
-      "attrs": {
-        "type": null,
-        "start": 1
-      },
-      "content": [
-        {
-          "type": "listItem",
-          "content": [
-            {
-              "type": "paragraph",
-              "attrs": {
-                "textAlign": null
-              },
-              "content": [
-                {
-                  "text": "Smith, John. ",
-                  "type": "text"
-                },
-                {
-                  "text": "Artificial Intelligence in Medicine",
-                  "type": "text",
-                  "marks": [
-                    {
-                      "type": "italic"
-                    }
-                  ]
-                },
-                {
-                  "text": ". New York: , 2020.",
-                  "type": "text"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "listItem",
-          "content": [
-            {
-              "type": "paragraph",
-              "attrs": {
-                "textAlign": null
-              },
-              "content": [
-                {
-                  "text": "Lee, Kevin, Maria Gonzalez, and Ahmed Khan. “Deep Learning in Radiology.” ",
-                  "type": "text"
-                },
-                {
-                  "text": "Journal of Medical Imaging",
-                  "type": "text",
-                  "marks": [
-                    {
-                      "type": "italic"
-                    }
-                  ]
-                },
-                {
-                  "text": " 12, no. 4 (2020): 233–247.",
-                  "type": "text"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "listItem",
-          "content": [
-            {
-              "type": "paragraph",
-              "attrs": {
-                "textAlign": null
-              },
-              "content": [
-                {
-                  "text": "Brown, Alice. “Algorithmic Accountability.” ",
-                  "type": "text"
-                },
-                {
-                  "text": "Technology and Ethics Review",
-                  "type": "text",
-                  "marks": [
-                    {
-                      "type": "italic"
-                    }
-                  ]
-                },
-                {
-                  "text": ", 2019.",
-                  "type": "text"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "listItem",
-          "content": [
-            {
-              "type": "paragraph",
-              "attrs": {
-                "textAlign": null
-              },
-              "content": [
-                {
-                  "text": "Williams, Sarah. ",
-                  "type": "text"
-                },
-                {
-                  "text": "Ethics and Automation",
-                  "type": "text",
-                  "marks": [
-                    {
-                      "type": "italic"
-                    }
-                  ]
-                },
-                {
-                  "text": ". London: Routledge, 2018.",
-                  "type": "text"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "listItem",
-          "content": [
-            {
-              "type": "paragraph",
-              "attrs": {
-                "textAlign": null
-              },
-              "content": [
-                {
-                  "text": "European Commission. ",
-                  "type": "text"
-                },
-                {
-                  "text": "Proposal for a Regulation on Artificial Intelligence",
-                  "type": "text",
-                  "marks": [
-                    {
-                      "type": "italic"
-                    }
-                  ]
-                },
-                {
-                  "text": ". Brussels, 2021.",
-                  "type": "text"
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
-      "content": [
-        {
-          "text": "Nils J. Nilsson (1996). Artificial intelligence: A modern approach. .",
+          "text": "References ",
           "type": "text"
         }
       ]
@@ -538,24 +476,49 @@
       },
       "content": [
         {
-          "text": "Stuart Russell, Peter Norvig, Dr. Haewon Byeon, & Prof. Ganesh Vasudeo Manerkar (1995). Artificial intelligence: a modern approach.",
+          "text": "Gallo, R. C. ",
           "type": "text"
         },
         {
-          "text": "[1]",
+          "text": "(2006)",
           "type": "text",
           "marks": [
             {
-              "type": "citation-highlight",
+              "type": "citation",
               "attrs": {
-                "type": "Style Rule",
-                "color": "amber",
-                "ruleId": "APA_INVALID_NUMERIC",
-                "message": "APA style requires parenthetical citations (Author, Year), not numeric brackets.",
-                "expected": "(Author, Year)",
-                "badgeCode": "STY",
-                "similarity": 0,
-                "aiProbability": 0
+                "citationId": "b11996e6-84ab-4442-ad07-24795c8118f6"
+              }
+            }
+          ]
+        },
+        {
+          "text": ". A reflection on HIV/AIDS research after 25 years. ",
+          "type": "text"
+        },
+        {
+          "text": "Retrovirology",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", 3, 72. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1186/1742-4690-3-72",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1186/1742-4690-3-72",
+                "class": null,
+                "target": "_blank"
               }
             }
           ]
@@ -569,27 +532,108 @@
       },
       "content": [
         {
-          "text": "[1]",
+          "text": "UNAIDS. ",
+          "type": "text"
+        },
+        {
+          "text": "(2023)",
           "type": "text",
           "marks": [
             {
-              "type": "citation-highlight",
+              "type": "citation",
               "attrs": {
-                "type": "Style Rule",
-                "color": "amber",
-                "ruleId": "APA_INVALID_NUMERIC",
-                "message": "APA style requires parenthetical citations (Author, Year), not numeric brackets.",
-                "expected": "(Author, Year)",
-                "badgeCode": "STY",
-                "similarity": 0,
-                "aiProbability": 0
+                "citationId": "b11996e6-84ab-4442-ad07-24795c8118f6"
               }
             }
           ]
         },
         {
-          "text": " Michael Rayment, \"Prevention of HIV-1 infection with early antiretroviral therapy,\" 2011.",
+          "text": ". ",
           "type": "text"
+        },
+        {
+          "text": "Global HIV & AIDS statistics — Fact sheet",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ". ",
+          "type": "text"
+        },
+        {
+          "text": "https://www.unaids.org",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://www.unaids.org",
+                "class": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "World Health Organization. ",
+          "type": "text"
+        },
+        {
+          "text": "(2023)",
+          "type": "text",
+          "marks": [
+            {
+              "type": "citation",
+              "attrs": {
+                "citationId": "b11996e6-84ab-4442-ad07-24795c8118f6"
+              }
+            }
+          ]
+        },
+        {
+          "text": ". ",
+          "type": "text"
+        },
+        {
+          "text": "HIV/AIDS",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ". ",
+          "type": "text"
+        },
+        {
+          "text": "https://www.who.int",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://www.who.int",
+                "class": null,
+                "target": "_blank"
+              }
+            }
+          ]
         }
       ]
     }

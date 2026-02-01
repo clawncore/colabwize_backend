@@ -10,6 +10,8 @@ export interface CitationPair {
         end: number;
         patternType: string;
         context?: string;
+        citationId?: string; // [NEW] Link to normalization key
+        normalizationStatus?: "resolved" | "ambiguous" | "unresolved"; // [NEW]
     };
     reference: {
         rawText: string;
@@ -26,28 +28,41 @@ export interface CitationPair {
  */
 export class CitationMatcher {
     /**
-     * Match inline citations to reference entries based on citation style
+     * Match inline citations to reference entries based on citation style and normalization
      */
     static matchCitations(
         inlineCitations: ExtractedPattern[],
         referenceEntries: ReferenceEntry[],
-        style: CitationStyle
+        style: CitationStyle,
+        citationLibrary?: Record<string, any>
     ): CitationPair[] {
         const pairs: CitationPair[] = [];
 
         for (const inline of inlineCitations) {
             let matchedReferences: ReferenceEntry[] = [];
 
-            if (style === "IEEE") {
-                // IEEE: Match by number [1], [2], [1-3], etc.
-                matchedReferences = this.matchIEEE(inline, referenceEntries);
-            } else if (style === "APA" || style === "MLA") {
-                // APA/MLA: Match by author and year
-                const match = this.matchAuthorYear(inline, referenceEntries);
+            // 🛡️ TIER 1 RULE: If normalization provided a key, use it to find the reference.
+            if (inline.citationId && citationLibrary && citationLibrary[inline.citationId]) {
+                const metadata = citationLibrary[inline.citationId];
+                console.log(`🔍 [Forensic Match] Using normalization for ${inline.citationId}`);
+
+                // Try to find the reference in the bibliography that matches this metadata
+                const match = this.matchByMetadata(metadata, referenceEntries);
                 if (match) matchedReferences.push(match);
             }
 
-            // If no match found, we still want to track the inline citation as UNMATCHED
+            // Fallback to style-based matching if no normalization match was found
+            // (Only for unresolved or legacy nodes)
+            if (matchedReferences.length === 0 && (!inline.citationId || inline.normalizationStatus === "unresolved")) {
+                if (style === "IEEE") {
+                    matchedReferences = this.matchIEEE(inline, referenceEntries);
+                } else if (style === "APA" || style === "MLA" || style === "Chicago") {
+                    const match = this.matchAuthorYear(inline, referenceEntries);
+                    if (match) matchedReferences.push(match);
+                }
+            }
+
+            // Always acknowledge the existence of a normalized node even if it has no reference
             if (matchedReferences.length === 0) {
                 pairs.push({
                     inline: {
@@ -56,21 +71,13 @@ export class CitationMatcher {
                         end: inline.end,
                         patternType: inline.patternType,
                         context: inline.context,
+                        citationId: inline.citationId,
+                        normalizationStatus: inline.normalizationStatus
                     },
                     reference: null,
                 });
             } else {
-                // Create a pair for EACH matched reference
                 for (const ref of matchedReferences) {
-                    const referenceData = {
-                        rawText: ref.rawText,
-                        index: ref.index,
-                        extractedTitle: this.extractTitle(ref.rawText) || undefined,
-                        extractedAuthor: this.extractAuthor(ref.rawText) || undefined,
-                        extractedYear: this.extractYear(ref.rawText) || undefined,
-                        extractedDOI: this.extractDOI(ref.rawText) || undefined,
-                    };
-
                     pairs.push({
                         inline: {
                             text: inline.text,
@@ -78,16 +85,47 @@ export class CitationMatcher {
                             end: inline.end,
                             patternType: inline.patternType,
                             context: inline.context,
+                            citationId: inline.citationId,
+                            normalizationStatus: inline.normalizationStatus
                         },
-                        reference: referenceData,
+                        reference: {
+                            rawText: ref.rawText,
+                            index: ref.index,
+                            extractedTitle: this.extractTitle(ref.rawText) || undefined,
+                            extractedAuthor: this.extractAuthor(ref.rawText) || undefined,
+                            extractedYear: this.extractYear(ref.rawText) || undefined,
+                            extractedDOI: this.extractDOI(ref.rawText) || undefined,
+                        },
                     });
                 }
             }
         }
 
-        // Deduplicate pairs if needed? 
-        // No, if [1-3] generates 1, 2, 3, we want 3 pairs.
         return pairs;
+    }
+
+    /**
+     * Match a reference entry by metadata (Author, Year, Title)
+     */
+    private static matchByMetadata(metadata: any, references: ReferenceEntry[]): ReferenceEntry | null {
+        const author = metadata.author?.toLowerCase() || metadata.authors?.toLowerCase();
+        const year = metadata.year?.toString();
+        const title = metadata.title?.toLowerCase();
+
+        return references.find(ref => {
+            const refText = ref.rawText.toLowerCase();
+
+            // Strong match: Title inclusion
+            if (title && title.length > 10 && refText.includes(title)) return true;
+
+            // Standard match: Author + Year
+            if (author && year) {
+                const authorSnippet = author.split(/[ ,&]/)[0]; // First author name
+                return refText.includes(authorSnippet) && refText.includes(year);
+            }
+
+            return false;
+        }) || null;
     }
 
     /**

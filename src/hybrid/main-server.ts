@@ -10,6 +10,7 @@ import { authenticateExpressRequest } from "../middleware/auth";
 import { RecycleBinService } from "../services/recycleBinService";
 import { SecretsService } from "../services/secrets-service";
 import { initializePrisma } from "../lib/prisma-async";
+import { apiLimiter, authLimiter, uploadLimiter } from "../middleware/rateLimiter";
 
 // Import routers
 import authRouter from "../api/auth/index";
@@ -100,6 +101,10 @@ app.use(express.json({
     req.rawBody = buf;
   }
 }));
+
+// Apply Global API Rate Limiter
+// Stops generic abuse/scraping
+app.use(apiLimiter);
 
 // Debug middleware
 // Request Instrumentation Middleware
@@ -231,7 +236,7 @@ app.get("/debug/libreoffice", (req, res) => {
 const authMiddleware = authenticateExpressRequest;
 
 // Auth API (No authentication required for login/register)
-app.use("/api/auth", authRouter);
+app.use("/api/auth", authLimiter, authRouter);
 
 // Survey API (Authentication required)
 app.use("/api/survey", authMiddleware, surveyRouter);
@@ -258,13 +263,13 @@ app.use("/api/analytics", authMiddleware, analyticsRouter);
 app.use("/api/subscription", subscriptionRouter);
 
 // Document Upload API (MVP Core Feature)
-app.use("/api/documents", authMiddleware, documentUploadRouter);
+app.use("/api/documents", authMiddleware, uploadLimiter, documentUploadRouter);
 
 // File Processing API (Import/Export)
 app.use("/api/files", authMiddleware, fileProcessingRouter);
 
 // Images API (Upload to Supabase)
-app.use("/api/images", authMiddleware, imageRouter);
+app.use("/api/images", authMiddleware, uploadLimiter, imageRouter);
 
 // Behavioral Tracking API
 app.use("/api/behavioral-tracking", authMiddleware, behavioralTrackingRouter);

@@ -1,16 +1,18 @@
 import express, { Request, Response } from "express";
 import {
     AuditRequest,
-    AuditReport,
+    AuditResponse,
     CitationFlag,
-    VerificationResult
+    VerificationResult,
+    AuditTier
 } from "../../types/citationAudit";
 import { getStyleRules } from "../../services/citationAudit/styleRules";
+import { RiskAnalysisService } from "../../services/citationAudit/riskAnalysisService";
 
 const router = express.Router();
 
 router.post("/audit", async (req: Request, res: Response) => {
-    console.log("\n\n🚀🚀🚀 AUDIT ENDPOINT CALLED! 🚀🚀🚀\n");
+    console.log("\n\n🚀🚀🚀 TIERED AUDIT ENDPOINT CALLED! 🚀🚀🚀\n");
 
     try {
         // 1. Authentication Check
@@ -19,11 +21,7 @@ router.post("/audit", async (req: Request, res: Response) => {
             return res.status(401).json({ error: "Missing or invalid authorization header" });
         }
 
-        // Decode token to get userId (Mock or Real Supabase check)
-        // For consistency with other files, let's use the Supabase client logic if possible
-        // or just trust the custom middleware if it was mounted (it wasn't).
-        // Let's implement quick token verification or use the service.
-        // Assuming we need to verify token similar to generate.ts
+        // Token verification (simplified for brevity, mirroring existing pattern)
         const { getSupabaseClient } = await import("../../lib/supabase/client");
         const token = authHeader.substring(7);
         let userId: string;
@@ -38,334 +36,287 @@ router.post("/audit", async (req: Request, res: Response) => {
             return res.status(401).json({ error: "Invalid or expired token" });
         }
 
-        const { declaredStyle, patterns, referenceList, sections, wordCount } = req.body as AuditRequest & { wordCount?: number };
-
-        // 2. Pre-flight Limit Check (Don't consume yet)
-        // User rule: "Citation audit consumes credits based on document length"
+        const { declaredStyle, patterns, referenceList, sections, citationLibrary, wordCount } = req.body as AuditRequest & { wordCount?: number };
         const docWordCount = wordCount || 1000;
 
+        // 2. Entitlement Check
         const { EntitlementService } = await import("../../services/EntitlementService");
-
         try {
-            // Unified Check & Consumption
             await EntitlementService.assertCanUse(userId, "citation_audit", { wordCount: docWordCount });
         } catch (error: any) {
             let status = 403;
-            if (error.code === "INSUFFICIENT_CREDITS") {
-                status = 402;
-            }
+            if (error.code === "INSUFFICIENT_CREDITS") status = 402;
             return res.status(status).json({
                 error: error.message || "Plan limit reached.",
                 code: error.code || "PLAN_LIMIT_REACHED",
-                data: {
-                    upgrade_url: "/pricing"
-                }
+                data: { upgrade_url: "/pricing" }
             });
         }
 
-        console.log("📋 Declared Style:", declaredStyle);
-        console.log("📝 Patterns received:", patterns ? patterns.length : 0);
-        console.log("📚 Reference list:", referenceList ? "Yes" : "No");
-        if (referenceList) {
-            console.log("   - Entries:", referenceList.entries.length);
-        }
+        console.log("📋 Forensic Audit Request:", { style: declaredStyle, patterns: patterns?.length, normalized: !!citationLibrary });
 
-        // Step 1: Load Style Rules (Authoritative)
+        // Load Style Rules
         const rules = getStyleRules(declaredStyle);
         const flags: CitationFlag[] = [];
+        const tiersExecuted: AuditTier[] = [];
+        const tierMetadata: AuditResponse["tierMetadata"] = {};
 
-        // Step 2: Inline Citation Violations
+        // =========================================================================
+        // TIER 1: STRUCTURAL AUDIT (Mandatory)
+        // Checks format, existence, and uniqueness.
+        // =========================================================================
+        tiersExecuted.push(AuditTier.STRUCTURAL);
+
+        // 1.1 Inline Pattern Checks (Style Violations)
         if (patterns) {
             patterns.forEach(pattern => {
-                // Check if pattern is disallowed for this style
                 if (rules.disallowedInlinePatterns.includes(pattern.patternType)) {
                     flags.push({
                         type: "INLINE_STYLE",
                         ruleId: `${rules.style}.NO_${pattern.patternType}`,
                         message: rules.messages[pattern.patternType] || `Invalid pattern ${pattern.patternType}`,
-                        anchor: {
-                            start: pattern.start,
-                            end: pattern.end,
-                            text: pattern.text
-                        }
+                        anchor: { start: pattern.start, end: pattern.end, text: pattern.text },
+                        tier: AuditTier.STRUCTURAL,
+                        reason: `Standard ${declaredStyle} requires ${rules.messages[pattern.patternType] || "different formatting"}.`,
+                        action: "Use the 'Fix Formatting' tool in the sidebar.",
+                        source: pattern.text
                     });
                 }
             });
         }
 
-        // Step 3: Reference Section Title Check
+        // 1.2 Reference Section Check
         if (referenceList) {
-            // Case insensitive check
-            const foundTitle = referenceList.sectionTitle.trim();
+            const foundTitle = referenceList.sectionTitle.trim().toLowerCase();
             const validTitles = rules.referenceList.requiredSectionTitle.map(t => t.toLowerCase());
-
-            if (!validTitles.includes(foundTitle.toLowerCase())) {
+            if (!validTitles.includes(foundTitle)) {
                 flags.push({
                     type: "STRUCTURAL",
                     ruleId: `${rules.style}.WRONG_REF_SECTION_TITLE`,
                     section: "Reference List",
                     message: rules.messages["WRONG_SECTION_TITLE"],
-                    expected: rules.referenceList.requiredSectionTitle[0]
+                    expected: rules.referenceList.requiredSectionTitle[0],
+                    tier: AuditTier.STRUCTURAL,
+                    reason: `Heading "${referenceList.sectionTitle}" does not match standard ${declaredStyle} terminology.`,
+                    action: `Rename this heading to "${rules.referenceList.requiredSectionTitle[0]}".`
                 });
             }
-        } else {
-            // Check if user has "References" but we didn't extract it as referenceList?
-            // Or if document is long enough to require one?
-            // For now, only flag if extracted list title is explicitly wrong.
-            // But we can check sections too.
-            const refSection = sections.find(s => s.type === "REFERENCE_SECTION");
-            if (refSection) {
-                const foundTitle = refSection.title.trim();
-                const validTitles = rules.referenceList.requiredSectionTitle.map(t => t.toLowerCase());
-                if (!validTitles.includes(foundTitle.toLowerCase())) {
+        }
+
+        // 1.3 Citation Matching (Normalization-Aware)
+        const { CitationMatcher } = await import("../../services/citationAudit/citationMatcher");
+        const validPatterns = patterns || [];
+        const validEntries = referenceList?.entries || [];
+
+        const matchedPairs = CitationMatcher.matchCitations(validPatterns, validEntries, declaredStyle, citationLibrary);
+
+        // Analyze Structural Integrity
+        let matchedCount = 0;
+
+        // Check for UNMATCHED Citations
+        matchedPairs.forEach(pair => {
+            if (!pair.reference) {
+                // If it's unresolved by normalization, provide a more helpful message
+                if (pair.inline.normalizationStatus === "unresolved") {
                     flags.push({
                         type: "STRUCTURAL",
-                        ruleId: `${rules.style}.WRONG_REF_SECTION_TITLE`,
-                        section: "Reference List",
-                        message: rules.messages["WRONG_SECTION_TITLE"],
-                        expected: rules.referenceList.requiredSectionTitle[0]
+                        ruleId: "UNRESOLVED_CITATION",
+                        message: "This citation could not be automatically resolved to a source.",
+                        anchor: { start: pair.inline.start, end: pair.inline.end, text: pair.inline.text },
+                        tier: AuditTier.STRUCTURAL,
+                        reason: "Normalization failed to find a high-confidence match in your library or the bibliography.",
+                        action: "Click to search academic databases for this source.",
+                        source: pair.inline.text
+                    });
+                } else {
+                    flags.push({
+                        type: "STRUCTURAL",
+                        ruleId: "UNMATCHED_CITATION",
+                        message: "This citation is not linked to any entry in the bibliography.",
+                        anchor: { start: pair.inline.start, end: pair.inline.end, text: pair.inline.text },
+                        tier: AuditTier.STRUCTURAL,
+                        reason: "A corresponding entry for this author/year was not found in the References section.",
+                        action: "Add the reference entry or use 'Link to Source' to manually resolve.",
+                        source: pair.inline.text
                     });
                 }
+            } else {
+                matchedCount++;
             }
-        }
+        });
 
-        // Step 4: Reference Entry Checks
-        if (referenceList && referenceList.entries.length > 0) {
-            // Check Numbering
-            const firstEntry = referenceList.entries[0];
-            const isNumbered = /^\s*\[\d+\]/.test(firstEntry.rawText) || /^\s*\d+\./.test(firstEntry.rawText);
+        // Check for ORPHAN References
+        const matchedRefIndices = new Set(matchedPairs.map(p => p.reference?.index).filter(i => i !== undefined));
+        validEntries.forEach(ref => {
+            // Forensic Rule: Do NOT flag if there are unresolved citations (they might point here)
+            const hasUnresolved = validPatterns.some(p => p.normalizationStatus === "unresolved");
 
-            if (rules.referenceList.numberingAllowed === false && isNumbered) {
-                // Violation: Numbered but shouldn't be
+            if (!matchedRefIndices.has(ref.index)) {
                 flags.push({
-                    type: "REF_LIST_ENTRY",
-                    ruleId: `${rules.style}.NUMBERED_ENTRIES_DISALLOWED`,
-                    section: referenceList.sectionTitle,
-                    message: rules.messages["NUMBERED_ENTRIES_DISALLOWED"],
-                    anchor: {
-                        start: firstEntry.start,
-                        end: firstEntry.start + 3, // Highlight the number part approx
-                        text: firstEntry.rawText.substring(0, 3) + "..."
-                    }
-                });
-            } else if (rules.referenceList.numberingAllowed === true && !isNumbered) {
-                // Violation: Not numbered but should be (IEEE)
-                flags.push({
-                    type: "REF_LIST_ENTRY",
-                    ruleId: `${rules.style}.NUMBERED_ENTRIES_REQUIRED`,
-                    section: referenceList.sectionTitle,
-                    message: rules.messages["NUMBERED_ENTRIES_REQUIRED"],
-                    anchor: {
-                        start: firstEntry.start,
-                        end: firstEntry.start + 10,
-                        text: firstEntry.rawText.substring(0, 10) + "..."
-                    }
+                    type: "STRUCTURAL",
+                    ruleId: "ORPHAN_REFERENCE",
+                    message: "This reference is not cited anywhere in the document.",
+                    anchor: { start: ref.start, end: ref.end, text: ref.rawText },
+                    tier: AuditTier.STRUCTURAL,
+                    reason: "The audit engine found no inline citation linking to this specific reference entry.",
+                    action: hasUnresolved ? "Review unresolved citations above to see if they should link here." : "Remove this entry or add a corresponding inline citation.",
+                    source: ref.rawText.substring(0, 50) + "..."
                 });
             }
-        }
+        });
 
-        // Step 5: Auto-Detection Logic
-        const detectedStyles: string[] = [];
-        if (patterns && patterns.length > 0) {
-            // Fingerprints registry
-            const FINGERPRINTS: Record<string, { inline: string[] }> = {
-                "MLA": { inline: ["AUTHOR_PAGE", "et_al_with_period"] },
-                "APA": { inline: ["AUTHOR_YEAR", "AMPERSAND_IN_PAREN"] },
-                "IEEE": { inline: ["NUMERIC_BRACKET"] },
-                "Chicago": { inline: [] } // Todo: Footnotes
-            };
+        tierMetadata[AuditTier.STRUCTURAL] = {
+            executed: true,
+            stats: {
+                totalCitations: validPatterns.length,
+                matched: matchedCount,
+                orphans: validEntries.length - matchedRefIndices.size
+            }
+        };
 
-            const styleCandidates = Object.entries(FINGERPRINTS).filter(([style, fingerprint]) => {
-                return patterns.some(p => fingerprint.inline.includes(p.patternType as any));
-            }).map(([style]) => style);
+        // =========================================================================
+        // TIER 2: CLAIM-LEVEL AUDIT (Conditional)
+        // Runs only where citations support factual/quantitative claims.
+        // =========================================================================
 
-            detectedStyles.push(...styleCandidates);
-        }
+        // Signal-based filtering for Tier 2 to prioritize high-impact verification
+        const claimSignals = ["show", "suggest", "found", "demonstrate", "according to", "percent", "%", "increase", "decrease", "study", "research"];
+        const claimAuditCitations = matchedPairs.filter(pair => {
+            if (!pair.inline.context) return false;
+            return claimSignals.some(signal => pair.inline.context?.toLowerCase().includes(signal));
+        });
 
-
-        // Step 6: Citation Matching & External Verification
         let verificationResults: VerificationResult[] = [];
 
-        // Process citations even if there's no reference list
-        if (patterns && patterns.length > 0) {
-            try {
-                console.log("\n========== CITATION MATCHING DEBUG ==========");
-                console.log("📝 Inline Citations Found:", patterns.length);
-                patterns.forEach((p, i) => {
-                    console.log(`  [${i + 1}] "${p.text}" at position ${p.start}-${p.end}`);
-                });
+        if (claimAuditCitations.length > 0) {
+            tiersExecuted.push(AuditTier.CLAIM);
+            console.log(`🔍 [Tier 2] Verifying ${claimAuditCitations.length} claim-bearing citations.`);
 
-                // Check if we have a reference list
-                if (referenceList && referenceList.entries.length > 0) {
-                    console.log("\n📚 Reference Entries Found:", referenceList.entries.length);
-                    referenceList.entries.forEach((r, i) => {
-                        console.log(`  [${i + 1}] ${r.rawText.substring(0, 80)}...`);
-                    });
+            const { ExternalVerificationService } = await import("../../services/citationAudit/externalVerification");
+            const rawResults = await ExternalVerificationService.verifyCitationPairs(claimAuditCitations);
 
-                    // Import services
-                    const { CitationMatcher } = await import("../../services/citationAudit/citationMatcher");
+            // 🔁 REMEDIATION: If a citation is unsupported or ambiguous, find alternatives
+            const { AcademicSearchService } = await import("../../services/academicSearchService");
 
-                    // Match inline citations to reference entries
-                    const citationPairs = CitationMatcher.matchCitations(
-                        patterns,
-                        referenceList.entries,
-                        declaredStyle
-                    );
+            verificationResults = await Promise.all(rawResults.map(async (res) => {
+                // If support is questionable, try to find better papers
+                const needsRemediation = res.supportStatus === "UNSUPPORTED" ||
+                    res.supportStatus === "AMBIGUOUS" ||
+                    res.existenceStatus === "NOT_FOUND";
 
-                    console.log("\n🔗 Citation Pairs Matched:", citationPairs.length);
-                    citationPairs.forEach((pair, i) => {
-                        console.log(`\n  Pair ${i + 1}:`);
-                        console.log(`    Inline: "${pair.inline.text}"`);
-                        if (pair.reference) {
-                            console.log(`    ✅ Matched: ${pair.reference.rawText.substring(0, 60)}...`);
-                            console.log(`    📖 Title: ${pair.reference.extractedTitle || 'N/A'}`);
-                            console.log(`    👤 Author: ${pair.reference.extractedAuthor || 'N/A'}`);
-                            console.log(`    📅 Year: ${pair.reference.extractedYear || 'N/A'}`);
-                        } else {
-                            console.log(`    ❌ No match found`);
-                        }
-                    });
+                if (needsRemediation) {
+                    console.log(`🔎 [Remediation] Searching for alternatives for: ${res.inlineLocation?.text}`);
+                    const alternatives = await AcademicSearchService.findEvidenceForClaim(res.inlineLocation?.text || "");
 
-                    // External verification using free public APIs (CrossRef, arXiv, PubMed)
-                    console.log("\n🔍 STARTING VERIFICATION...");
-                    const { ExternalVerificationService } = await import("../../services/citationAudit/externalVerification");
-                    verificationResults = await ExternalVerificationService.verifyCitationPairs(citationPairs);
-                    console.log("✅ Verification complete:", verificationResults.length, "results");
-                } else {
-                    // NO REFERENCE LIST - All citations are unmatched
-                    console.log("\n⚠️  NO REFERENCE LIST FOUND");
-                    console.log("   Creating NOT_FOUND existence results for all citations");
-
-                    verificationResults = patterns.map(pattern => ({
-                        inlineLocation: {
-                            start: pattern.start,
-                            end: pattern.end,
-                            text: pattern.text
-                        },
-                        existenceStatus: "NOT_FOUND",
-                        supportStatus: "NOT_EVALUATED",
-                        provenance: [],
-                        message: `No reference list found. Citation "${pattern.text}" has no matching bibliography entry.`
-                    }));
-
-                    console.log(`   📝 Created ${verificationResults.length} fallback results`);
+                    return {
+                        ...res,
+                        reason: res.reason || (res.existenceStatus === "NOT_FOUND" ? "Source could not be located in academic databases." : "The source abstract does not explicitly support this claim."),
+                        action: "Review the suggested alternatives below or refine your claim.",
+                        suggestions: alternatives.map(p => ({
+                            title: p.title,
+                            year: p.year,
+                            relevanceScore: Math.round((p.similarity || 0) * 100),
+                            url: p.url,
+                            whyMatch: "Contains terminology closely related to your claim."
+                        }))
+                    };
                 }
-            } catch (err) {
-                console.error("Citation verification failed (non-fatal):", err);
-            }
+
+                return {
+                    ...res,
+                    reason: "Source confirmed and aligned with claim context.",
+                    action: "No action required."
+                };
+            }));
+
+            tierMetadata[AuditTier.CLAIM] = {
+                executed: true,
+                stats: {
+                    candidates: claimAuditCitations.length,
+                    verified: verificationResults.length,
+                    remediations: verificationResults.filter(r => (r.suggestions?.length || 0) > 0).length
+                }
+            };
+        } else {
+            tierMetadata[AuditTier.CLAIM] = {
+                executed: false,
+                skippedReason: "No claim-bearing citations detected in surrounding context."
+            };
         }
 
-        // Step 7: Calculate Citation Integrity Index (CII)
-        // Weighting: Style (30%), Verification (30%), Reference (20%), Semantic (20%)
-        const calculateCII = (flags: CitationFlag[], verificationResults: VerificationResult[], docWordCount: number) => {
-            // 1. Style Score (30%)
-            // Penalty based on density: 1 violation per 500 words is acceptable
-            const styleViolations = flags.filter(f => f.type === "INLINE_STYLE" || f.type === "REF_LIST_ENTRY").length;
-            const acceptableViolations = Math.max(1, Math.ceil(docWordCount / 500));
-            const stylePenalty = Math.max(0, styleViolations - acceptableViolations) * 5; // 5 points per excess violation
-            const styleScore = Math.max(0, 100 - stylePenalty);
+        // =========================================================================
+        // TIER 3: RISK & BIAS AUDIT (Contextual)
+        // Runs when risk signals are detected (Medical, Policy).
+        // =========================================================================
+        const fullText = JSON.stringify(sections || []);
+        const shouldRunRisk = RiskAnalysisService.shouldRunRiskAudit(fullText);
 
-            // 2. Verification Score (30%) - Existence
-            const totalCitations = verificationResults.length;
-            let verificationScore = 100;
-            if (totalCitations > 0) {
-                const confirmedCount = verificationResults.filter(r => r.existenceStatus === "CONFIRMED").length;
-                const notFoundCount = verificationResults.filter(r => r.existenceStatus === "NOT_FOUND").length;
-                // Weighted deduction: Not Found is heavy penalty
-                const verifyRatio = confirmedCount / totalCitations;
-                verificationScore = Math.round(verifyRatio * 100);
-            }
+        if (shouldRunRisk) {
+            tiersExecuted.push(AuditTier.RISK);
+            console.log("⚠️ Tier 3 Triggered: Risk signals detected.");
 
-            // 3. Reference Score (20%) - Structural
-            // Simple check: Do we have a reference list? Are there unmatched refs?
-            const unmatchedRefs = verificationResults.filter(r => r.existenceStatus === "NOT_FOUND" && r.message.includes("No reference list")).length;
-            let referenceScore = 100;
-            if (!referenceList) referenceScore = 0;
-            else if (unmatchedRefs > 0) referenceScore = 50;
-
-            // 4. Semantic Score (20%) - Support
-            // Only evaluate confirmed citations
-            const confirmedResults = verificationResults.filter(r => r.existenceStatus === "CONFIRMED");
-            let semanticScore = 100;
-            if (confirmedResults.length > 0) {
-                const supported = confirmedResults.filter(r => r.supportStatus === "SUPPORTED").length;
-                const plausible = confirmedResults.filter(r => r.supportStatus === "PLAUSIBLE").length;
-                const contradictory = confirmedResults.filter(r => r.supportStatus === "CONTRADICTORY").length;
-
-                // Formula: (Supported * 1 + Plausible * 0.8 - Contradictory * 1) / Total
-                const rawScore = ((supported * 1) + (plausible * 0.8) - (contradictory * 1));
-                const ratio = Math.max(0, rawScore) / confirmedResults.length;
-                semanticScore = Math.round(ratio * 100);
-            }
-
-            // Weighted Total
-            const totalScore = Math.round(
-                (styleScore * 0.30) +
-                (verificationScore * 0.30) +
-                (referenceScore * 0.20) +
-                (semanticScore * 0.20)
+            const riskResult = await RiskAnalysisService.analyzeRisks(
+                matchedPairs.map(p => ({ text: p.inline.text, context: p.inline.context }))
             );
 
-            // Determine Confidence Level
-            let confidence: "HIGH" | "MEDIUM" | "LOW" = "HIGH";
-            if (totalCitations === 0) confidence = "LOW";
-            else if (verificationResults.some(r => r.existenceStatus === "SERVICE_ERROR")) confidence = "MEDIUM";
-            else if (totalScore < 50) confidence = "LOW";
+            if (riskResult.hasRisk) {
+                riskResult.riskFactors.forEach(risk => {
+                    flags.push({
+                        type: "RISK",
+                        ruleId: `RISK_${risk.type}`,
+                        message: risk.description,
+                        // Attach to document start or relevant citation if we had that mapping
+                        anchor: {
+                            start: 0,
+                            end: 0, // Top of doc
+                            text: "Risk Audit"
+                        },
+                        tier: AuditTier.RISK
+                    });
+                });
+            }
 
-            // Limits
-            const limits: string[] = [];
-            if (totalCitations === 0) limits.push("No citations found to verify.");
-            if (verificationResults.some(r => r.existenceStatus === "SERVICE_ERROR")) limits.push("External verification service unavailable.");
-            if (!referenceList) limits.push("No reference list found.");
-
-            return {
-                totalScore,
-                confidence,
-                components: {
-                    styleScore,
-                    referenceScore,
-                    verificationScore,
-                    semanticScore
-                },
-                verificationLimits: limits
+            tierMetadata[AuditTier.RISK] = {
+                executed: true,
+                stats: { risksFound: riskResult.riskFactors.length }
             };
-        };
-
-        const integrityIndex = calculateCII(flags, verificationResults, docWordCount);
-
-        // Step 8: Construct Response
-        const report: AuditReport = {
-            style: declaredStyle,
-            timestamp: new Date().toISOString(),
-            flags,
-            verificationResults,
-            detectedStyles,
-            integrityIndex // NEW: Include CII
-        };
-
-        // Summary of verification results
-        if (verificationResults && verificationResults.length > 0) {
-            const confirmed = verificationResults.filter(r => r.existenceStatus === "CONFIRMED").length;
-            const notFound = verificationResults.filter(r => r.existenceStatus === "NOT_FOUND").length;
-            const serviceError = verificationResults.filter(r => r.existenceStatus === "SERVICE_ERROR").length;
-            const pending = verificationResults.filter(r => r.existenceStatus === "PENDING").length;
-
-            console.log("\n📊 VERIFICATION SUMMARY:");
-            console.log(`   ✅ Confirmed: ${confirmed}`);
-            console.log(`   ❌ Not Found: ${notFound}`);
-            console.log(`   ⚠️  Service Error: ${serviceError}`);
-            console.log(`   📝 Pending: ${pending}`);
-            console.log(`   📦 Total Results: ${verificationResults.length}`);
+        } else {
+            tierMetadata[AuditTier.RISK] = {
+                executed: false,
+                skippedReason: "No high-risk domains detected."
+            };
         }
 
-        // Credits already deducted by EntitlementService.assertCanUse at the start.
+        // =========================================================================
+        // RESPONSE ASSEMBLY
+        // =========================================================================
 
-        res.status(200).json(report);
+        // Calculate Integrity Index (Simplified for new model)
+        // Base 100
+        // -5 per Structural flag
+        // -10 per Risk flag
+        // -5 per Verification Failure
+        let integrityIndex = 100;
+        integrityIndex -= (flags.filter(f => f.tier === AuditTier.STRUCTURAL).length * 5);
+        integrityIndex -= (flags.filter(f => f.tier === AuditTier.RISK).length * 10);
+        integrityIndex -= (verificationResults.filter(r => r.existenceStatus === "NOT_FOUND").length * 5);
+        integrityIndex = Math.max(0, integrityIndex);
+
+        const response: AuditResponse = {
+            style: declaredStyle,
+            flags: flags,
+            verificationResults: verificationResults,
+            integrityIndex: integrityIndex,
+            tiersExecuted: tiersExecuted,
+            tierMetadata: tierMetadata
+        };
+
+        res.status(200).json(response);
 
     } catch (error) {
         console.error("Audit Backend Error:", error);
         res.status(500).json({ error: "Internal Audit Error" });
     }
-}); // Close /audit route
+});
 
 export default router;

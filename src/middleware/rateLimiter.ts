@@ -1,65 +1,62 @@
-import { Request, Response, NextFunction } from "express";
+import { rateLimit } from "express-rate-limit";
+import logger from "../monitoring/logger";
 
-// Simple in-memory store for rate limiting
-// In production, you would use Redis or another distributed store
-const rateLimitStore: Record<string, { count: number; resetTime: number }> = {};
+// General API Rate Limiter
+// 100 requests per minute
+export const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests, please try again later."
+  },
+  handler: (req, res, next, options) => {
+    logger.warn(`Rate limit exceeded: ${req.ip} -> ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  }
+});
 
-// Rate limiter middleware
-export function createRateLimiter(maxRequests: number, windowMs: number) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const userId = (req as any).user?.id || req.ip;
-    const key = `${userId}:${req.path}`;
-    const now = Date.now();
+// Stricter Auth Rate Limiter
+// 10 requests per minute to prevent brute force
+export const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many login attempts, please try again later."
+  },
+  handler: (req, res, next, options) => {
+    logger.warn(`Auth Rate limit exceeded: ${req.ip}`);
+    res.status(options.statusCode).send(options.message);
+  }
+});
 
-    // Clean up expired entries
-    Object.keys(rateLimitStore).forEach((k) => {
-      if (rateLimitStore[k].resetTime < now) {
-        delete rateLimitStore[k];
-      }
-    });
+// AI/Upload Heavy Operation Limiter
+// 20 requests per minute for resource intensive operations
+export const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Upload/AI limit reached, please slow down."
+  },
+  handler: (req, res, next, options) => {
+    logger.warn(`Upload Rate limit exceeded: ${req.ip} -> ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  }
+});
 
-    // Initialize or update the rate limit entry
-    if (!rateLimitStore[key]) {
-      rateLimitStore[key] = {
-        count: 1,
-        resetTime: now + windowMs,
-      };
-    } else {
-      if (rateLimitStore[key].resetTime < now) {
-        // Reset window
-        rateLimitStore[key] = {
-          count: 1,
-          resetTime: now + windowMs,
-        };
-      } else {
-        // Increment count
-        rateLimitStore[key].count++;
-      }
-    }
+// Admin Operation Limiter (Internal)
+export const adminOperationRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
-    const currentCount = rateLimitStore[key].count;
-    const resetTime = rateLimitStore[key].resetTime;
-
-    // Check if limit is exceeded
-    if (currentCount > maxRequests) {
-      res.status(429).json({
-        success: false,
-        message: "Too many requests, please try again later.",
-        retryAfter: Math.ceil((resetTime - now) / 1000),
-      });
-      return;
-    }
-
-    // Add rate limit headers
-    res.setHeader("X-RateLimit-Limit", maxRequests);
-    res.setHeader("X-RateLimit-Remaining", maxRequests - currentCount);
-    res.setHeader("X-RateLimit-Reset", new Date(resetTime).toISOString());
-
-    next();
-  };
-}
-
-// Specific rate limiters for different operations
-export const ssoConfigRateLimiter = createRateLimiter(10, 60 * 1000); // 10 requests per minute
-export const securityConfigRateLimiter = createRateLimiter(5, 60 * 1000); // 5 requests per minute
-export const adminOperationRateLimiter = createRateLimiter(100, 60 * 1000); // 100 requests per minute
