@@ -9,6 +9,46 @@ import { prisma } from "../../lib/prisma";
 
 const router = express.Router();
 
+// ============================================================================
+// IN-MEMORY CACHE FOR SUBSCRIPTION DATA (30-SECOND TTL)
+// ============================================================================
+interface CachedSubscriptionData {
+  data: any;
+  timestamp: number;
+}
+
+const subscriptionCache = new Map<string, CachedSubscriptionData>();
+const CACHE_TTL_MS = 30000; // 30 seconds
+
+function getCachedSubscription(userId: string): any | null {
+  const cached = subscriptionCache.get(userId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+  // Cleanup expired entry
+  if (cached) {
+    subscriptionCache.delete(userId);
+  }
+  return null;
+}
+
+function setCachedSubscription(userId: string, data: any): void {
+  subscriptionCache.set(userId, {
+    data,
+    timestamp: Date.now()
+  });
+
+  // Cleanup old entries (keep cache size manageable)
+  if (subscriptionCache.size > 1000) {
+    const now = Date.now();
+    for (const [key, value] of subscriptionCache.entries()) {
+      if (now - value.timestamp > CACHE_TTL_MS) {
+        subscriptionCache.delete(key);
+      }
+    }
+  }
+}
+
 /**
  * GET /api/subscription/plans
  * Get all available pricing plans
@@ -50,6 +90,22 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       return res.status(401).json({
         success: false,
         message: "Not authenticated",
+      });
+    }
+
+    // ============================================================================
+    // CACHE CHECK: Return immediately if fresh data exists (<30s old)
+    // ============================================================================
+    const cachedData = getCachedSubscription(user.id);
+    if (cachedData) {
+      const cacheAge = Date.now() - cachedData.generatedTimestamp;
+      console.log(`✅ [CACHE HIT] Returning cached subscription (age: ${cacheAge}ms)`);
+
+      // Add cache metadata
+      return res.status(200).json({
+        ...cachedData,
+        source: 'cache',
+        cacheAge,
       });
     }
 
@@ -150,7 +206,8 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       console.warn(`[SLOW RESPONSE] /subscription/current took ${responseDuration}ms`);
     }
 
-    return res.status(200).json({
+    // Build response object
+    const responseData = {
       success: true,
       status,      // active | inactive | unknown
       plan,        // free | student | pro | ...
@@ -161,9 +218,20 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       autoUseCredits: user.auto_use_credits ?? true,
       source,
       generatedAt,
+      generatedTimestamp: Date.now(), // For cache age calculation
       // Keep legacy fields for backward compatibility if needed, but prefer flat structure above
       subscription: subscriptionData || { plan: "free", status: status === "unknown" ? "unknown" : "active" }
-    });
+    };
+
+    // ============================================================================
+    // CACHE THE RESPONSE (only if it's a successful database fetch)
+    // ============================================================================
+    if (source === "database" && !isTimeout) {
+      setCachedSubscription(user.id, responseData);
+      console.log(`💾 [CACHE SET] Cached subscription for user ${user.id}`);
+    }
+
+    return res.status(200).json(responseData);
 
   } catch (error: any) {
     const isHardTimeout = error.message === "HTTP_HARD_TIMEOUT";
