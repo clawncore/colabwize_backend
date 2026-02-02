@@ -101,11 +101,13 @@ export class HybridAuthService {
         throw new Error("Supabase admin client not available");
       }
 
+      console.time("Supabase:getUser");
       // Verify the token by getting the user
       const {
         data: { user: supabaseUser },
         error,
       } = await supabaseAdmin.auth.getUser(idToken);
+      console.timeEnd("Supabase:getUser");
 
       if (error || !supabaseUser) {
         logger.warn("Invalid ID token during sync", { error: error?.message });

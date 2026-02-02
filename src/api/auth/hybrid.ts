@@ -104,10 +104,11 @@ router.put("/signin", async (req, res) => {
         .json({ success: false, message: "ID token required" });
     }
 
+    console.time("HybridSignin");
     const result = await HybridAuthService.syncUserSession(idToken);
+    console.timeEnd("HybridSignin");
 
     if (result.success) {
-      // 2FA Check
       if (result.user && result.user.two_factor_enabled) {
         return res.status(200).json({
           success: true,
@@ -119,6 +120,7 @@ router.put("/signin", async (req, res) => {
 
       return res.status(200).json(result);
     } else {
+      console.warn("Hybrid signin failed:", result.error);
       return res
         .status(401)
         .json({
