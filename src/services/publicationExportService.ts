@@ -908,10 +908,24 @@ export class PublicationExportService {
       } else if ((node.type === "columns" || node.type === "columnLayout") && !citationPolicy?.wordSafeMode) {
         // STRICT MODE: SKIP COLUMNS
         if (DEBUG_FLAGS.SKIP_COLUMNS) {
-          // Treating columns as simple paragraphs in strict mode to avoid complexity
-          // Fall through or just process content linearly? 
-          // For now, let's just skip the complex layout and extract content if possible, 
-          // or just skip to be safe. Let's just skip layout logic.
+          // SAFETY FALLBACK: Even if columns are disabled, output their CONTENT linearly
+          // This prevents "blank document" issues when users have content inside column wrappers
+          if (node.content && node.content.length > 0) {
+            logger.info("Processing column content linearly (Layout Disabled)");
+
+            // Iterate through children (columns or blocks) and extract content
+            for (const child of node.content) {
+              if (child.type === "column") {
+                // If nested column structure, unwrap content
+                const columnContent = await this.convertTipTapToDOCXParagraphs(child, citations, style, citationPolicy, commentsRef, usedCitationIds);
+                paragraphs.push(...columnContent);
+              } else {
+                // If flat content, just process it
+                const itemContent = await this.convertTipTapToDOCXParagraphs({ content: [child] }, citations, style, citationPolicy, commentsRef, usedCitationIds);
+                paragraphs.push(...itemContent);
+              }
+            }
+          }
           continue;
         }
 
@@ -1075,6 +1089,9 @@ export class PublicationExportService {
       } else if (node.type === "figcaption") {
         // Handle figcaption
         const children = this.extractTextRunsFromNode(node, citations, style, citationPolicy, commentsRef, usedCitationIds);
+
+
+
         paragraphs.push(
           new Paragraph({
             children: children,
