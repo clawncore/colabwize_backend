@@ -384,34 +384,53 @@ export class EntitlementService {
             return true;
         }
 
-        // 5. Entitlement Exhausted -> Check Credits (Secondary Gate)
-        // Student Plan: Hard Block if limit reached (Legacy Rule kept for now, or assume credits allowed if plan allows?)
-        // The user complained about "limit reached" confusingly. 
-        // If "payg" is allowed, we check credits.
-        // We will stick to the existing rule: If plan is "student", hard block. 
-        // Student Plan: Credit Failover Enabled
-        // We previously blocked student plan here, but now we allow failover provided they have credits.
+        // 5. Entitlement Exhausted -> Tier-Aware Fallback
+        const currentPlan = ent.plan;
 
+        // FREE TIER: Allow credit fallback (existing behavior)
+        if (currentPlan === "free") {
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { auto_use_credits: true }
+            });
 
-        const user = await prisma.user.findUnique({ where: { id: userId }, select: { auto_use_credits: true } });
-        if (user && user.auto_use_credits === false) {
-            throw new Error("Plan limit reached. Enable Auto-Use Credits to continue.");
-        }
-
-        const cost = CreditService.calculateCost(feature, metadata);
-
-        if (cost > 0) {
-            const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
-            if (hasCredits) {
-                await CreditService.deductCredits(userId, cost, undefined, `Auto-use: ${feature}`);
-                return true;
-            } else {
-                const error: any = new Error("Plan limit reached and insufficient credits.");
-                error.code = "INSUFFICIENT_CREDITS";
+            if (user && user.auto_use_credits === false) {
+                const error: any = new Error("Free plan limit reached. Upgrade to a paid plan or enable Auto-Use Credits.");
+                error.code = "PLAN_LIMIT_REACHED";
                 throw error;
             }
+
+            const cost = CreditService.calculateCost(feature, metadata);
+
+            if (cost > 0) {
+                const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
+                if (hasCredits) {
+                    await CreditService.deductCredits(userId, cost, undefined, `Auto-use: ${feature}`);
+                    return true;
+                } else {
+                    const error: any = new Error("Free plan limit reached and insufficient credits. Upgrade to continue.");
+                    error.code = "INSUFFICIENT_CREDITS";
+                    throw error;
+                }
+            }
+
+            // Free tier, no cost feature, but limit reached
+            const error: any = new Error("Free plan limit reached. Upgrade to continue.");
+            error.code = "PLAN_LIMIT_REACHED";
+            throw error;
         }
 
-        throw new Error("Plan limit reached.");
+        // PAID TIERS: Hard limit - no credit fallback
+        // Users on Student Pro, Standard Pro, etc. should upgrade their plan, not buy credits
+        logger.warn("Plan limit exhausted for paid tier", { userId, plan: currentPlan, feature: targetFeature });
+
+        const error: any = new Error(`You've reached your ${currentPlan} plan limit for ${feature}. Upgrade to a higher tier for more usage.`);
+        error.code = "PLAN_LIMIT_REACHED";
+        error.data = {
+            currentPlan: currentPlan,
+            feature: targetFeature,
+            upgrade_url: "/settings/billing"
+        };
+        throw error;
     }
 }
