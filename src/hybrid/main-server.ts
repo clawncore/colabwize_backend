@@ -51,6 +51,14 @@ const app: Application = express();
 // Port assignment moved to startServer function
 // Force server restart for Prisma Client update
 
+// ============================================================================
+// TRUST PROXY CONFIGURATION
+// ============================================================================
+// CRITICAL: Enable trust proxy for Render/production deployments
+// This allows express-rate-limit to correctly identify clients via X-Forwarded-For
+// Without this, rate limiting will fail with validation errors
+app.set('trust proxy', true);
+
 // Middleware
 // Robust CORS Configuration
 const allowedOrigins = [
