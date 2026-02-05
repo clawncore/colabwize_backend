@@ -406,7 +406,7 @@ export class EntitlementService {
         }
 
         if (rights.remaining > 0) {
-            // CONSUME ENTITLEMENT
+            // CONSUME ENTITLEMENT - User has quota, use it!
             rights.used += 1;
             rights.remaining -= 1;
             features[targetFeature] = rights;
@@ -417,11 +417,26 @@ export class EntitlementService {
                 data: { features }
             });
 
+            logger.info("Entitlement consumed successfully", {
+                userId,
+                feature: targetFeature,
+                plan: ent.plan,
+                remaining: rights.remaining
+            });
+
             return true;
         }
 
         // 5. Entitlement Exhausted -> Tier-Aware Fallback
         const currentPlan = ent.plan;
+
+        logger.info("Plan limit reached, evaluating fallback options", {
+            userId,
+            plan: currentPlan,
+            feature: targetFeature,
+            used: rights.used,
+            limit: rights.limit
+        });
 
         // FREE TIER: Allow credit fallback (existing behavior)
         if (currentPlan === "free") {
@@ -436,12 +451,14 @@ export class EntitlementService {
                 throw error;
             }
 
+            // Only calculate cost for free tier users
             const cost = CreditService.calculateCost(feature, metadata);
 
             if (cost > 0) {
                 const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
                 if (hasCredits) {
                     await CreditService.deductCredits(userId, cost, undefined, `Auto-use: ${feature}`);
+                    logger.info("Credits used as fallback for free tier", { userId, cost });
                     return true;
                 } else {
                     const error: any = new Error("Free plan limit reached and insufficient credits. Upgrade to continue.");
@@ -456,14 +473,44 @@ export class EntitlementService {
             throw error;
         }
 
-        // PAID TIERS: Check if they actually used their quota
-        // If remaining=0 but used is also low, something is wrong - allow credits as fallback
+        // PAID TIERS: User has genuinely exhausted their quota
+        // Credits should ONLY be offered as fallback if explicitly enabled
         const actuallyExhausted = rights.used > 0 && rights.remaining === 0;
 
         if (actuallyExhausted) {
-            // User genuinely used all their quota - show upgrade message
-            logger.warn("Plan limit exhausted for paid tier", { userId, plan: currentPlan, feature: targetFeature });
+            // User genuinely used all their quota
+            logger.warn("Plan limit exhausted for paid tier", {
+                userId,
+                plan: currentPlan,
+                feature: targetFeature,
+                used: rights.used,
+                limit: rights.limit
+            });
 
+            // Check if user wants to use credits as overflow
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { auto_use_credits: true }
+            });
+
+            // If auto_use_credits is enabled, allow credit fallback
+            if (user && user.auto_use_credits === true) {
+                const cost = CreditService.calculateCost(feature, metadata);
+                if (cost > 0) {
+                    const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
+                    if (hasCredits) {
+                        await CreditService.deductCredits(userId, cost, undefined, `Overflow: ${feature}`);
+                        logger.info("Credits used as overflow for exhausted paid plan", {
+                            userId,
+                            plan: currentPlan,
+                            cost
+                        });
+                        return true;
+                    }
+                }
+            }
+
+            // No credits available or auto-use disabled - show upgrade message
             const error: any = new Error(`You've reached your ${currentPlan} plan limit for ${feature}. Upgrade to a higher tier for more usage.`);
             error.code = "PLAN_LIMIT_REACHED";
             error.data = {
@@ -475,36 +522,30 @@ export class EntitlementService {
         }
 
         // Edge case: remaining=0 but not actually used (stale entitlement)
-        // Fall back to credits to avoid blocking user
-        logger.warn("Paid user with 0 remaining but entitlement may be stale - allowing credit fallback", {
+        // This indicates a system error - rebuild entitlements
+        logger.error("Critical: Paid user with 0 remaining but 0 used - entitlement is corrupt", {
             userId,
             plan: currentPlan,
             feature: targetFeature,
             rights
         });
 
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { auto_use_credits: true }
-        });
+        await this.rebuildEntitlements(userId);
+        ent = await this.getEntitlements(userId);
 
-        if (user && user.auto_use_credits === false) {
-            const error: any = new Error("Plan limit issue detected. Please contact support or enable Auto-Use Credits.");
-            error.code = "PLAN_LIMIT_REACHED";
-            throw error;
-        }
+        if (ent) {
+            const newFeatures = ent.features as Record<string, any>;
+            const newRights = newFeatures[targetFeature];
 
-        const cost = CreditService.calculateCost(feature, metadata);
-        if (cost > 0) {
-            const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
-            if (hasCredits) {
-                await CreditService.deductCredits(userId, cost, undefined, `Auto-use: ${feature}`);
-                return true;
+            if (newRights && newRights.remaining > 0) {
+                logger.info("Entitlements rebuilt successfully, retrying", { userId, feature: targetFeature });
+                // Recursively call once after rebuild
+                return this.assertCanUse(userId, feature, metadata);
             }
         }
 
         const error: any = new Error("Unable to verify entitlement. Please contact support.");
-        error.code = "PLAN_LIMIT_REACHED";
+        error.code = "ENTITLEMENT_ERROR";
         throw error;
     }
 }
