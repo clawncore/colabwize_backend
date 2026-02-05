@@ -59,11 +59,30 @@ export class EntitlementService {
                     plan = subscription.plan;
                     if (subscription.current_period_start) periodStart = subscription.current_period_start;
                     if (subscription.current_period_end) periodEnd = subscription.current_period_end;
+
+                    // 🔍 DIAGNOSTIC LOGGING
+                    logger.info("Active subscription found during entitlement rebuild", {
+                        userId,
+                        rawPlan: subscription.plan,
+                        normalizedPlan: plan,
+                        status: subscription.status,
+                        periodStart,
+                        periodEnd
+                    });
                 }
             }
 
             // 2. Get Plan Constants (The Rules)
             const limits = SubscriptionService.getPlanLimits(plan) as Record<string, any>;
+
+            // 🔍 DIAGNOSTIC LOGGING
+            logger.info("Plan limits retrieved for entitlement build", {
+                userId,
+                plan,
+                citation_audit_limit: limits.citation_audit,
+                scans_per_month_limit: limits.scans_per_month,
+                all_limits: JSON.stringify(limits)
+            });
 
             // 3. Calculate Entitlements
             const features: Record<string, any> = {};
@@ -516,7 +535,7 @@ export class EntitlementService {
             error.data = {
                 currentPlan: currentPlan,
                 feature: targetFeature,
-                upgrade_url: "/settings/billing"
+                upgrade_url: "/dashboard/settings/billing"
             };
             throw error;
         }
