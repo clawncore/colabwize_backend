@@ -108,8 +108,16 @@ router.put("/signin", async (req, res) => {
     const result = await HybridAuthService.syncUserSession(idToken);
     console.timeEnd("HybridSignin");
 
+    console.log("DEBUG: detailed sync result", {
+      success: result.success,
+      userId: result.user?.id,
+      has2FA: result.user?.two_factor_enabled,
+      email: result.user?.email
+    });
+
     if (result.success) {
       if (result.user && result.user.two_factor_enabled) {
+        console.log("DEBUG: 2FA Required for user", result.user.id);
         return res.status(200).json({
           success: true,
           requires_2fa: true,
