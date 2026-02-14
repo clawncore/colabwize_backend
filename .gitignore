@@ -59,4 +59,8 @@ yarn-error.log*
 .env.bak
 *.env.bak
 *.backup
+*.backup
 *.bak
+
+# Puppeteer Cache
+.cache/

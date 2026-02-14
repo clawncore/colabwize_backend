@@ -38,15 +38,30 @@ export async function authenticateHybrid(
     // Handle cases where headers might not be available (e.g., mock requests)
     let authHeader: string | null = null;
 
+    // Check for specific auth headers first
     if (request.headers && typeof request.headers.get === "function") {
-      // This is for Edge functions where headers is a Headers object
-      authHeader = request.headers.get("authorization");
+      // Edge functions/Fetch API
+      if (request.headers.get("x-auth-google")) {
+        authHeader = request.headers.get("x-auth-google");
+        logger.debug("Using X-Auth-Google header");
+      } else if (request.headers.get("x-auth-organic")) {
+        authHeader = request.headers.get("x-auth-organic");
+        logger.debug("Using X-Auth-Organic header");
+      } else {
+        authHeader = request.headers.get("authorization");
+      }
     } else if (request.headers && typeof request.headers === "object") {
-      // This is for Express where headers is a plain object
-      authHeader =
-        (request.headers as any)["authorization"] ||
-        (request.headers as any)["Authorization"] ||
-        null;
+      // Express/Node
+      const headers = request.headers as any;
+      if (headers["x-auth-google"]) {
+        authHeader = headers["x-auth-google"];
+        logger.debug("Using X-Auth-Google header");
+      } else if (headers["x-auth-organic"]) {
+        authHeader = headers["x-auth-organic"];
+        logger.debug("Using X-Auth-Organic header");
+      } else {
+        authHeader = headers["authorization"] || headers["Authorization"] || null;
+      }
     }
 
     logger.debug("Authorization header check", {
