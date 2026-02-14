@@ -81,19 +81,24 @@ router.post("/verify", authenticateHybridRequest, async (req, res) => {
 router.post("/disable", authenticateHybridRequest, async (req, res) => {
     try {
         const user = (req as any).user;
+        const { token } = req.body;
 
-        // For security, checking password again is best practice, but starting simple
-        // Assuming session is enough for now or user just validated a sudo mode.
+        if (!token) {
+            return res.status(400).json({ error: "Verification code required to disable 2FA" });
+        }
 
-        await TwoFactorService.disable2FA(user.id);
+        await TwoFactorService.disable2FA(user.id, token);
 
         return res.status(200).json({
             success: true,
             message: "2FA Disabled Successfully"
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error("2FA Disable Error:", error);
-        return res.status(500).json({ success: false, message: "Failed to disable 2FA" });
+        return res.status(400).json({
+            success: false,
+            message: error.message || "Failed to disable 2FA"
+        });
     }
 });
 

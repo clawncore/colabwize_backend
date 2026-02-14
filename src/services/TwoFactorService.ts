@@ -222,8 +222,31 @@ export class TwoFactorService {
 
     /**
      * Disable 2FA
+     * @param userId The user ID
+     * @param token The 2FA code to verify (Security requirement)
      */
-    static async disable2FA(userId: string) {
+    static async disable2FA(userId: string, token: string) {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { two_factor_secret: true },
+        });
+
+        if (!user || !user.two_factor_secret) {
+            throw new Error("2FA is not enabled or user not found");
+        }
+
+        // Verify the token against the stored secret
+        try {
+            const secret = this.decrypt(user.two_factor_secret);
+            const isValid = this.verifyToken(token, secret);
+            if (!isValid) {
+                throw new Error("Invalid verification code");
+            }
+        } catch (error) {
+            logger.error("Error decrypting 2FA secret during disable", { userId, error });
+            throw new Error("Failed to verify 2FA code");
+        }
+
         await prisma.user.update({
             where: { id: userId },
             data: {
