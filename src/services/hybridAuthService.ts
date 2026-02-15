@@ -136,13 +136,19 @@ export class HybridAuthService {
             existingId: existingEmailUser.id,
             newId: supabaseUser.id
           });
-          // Should we return the existing user? 
-          // If we do, we might bypass ID checks elsewhere? 
-          // But if we don't, we crash.
-          // Returning existing user to allow 2FA verification to proceed (assuming same person).
-          // WARNING: This assumes the app can handle ID Mismatch (it mostly can't).
-          // But failing causes the 'optimistic bypass' bug.
-          return { success: true, user: existingEmailUser };
+
+          // Debug 2FA status
+          logger.info("Conflict User 2FA Status", {
+            userId: existingEmailUser.id,
+            enabled: existingEmailUser.two_factor_enabled
+          });
+
+          // Return existing user and explicitly flag 2FA if enabled
+          return {
+            success: true,
+            user: existingEmailUser,
+            requires_2fa: existingEmailUser.two_factor_enabled // Explicitly pass this
+          };
         }
 
         // Determine if this is a truly new user or a returning user being synced for the first time

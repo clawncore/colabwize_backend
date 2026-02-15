@@ -116,12 +116,18 @@ router.put("/signin", async (req, res) => {
     });
 
     if (result.success) {
-      if (result.user && result.user.two_factor_enabled) {
-        console.log("DEBUG: 2FA Required for user", result.user.id);
+      // Check if 2FA is required (either from user object or explicit flag)
+      const is2FAEnabled = result.user?.two_factor_enabled;
+      const isExplicitlyRequired = result.requires_2fa;
+
+      console.log(`[HybridAuth] Sync success. UserID: ${result.user?.id}, 2FA Enabled: ${is2FAEnabled}, Explicit Required: ${isExplicitlyRequired}`);
+
+      if ((result.user && result.user.two_factor_enabled) || result.requires_2fa) {
+        console.log("DEBUG: 2FA Required for user", result.user?.id);
         return res.status(200).json({
           success: true,
           requires_2fa: true,
-          userId: result.user.id,
+          userId: result.user?.id,
           message: "Two-factor authentication required"
         });
       }

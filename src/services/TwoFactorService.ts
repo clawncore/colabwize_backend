@@ -223,28 +223,43 @@ export class TwoFactorService {
     /**
      * Disable 2FA
      * @param userId The user ID
-     * @param token The 2FA code to verify (Security requirement)
+     * @param token The 2FA code to verify (Security requirement) - TOTP or Backup Code
      */
     static async disable2FA(userId: string, token: string) {
         const user = await prisma.user.findUnique({
             where: { id: userId },
-            select: { two_factor_secret: true },
+            select: {
+                two_factor_secret: true,
+                two_factor_backup_codes: true
+            },
         });
 
         if (!user || !user.two_factor_secret) {
             throw new Error("2FA is not enabled or user not found");
         }
 
-        // Verify the token against the stored secret
+        let isVerified = false;
+
+        // 1. Try TOTP Verification
         try {
             const secret = this.decrypt(user.two_factor_secret);
-            const isValid = this.verifyToken(token, secret);
-            if (!isValid) {
-                throw new Error("Invalid verification code");
+            if (this.verifyToken(token, secret)) {
+                isVerified = true;
             }
         } catch (error) {
             logger.error("Error decrypting 2FA secret during disable", { userId, error });
-            throw new Error("Failed to verify 2FA code");
+        }
+
+        // 2. Try Backup Codes (if not already verified)
+        if (!isVerified && token.length > 6) {
+            const inputHash = crypto.createHash('sha256').update(token).digest('hex');
+            if (user.two_factor_backup_codes.includes(inputHash)) {
+                isVerified = true;
+            }
+        }
+
+        if (!isVerified) {
+            throw new Error("Invalid verification code or backup code");
         }
 
         await prisma.user.update({
