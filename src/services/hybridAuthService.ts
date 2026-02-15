@@ -94,7 +94,7 @@ export class HybridAuthService {
    */
   static async syncUserSession(
     idToken: string
-  ): Promise<{ success: boolean; error?: string; user?: any }> {
+  ): Promise<{ success: boolean; error?: string; user?: any; requires_2fa?: boolean }> {
     try {
       const supabaseAdmin = await getSupabaseAdminClient();
       if (!supabaseAdmin) {

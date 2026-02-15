@@ -964,7 +964,7 @@ export async function disable2FA(request: Request) {
     }
 
     // 3. Disable
-    await TwoFactorService.disable2FA(user.id);
+    await TwoFactorService.disable2FA(user.id, token);
 
     return new Response(
       JSON.stringify({ success: true, message: "2FA disabled successfully" }),
