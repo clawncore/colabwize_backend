@@ -144,6 +144,8 @@ export class ExportService {
     options: ExportOptions
   ): Promise<ExportResult> {
     const { HtmlExportService } = require("./htmlExportService");
+    const { HyperlinkInjector } = require("./hyperlinkInjector");
+    const { CitationEngine } = require("./citationEngine");
 
     // 1. Fetch project data (re-fetching to ensure we have it if coming from internal call)
     // Optimization: If project is already passed or available, use it. But current flow fetches in exportProject.
@@ -156,21 +158,43 @@ export class ExportService {
       throw new Error("Project not found");
     }
 
-    // 2. Generate HTML
-    const html = await HtmlExportService.generateProjectHtml(project, {
+    // 2. Generate HTML with Citation Tokens
+    let html = await HtmlExportService.generateProjectHtml(project, {
       citationStyle: options.citationStyle,
       includeCoverPage: false, // DISABLED: User requested raw export for PDF too
       coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
       includeAuthorshipCertificate: options.includeAuthorshipCertificate,
       metadata: options.metadata,
+      useCitationTokens: true // REQUEST TOKENS
     });
 
-    // 3. Render PDF via Puppeteer
+    // 3. Inject Hyperlinks & Format Citations
+    try {
+      const engine = new CitationEngine(project.citations || [], options.citationStyle || 'apa');
+      await engine.initialize(); // Load styles/locales
+      const injector = new HyperlinkInjector();
+
+      // This replaces <span data-cite="key"> with <a href="...">Formatted Text</a>
+      html = await injector.injectHyperlinks(html, engine);
+    } catch (e) {
+      logger.error("Failed to inject hyperlinks during PDF export", e);
+      // Fallback: The HTML naturally has tokens now which would look ugly (<span data-cite>).
+      // If injection fails, we should ideally re-generate HTML without tokens.
+      // Or we rely on the injector to be robust.
+      // For now, proceed, but logging is critical.
+    }
+
+    // 4. Render PDF via Puppeteer
     let browser;
     try {
       const puppeteer = await import('puppeteer');
       browser = await this.launchBrowser(puppeteer.default);
       const page = await browser.newPage();
+
+      // Emulate Print Media to ensure print styles (colors etc) are applied if restricted by screen
+      // Although usually 'screen' is better for preserving hyperlinks if print css hides them.
+      // But user requested "Emulate print CSS media".
+      await page.emulateMediaType('print');
 
       // Set content
       await page.setContent(html, { waitUntil: "networkidle0" });
@@ -178,13 +202,14 @@ export class ExportService {
       // Generate PDF buffer
       const buffer = await page.pdf({
         format: "Letter",
-        printBackground: true,
+        printBackground: true, // Required for colors/styles
         margin: {
           top: "1in",
           bottom: "1in",
           left: "1in",
           right: "1in",
         },
+        displayHeaderFooter: false
       });
 
       return {

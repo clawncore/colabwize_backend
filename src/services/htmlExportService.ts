@@ -15,6 +15,7 @@ interface HtmlExportOptions {
     runningHead?: string;
     abstract?: string;
   };
+  useCitationTokens?: boolean;
 }
 
 export class HtmlExportService {
@@ -35,6 +36,11 @@ export class HtmlExportService {
         margin: 0;
         padding: 0;
       }
+      a {
+        color: blue;
+        text-decoration: underline;
+        cursor: pointer;
+      }
       p {
         margin: 0 0 1em 0; /* Add bottom margin for spacing */
         text-indent: 0.5in;
@@ -46,6 +52,14 @@ export class HtmlExportService {
         text-indent: 0;
         text-align: center; 
       }
+      /* ... other styles ... */
+      
+      /* Ensure bibliography anchors are positioned correctly (prevent covering by header if any) */
+      .csl-entry {
+        position: relative;
+      }
+      
+      /* ... */
       h1 { font-size: 12pt; } 
       h2 { font-size: 12pt; } 
       /* APA headings logic can be complex, simplifying for MVP */
@@ -192,10 +206,8 @@ export class HtmlExportService {
       </div>`;
     }
 
-    // 2. TOC (Placeholder - hard to do accurate page numbers in HTML before PDF render)
-    // For MVP PDF via Puppeteer, TOC with page numbers is tricky without a multi-pass render.
-    // We will skip TOC for now or just list headings without page numbers if strictly requested.
-    // Ideally, we'd use a tool that supports generating TOC during PDF creation.
+    // 2. TOC
+    // ...
 
     // 3. Body Content
     html += `<div class="content">`;
@@ -206,7 +218,8 @@ export class HtmlExportService {
     html += await this.convertTipTapToHtml(
       project.content,
       project.citations || [],
-      options.citationStyle || "apa"
+      options.citationStyle || "apa",
+      options
     );
     html += `</div>`;
 
@@ -308,7 +321,8 @@ export class HtmlExportService {
   private static async convertTipTapToHtml(
     content: any,
     citations: any[] = [],
-    style: string = "apa"
+    style: string = "apa",
+    options?: HtmlExportOptions
   ): Promise<string> {
     if (!content || !content.content) return "";
 
@@ -316,20 +330,20 @@ export class HtmlExportService {
 
     for (const node of content.content) {
       if (node.type === "paragraph") {
-        html += `<p>${this.extractTextHtml(node, citations, style)}</p>`;
+        html += `<p>${this.extractTextHtml(node, citations, style, options)}</p>`;
       } else if (node.type === "heading") {
         const level = node.attrs?.level || 1;
-        html += `<h${level}>${this.extractTextHtml(node, citations, style)}</h${level}>`;
+        html += `<h${level}>${this.extractTextHtml(node, citations, style, options)}</h${level}>`;
       } else if (node.type === "blockquote") {
-        html += `<blockquote>${this.extractTextHtml(node, citations, style)}</blockquote>`;
+        html += `<blockquote>${this.extractTextHtml(node, citations, style, options)}</blockquote>`;
       } else if (node.type === "bulletList") {
-        html += `<ul>${await this.convertTipTapToHtml(node, citations, style)}</ul>`;
+        html += `<ul>${await this.convertTipTapToHtml(node, citations, style, options)}</ul>`;
       } else if (node.type === "orderedList") {
-        html += `<ol>${await this.convertTipTapToHtml(node, citations, style)}</ol>`;
+        html += `<ol>${await this.convertTipTapToHtml(node, citations, style, options)}</ol>`;
       } else if (node.type === "listItem") {
-        html += `<li>${await this.convertTipTapToHtml(node, citations, style)}</li>`;
+        html += `<li>${await this.convertTipTapToHtml(node, citations, style, options)}</li>`;
       } else if (node.type === "image" || node.type === "imageExtension") {
-        let src = node.attrs?.src || "";
+        const src = node.attrs?.src || "";
         const alt = node.attrs?.alt || "";
 
         // Skip blob URLs - they can't be resolved for PDF
@@ -338,33 +352,28 @@ export class HtmlExportService {
           continue;
         }
 
-        // For data URLs, use directly
-        if (src.startsWith("data:")) {
-          html += `<img src="${src}" alt="${alt}" style="max-width: 100%; height: auto; display: block; margin: 1em auto;" />`;
-          continue;
-        }
-
+        let imgSrc = src;
         // Resolve relative URLs to full HTTP URLs
-        if (src && !src.startsWith("http")) {
+        if (src && !src.startsWith("http") && !src.startsWith("data:")) {
           const appUrl = await SecretsService.getAppUrl();
-          src = src.startsWith("/") ? `${appUrl}${src}` : `${appUrl}/${src}`;
+          imgSrc = src.startsWith("/") ? `${appUrl}${src}` : `${appUrl}/${src}`;
         }
 
         // For HTTP URLs, Puppeteer will fetch them when rendering PDF
-        html += `<img src="${src}" alt="${alt}" style="max-width: 100%; height: auto; display: block; margin: 1em auto;" />`;
+        html += `<img src="${imgSrc}" alt="${alt}" style="max-width: 100%; height: auto; display: block; margin: 1em auto;" />`;
       } else if (node.type === "figure") {
         html += `<figure style="margin: 1em auto; text-align: center;">`;
-        html += await this.convertTipTapToHtml(node, citations, style);
+        html += await this.convertTipTapToHtml(node, citations, style, options);
         html += `</figure>`;
       } else if (node.type === "figcaption") {
-        html += `<figcaption style="font-style: italic; margin-top: 0.5em;">${this.extractTextHtml(node, citations, style)}</figcaption>`;
+        html += `<figcaption style="font-style: italic; margin-top: 0.5em;">${this.extractTextHtml(node, citations, style, options)}</figcaption>`;
       } else if (node.type === "columns") {
         // Handle multi-column layout
         html += `<div class="columns">`;
         if (node.content) {
           for (const column of node.content) {
             if (column.type === "column") {
-              html += `<div class="column">${await this.convertTipTapToHtml(column, citations, style)}</div>`;
+              html += `<div class="column">${await this.convertTipTapToHtml(column, citations, style, options)}</div>`;
             }
           }
         }
@@ -378,10 +387,11 @@ export class HtmlExportService {
               html += `<tr>`;
               if (row.content) {
                 for (const cell of row.content) {
+                  const cellContent = await this.convertTipTapToHtml(cell, citations, style, options);
                   if (cell.type === "tableHeader") {
-                    html += `<th>${await this.convertTipTapToHtml(cell, citations, style)}</th>`;
+                    html += `<th>${cellContent}</th>`;
                   } else if (cell.type === "tableCell") {
-                    html += `<td>${await this.convertTipTapToHtml(cell, citations, style)}</td>`;
+                    html += `<td>${cellContent}</td>`;
                   }
                 }
               }
@@ -396,7 +406,7 @@ export class HtmlExportService {
     return html;
   }
 
-  private static extractTextHtml(node: any, citations: any[] = [], style: string = "apa"): string {
+  private static extractTextHtml(node: any, citations: any[] = [], style: string = "apa", options?: HtmlExportOptions): string {
     if (!node.content) return "";
     let html = "";
 
@@ -433,9 +443,21 @@ export class HtmlExportService {
         html += "<br>";
       } else if (child.type === "citation") {
         const citationId = child.attrs?.citationId;
+        const citationText = child.attrs?.text; // Get the actual citation text like "[3]"
         const fallback = child.attrs?.fallback || "[Citation]";
 
-        if (citationId && citations.length > 0) {
+        if (options?.useCitationTokens) {
+          // Output citation text for HyperlinkInjector to process
+          // Use citationText (e.g. "[3]") as the content, with data-cite attribute if ID exists
+          if (citationId) {
+            html += `<span data-cite="${citationId}">${citationText || fallback}</span>`;
+          } else if (citationText) {
+            // No ID but has text - output for text-based matching
+            html += `<span class="citation" data-text="${citationText}">${citationText}</span>`;
+          } else {
+            html += `<span class="citation">${fallback}</span>`;
+          }
+        } else if (citationId && citations.length > 0) {
           const citationData = citations.find((c: any) => c.id === citationId);
           if (citationData) {
             const inText = this.formatInTextCitation(citationData, style);
@@ -444,7 +466,7 @@ export class HtmlExportService {
             html += `<span class="citation" style="color: red;">${fallback}</span>`;
           }
         } else {
-          html += `<span class="citation">${fallback}</span>`;
+          html += `<span class="citation">${citationText || fallback}</span>`;
         }
       }
     });

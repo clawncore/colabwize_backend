@@ -19,6 +19,9 @@ import {
   CommentRangeStart,
   CommentRangeEnd,
   CommentReference,
+  BookmarkStart,
+  BookmarkEnd,
+  InternalHyperlink,
 } from "docx";
 import { PublicationService } from "./publicationService";
 import AdmZip from "adm-zip";
@@ -330,7 +333,11 @@ export class PublicationExportService {
         citationsToUse.forEach((citation: any, index: number) => {
           referencesParagraphs.push(
             new Paragraph({
-              text: `${index + 1}. ${this.formatCitation(citation, options.citationStyle || "apa")}`,
+              children: [
+                new BookmarkStart(`ref_${citation.id}`),
+                new TextRun(`${index + 1}. ${this.formatCitation(citation, options.citationStyle || "apa")}`),
+                new BookmarkEnd(`ref_${citation.id}`)
+              ],
               spacing: { after: 100 },
             })
           );
@@ -1212,7 +1219,33 @@ export class PublicationExportService {
             const citationData = citations.find(c => c.id === citationId);
             if (citationData) {
               const inText = this.formatInTextCitation(citationData, style);
-              runs.push(new TextRun({ text: inText, bold: child.marks?.some((m: any) => m.type === "bold"), italics: child.marks?.some((m: any) => m.type === "italic") }));
+              // Wrap in InternalHyperlink to make it clickable
+              runs.push(
+                new InternalHyperlink({
+                  anchor: `ref_${citationId}`,
+                  children: [
+                    new TextRun({
+                      text: inText,
+                      style: "Hyperlink", // Use standard Word Hyperlink style (usually blue/underlined)
+                      // If user wants plain style but clickable, we can override style or omit it.
+                      // Standard academic papers shouldn't have blue links usually, but digital ones do.
+                      // Let's omit style to keep it looking like text, OR use a custom style.
+                      // Actually, for "clickable" to be obvious, it usually needs style.
+                      // But for academic, let's just make it a link without forcing blue if possible, 
+                      // actually InternalHyperlink without style might just be a link area.
+                      // Let's try without style first to preserve aesthetics? 
+                      // No, user complained it's "unclickable". Visual feedback is good.
+                      // Let's add the standard Hyperlink style but maybe we can customize it later.
+                      // For now, let's NOT add 'Hyperlink' style ID to avoid blue-ing everything if they didn't ask for it.
+                      // Just the functionality. 
+                      // Wait, if I don't style it, they won't know it's clickable.
+                      // I'll stick to NO style ID for now to match print look, but functionality will be there.
+                      bold: child.marks?.some((m: any) => m.type === "bold"),
+                      italics: child.marks?.some((m: any) => m.type === "italic")
+                    })
+                  ]
+                })
+              );
             } else {
               runs.push(new TextRun({ text: fallback, color: "FF0000" })); // Red for missing ref?
             }

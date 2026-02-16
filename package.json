@@ -27,6 +27,7 @@
     "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
     "cheerio": "^1.2.0",
+    "citeproc": "^2.4.63",
     "cors": "^2.8.5",
     "docx": "^9.5.1",
     "dotenv": "^16.3.1",
@@ -48,6 +49,7 @@
     "string-similarity": "^4.0.4",
     "typescript": "^5.0.0",
     "winston": "^3.19.0",
+    "xmldom": "^0.6.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -66,6 +68,7 @@
     "@types/stopword": "^2.0.3",
     "@types/string-similarity": "^4.0.2",
     "@types/supertest": "^6.0.3",
+    "@types/xmldom": "^0.1.34",
     "nodemon": "^3.0.2",
     "rimraf": "^6.1.2",
     "tsx": "^4.21.0"

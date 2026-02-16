@@ -302,7 +302,23 @@ export class EntitlementService {
      * The SINGLE SOURCE OF TRUTH for enforcement.
      */
     static async assertCanUse(userId: string, feature: string, metadata?: any): Promise<boolean> {
-        // 1. Get Entitlements
+        // 0. SELF-HEALING CHECK
+        // Check if the actual Active Plan matches the Cached Entitlement Plan
+        // If mismatch (e.g. User is Researcher but Entitlement says Free), force rebuild BEFORE proceeding.
+        try {
+            const activePlan = await SubscriptionService.getActivePlan(userId);
+            let ent = await this.getEntitlements(userId);
+
+            if (ent && ent.plan !== activePlan) {
+                logger.warn(`Entitlement Plan Mismatch detected (Active: ${activePlan}, Cached: ${ent.plan}). Forcing Rebuild.`, { userId });
+                await this.rebuildEntitlements(userId);
+                ent = await this.getEntitlements(userId); // Refresh
+            }
+        } catch (e) {
+            logger.error("Self-healing check failed", { userId, error: e });
+        }
+
+        // 1. Get Entitlements (Refreshed)
         let ent = await this.getEntitlements(userId);
 
         // 🛡️ SAFE-ALLOW LOGIC (Innocent until proven guilty)
@@ -350,6 +366,15 @@ export class EntitlementService {
             try {
                 const currentLimits = SubscriptionService.getPlanLimits(ent.plan) as Record<string, any>;
                 const planLimit = currentLimits[targetFeature];
+
+                // FORCE OVERRIDE: If Plan Code says Unlimited (-1), ignore DB limits
+                if (planLimit === -1 && rights && !rights.unlimited) {
+                    logger.warn("Optimistic Override: Plan Code says Unlimited, DB says Limited. Trusting Code.", { userId, feature: targetFeature });
+                    rights.unlimited = true;
+                    rights.limit = -1;
+                    rights.remaining = -1;
+                    // We don't save back to DB here to avoid write penalty, but we trust it for this execution
+                }
 
                 // Mismatch Check
                 if (planLimit !== undefined) {
@@ -487,8 +512,15 @@ export class EntitlementService {
             }
 
             // Free tier, no cost feature, but limit reached
-            const error: any = new Error("Free plan limit reached. Upgrade to continue.");
+            const error: any = new Error(`Free plan limit reached for ${feature}. Upgrade to continue.`);
             error.code = "PLAN_LIMIT_REACHED";
+
+            // Debugging Data attached to error
+            error.data = {
+                reason: "User is on Free tier",
+                currentPlan: currentPlan,
+                subStatus: "unknown (check logs)"
+            };
             throw error;
         }
 
@@ -512,8 +544,10 @@ export class EntitlementService {
                 select: { auto_use_credits: true }
             });
 
-            // If auto_use_credits is enabled, allow credit fallback
-            if (user && user.auto_use_credits === true) {
+            // If auto_use_credits is enabled (Default to TRUE for paid users, just like free)
+            const autoUseEnabled = user?.auto_use_credits ?? true;
+
+            if (user && autoUseEnabled) {
                 const cost = CreditService.calculateCost(feature, metadata);
                 if (cost > 0) {
                     const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
@@ -525,6 +559,12 @@ export class EntitlementService {
                             cost
                         });
                         return true;
+                    } else {
+                        // CRITICAL FIX: Throw 402 so UI knows to ask for credits
+                        const error: any = new Error(`Plan limit reached and insufficient credits (${cost} needed). Top up to continue.`);
+                        error.code = "INSUFFICIENT_CREDITS";
+                        error.data = { cost, currentBalance: await CreditService.getBalance(userId) };
+                        throw error;
                     }
                 }
             }

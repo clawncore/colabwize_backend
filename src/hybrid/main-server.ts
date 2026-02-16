@@ -46,6 +46,7 @@ import searchAlertsRouter from "../api/search-alerts/index";
 import researchRouter from "../api/research/index";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
+import grammarRouter from "../api/grammar/index";
 
 const app: Application = express();
 // Port assignment moved to startServer function
@@ -332,6 +333,9 @@ app.use("/api/search-alerts", authMiddleware, searchAlertsRouter);
 
 // Research Assistant API
 app.use("/api/research", authMiddleware, researchRouter);
+
+// AI Grammar Checker API
+app.use("/api/grammar", authMiddleware, grammarRouter);
 
 // 404 handler
 app.use((req, res) => {

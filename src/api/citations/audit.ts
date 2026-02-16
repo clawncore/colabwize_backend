@@ -175,7 +175,7 @@ router.post("/audit", async (req: Request, res: Response) => {
         };
 
         // =========================================================================
-        // TIER 2: CLAIM-LEVEL AUDIT (Conditional)
+        // TIER 2: CLAIM-LEVEL & FORENSIC AUDIT (Conditional)
         // Runs only where citations support factual/quantitative claims.
         // =========================================================================
 
@@ -187,54 +187,43 @@ router.post("/audit", async (req: Request, res: Response) => {
         });
 
         let verificationResults: VerificationResult[] = [];
+        let forensicResults: any[] = [];
 
         if (claimAuditCitations.length > 0) {
             tiersExecuted.push(AuditTier.CLAIM);
-            console.log(`🔍 [Tier 2] Verifying ${claimAuditCitations.length} claim-bearing citations.`);
+            console.log(`🔍 [Tier 2/Forensic] Verifying ${claimAuditCitations.length} claim-bearing citations.`);
 
-            const { ExternalVerificationService } = await import("../../services/citationAudit/externalVerification");
-            const rawResults = await ExternalVerificationService.verifyCitationPairs(claimAuditCitations);
+            const { ForensicAuditService } = await import("../../services/citationAudit/ForensicAuditService");
+            forensicResults = await ForensicAuditService.auditCitations(claimAuditCitations);
 
-            // 🔁 REMEDIATION: If a citation is unsupported or ambiguous, find alternatives
-            const { AcademicSearchService } = await import("../../services/academicSearchService");
-
-            verificationResults = await Promise.all(rawResults.map(async (res) => {
-                // If support is questionable, try to find better papers
-                const needsRemediation = res.supportStatus === "UNSUPPORTED" ||
-                    res.supportStatus === "AMBIGUOUS" ||
-                    res.existenceStatus === "NOT_FOUND";
-
-                if (needsRemediation) {
-                    console.log(`🔎 [Remediation] Searching for alternatives for: ${res.inlineLocation?.text}`);
-                    const alternatives = await AcademicSearchService.findEvidenceForClaim(res.inlineLocation?.text || "");
-
-                    return {
-                        ...res,
-                        reason: res.reason || (res.existenceStatus === "NOT_FOUND" ? "Source could not be located in academic databases." : "The source abstract does not explicitly support this claim."),
-                        action: "Review the suggested alternatives below or refine your claim.",
-                        suggestions: alternatives.map(p => ({
-                            title: p.title,
-                            year: p.year,
-                            relevanceScore: Math.round((p.similarity || 0) * 100),
-                            url: p.url,
-                            whyMatch: "Contains terminology closely related to your claim."
-                        }))
-                    };
+            // Map forensic results back to flags and verificationResults for compatibility
+            forensicResults.forEach(fRes => {
+                if (fRes.status !== "VERIFIED") {
+                    flags.push({
+                        type: "VERIFICATION", // General bucket
+                        ruleId: `FORENSIC_${fRes.status}`,
+                        message: fRes.issues[0] || "Citation issue detected.",
+                        tier: AuditTier.CLAIM,
+                        anchor: {
+                            start: fRes.pair.inline.start,
+                            end: fRes.pair.inline.end,
+                            text: fRes.pair.inline.text
+                        },
+                        reason: fRes.issues.join(" "),
+                        action: "Review the evidence card."
+                    });
                 }
 
-                return {
-                    ...res,
-                    reason: "Source confirmed and aligned with claim context.",
-                    action: "No action required."
-                };
-            }));
+                // Keep verificationResults populated for legacy UI
+                if (fRes.evidence) verificationResults.push(fRes.evidence);
+            });
 
             tierMetadata[AuditTier.CLAIM] = {
                 executed: true,
                 stats: {
                     candidates: claimAuditCitations.length,
-                    verified: verificationResults.length,
-                    remediations: verificationResults.filter(r => (r.suggestions?.length || 0) > 0).length
+                    verified: forensicResults.length,
+                    remediations: 0
                 }
             };
         } else {
