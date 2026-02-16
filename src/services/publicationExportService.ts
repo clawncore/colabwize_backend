@@ -22,6 +22,7 @@ import {
   BookmarkStart,
   BookmarkEnd,
   InternalHyperlink,
+  TextRun, // Added TextRun
 } from "docx";
 import { PublicationService } from "./publicationService";
 import AdmZip from "adm-zip";
@@ -334,9 +335,9 @@ export class PublicationExportService {
           referencesParagraphs.push(
             new Paragraph({
               children: [
-                new BookmarkStart(`ref_${citation.id}`),
+                new BookmarkStart((index + 2000) as any, `ref_${citation.id}` as any),
                 new TextRun(`${index + 1}. ${this.formatCitation(citation, options.citationStyle || "apa")}`),
-                new BookmarkEnd(`ref_${citation.id}`)
+                new BookmarkEnd((index + 2000) as any)
               ],
               spacing: { after: 100 },
             })

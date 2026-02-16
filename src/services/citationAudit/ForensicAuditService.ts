@@ -57,7 +57,8 @@ export class ForensicAuditService {
             // CHECK 2: Authorship Mismatch (Forensic)
             // If we found a paper, does the author match interpretation?
             if (ver.foundPaper && pair.reference?.extractedAuthor) {
-                const realAuthors = ver.foundPaper.authors.map((a: string) => a.toLowerCase()).join(" ");
+                const authors = ver.foundPaper.authors || [];
+                const realAuthors = authors.map((a: string) => a.toLowerCase()).join(" ");
                 const citedAuthor = pair.reference.extractedAuthor.toLowerCase();
 
                 // Simple inclusion check
@@ -67,7 +68,7 @@ export class ForensicAuditService {
 
                 if (!match) {
                     status = "MISMATCH";
-                    issues.push(`Author mismatch. Cited: "${pair.reference.extractedAuthor}", Real: "${ver.foundPaper.authors.slice(0, 3).join(", ")}..."`);
+                    issues.push(`Author mismatch. Cited: "${pair.reference.extractedAuthor}", Real: "${authors.slice(0, 3).join(", ")}..."`);
                     confidence = 0.8; // We are confident it IS a mismatch
                 }
             }

@@ -54,14 +54,16 @@ export class DocxRenderer {
                 // Note: docx Bookmarks are usually around runs or whole paragraphs.
                 // We will wrap the whole paragraph content.
 
-                // BookmarkStart/End require a unique ID (string) and a name (string) in docx library.
-                // The ID is an internal unique identifier, the name is what's referenced.
-                // For simplicity, we use the same string for both.
+                // BookmarkStart/End require a unique ID (number) and a name (string) in some docx versions.
+                // We generate a unique ID based on the loop index or hash.
+                // Fix: ensure ID is number.
+                const bookmarkId = bibEntries.indexOf(entry) + 1000; // Offset to avoid collisions
+
                 paragraphs.push(new Paragraph({
                     children: [
-                        new BookmarkStart(id, id),
+                        new BookmarkStart((bookmarkId as any), (id as any)),
                         new TextRun({ text: textContent }),
-                        new BookmarkEnd(id, id)
+                        new BookmarkEnd(bookmarkId as any)
                     ],
                     spacing: { after: 120 }
                 }));
@@ -72,21 +74,23 @@ export class DocxRenderer {
     }
 
     private static processBlockElement($: cheerio.CheerioAPI, el: any): Paragraph | null {
-        const tag = $(el).prop('tagName').toLowerCase();
+        const tag = $(el).prop('tagName')?.toLowerCase();
         // Call the improved recursive processor
         const children = this.processNodesWithStyle($, $(el).contents(), {});
 
         // Construct formatting options
-        let heading: HeadingLevel | undefined = undefined;
+        let heading: any = undefined;
 
-        switch (tag) {
-            case 'h1': heading = HeadingLevel.HEADING_1; break;
-            case 'h2': heading = HeadingLevel.HEADING_2; break;
-            case 'h3': heading = HeadingLevel.HEADING_3; break;
-            case 'h4': heading = HeadingLevel.HEADING_4; break;
-            case 'p':
-                // standard paragraph
-                break;
+        if (tag) {
+            switch (tag) {
+                case 'h1': heading = HeadingLevel.HEADING_1; break;
+                case 'h2': heading = HeadingLevel.HEADING_2; break;
+                case 'h3': heading = HeadingLevel.HEADING_3; break;
+                case 'h4': heading = HeadingLevel.HEADING_4; break;
+                case 'p':
+                    // standard paragraph
+                    break;
+            }
         }
 
         return new Paragraph({
@@ -112,7 +116,7 @@ export class DocxRenderer {
                     }));
                 }
             } else if (el.type === 'tag') {
-                const tag = $(el).prop('tagName').toLowerCase();
+                const tag = $(el).prop('tagName')?.toLowerCase();
 
                 if (tag === 'a') {
                     // Hyperlink
