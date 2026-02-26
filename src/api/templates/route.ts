@@ -3,9 +3,10 @@ import logger from "../../monitoring/logger";
 
 export async function GET(request: Request) {
   try {
-    const url = new URL(request.url);
+    const url = new URL(request.url, "http://localhost");
     const type = url.pathname.split("/").pop(); // Get the type from the URL path like /api/templates/type/research-paper
     const userId = url.searchParams.get("userId");
+    const workspaceId = url.searchParams.get("workspaceId");
     const isPublic = url.searchParams.get("isPublic");
 
     let whereClause: any = {};
@@ -15,12 +16,18 @@ export async function GET(request: Request) {
       whereClause.type = type;
     }
 
-    // If userId is provided, get user-specific templates
-    if (userId) {
+    // Filter by workspace if provided (this takes precedence over user/public usually)
+    if (workspaceId) {
+      whereClause.workspace_id = workspaceId;
+    }
+    // If not a workspace template, handle user/public logic
+    else if (userId) {
       whereClause.user_id = userId;
+      whereClause.workspace_id = null; // Ensure we don't get workspace templates mixed in
     } else if (isPublic !== "false") {
-      // Default to public templates if not getting user-specific ones
+      // Default to public templates
       whereClause.is_public = true;
+      whereClause.workspace_id = null; // Public templates are usually system templates
     }
 
     const templates = await prisma.documentTemplate.findMany({
@@ -38,6 +45,7 @@ export async function GET(request: Request) {
         rating: true,
         downloads: true,
         author_name: true,
+        workspace_id: true,
       },
     });
 
@@ -63,6 +71,7 @@ export async function POST(request: Request) {
       content,
       is_public,
       user_id,
+      workspace_id,
       citation_style,
     } = data;
 
@@ -74,6 +83,7 @@ export async function POST(request: Request) {
         content,
         is_public: is_public || false,
         user_id: user_id || null,
+        workspace_id: workspace_id || null,
         citation_style: citation_style || null,
       },
     });
@@ -105,6 +115,7 @@ export async function PUT(request: Request) {
         content,
         is_public,
         citation_style: citation_style || null,
+        workspace_id: data.workspace_id,
         updated_at: new Date(),
       },
     });
@@ -123,7 +134,7 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const url = new URL(request.url);
+    const url = new URL(request.url, "http://localhost");
     const id = url.searchParams.get("id");
 
     if (!id) {

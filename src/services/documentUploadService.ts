@@ -9,6 +9,7 @@ import mammoth from "mammoth";
 import { RecycleBinService } from "./recycleBinService";
 import logger from "../monitoring/logger";
 import { PdfConversionService } from "./pdfConversionService";
+import { VectorStoreService } from "./vectorStoreService";
 
 interface ExtendedRequest extends Request {
   user?: {
@@ -26,7 +27,8 @@ export class DocumentUploadService {
     userId: string,
     title: string,
     description: string,
-    file: Express.Multer.File
+    file: Express.Multer.File,
+    workspaceId?: string
   ) {
     // Extract text/html from the uploaded document
     const { content: extractedContent, format } =
@@ -66,6 +68,7 @@ export class DocumentUploadService {
         word_count: wordCount,
         file_path: file.path,
         file_type: file.mimetype,
+        workspace_id: workspaceId || null,
       },
       include: {
         originality_scans: true,
@@ -73,17 +76,40 @@ export class DocumentUploadService {
       },
     });
 
+    // Vectorize project content for chat functionality (async, don't block response)
+    VectorStoreService.storeProjectContent(project.id, userId, projectContent)
+      .catch((error) => {
+        console.error(`Failed to vectorize project ${project.id}:`, error);
+        // Don't fail the request if vectorization fails
+      });
+
     return project;
   }
 
   /**
-   * Gets all projects for a user
+   * Gets all projects for a user, with optional workspace filtering
+   * When workspaceId is provided, returns ALL projects in that workspace
+   * (shared visibility), not just the requesting user's.
    */
-  static async getUserProjects(userId: string) {
+  static async getUserProjects(
+    userId: string,
+    options?: { personalOnly?: boolean; workspaceId?: string }
+  ) {
+    const where: any = {};
+
+    if (options?.personalOnly) {
+      where.user_id = userId;
+      where.workspace_id = null; // Only personal projects (no workspace)
+    } else if (options?.workspaceId) {
+      // Shared visibility: all projects in this workspace, not just the user's
+      where.workspace_id = options.workspaceId;
+    } else {
+      // All projects for this user (backward compatible)
+      where.user_id = userId;
+    }
+
     return await prisma.project.findMany({
-      where: {
-        user_id: userId,
-      },
+      where,
       orderBy: {
         created_at: "desc",
       },
@@ -97,6 +123,14 @@ export class DocumentUploadService {
         file_type: true,
         created_at: true,
         updated_at: true,
+        workspace_id: true,
+        user: {
+          select: {
+            id: true,
+            full_name: true,
+            email: true,
+          },
+        },
         originality_scans: {
           orderBy: {
             created_at: "desc",
@@ -111,13 +145,23 @@ export class DocumentUploadService {
   }
 
   /**
-   * Gets a specific project by ID for a user
+   * Gets a specific project by ID for a user.
+   * Allows access if the user owns the project OR is a member of the project's workspace OR is a direct collaborator.
    */
   static async getProjectById(projectId: string, userId: string) {
-    return await prisma.project.findFirst({
+    // Check for access using a single query with OR
+    const project = await prisma.project.findFirst({
       where: {
         id: projectId,
-        user_id: userId,
+        OR: [
+          { user_id: userId },
+          { collaborators: { some: { user_id: userId } } },
+          {
+            workspace: {
+              members: { some: { user_id: userId } },
+            },
+          },
+        ],
       },
       include: {
         originality_scans: {
@@ -125,10 +169,16 @@ export class DocumentUploadService {
             created_at: "desc",
           },
         },
-
         citations: true,
+        workspace: {
+          include: {
+            members: true
+          }
+        }
       },
     });
+
+    return project;
   }
 
   /**
@@ -162,11 +212,16 @@ export class DocumentUploadService {
     citationStyle?: string,
     outline?: any
   ) {
+    // Check if user has permission to update (permission check)
+    const hasAccess = await this.getProjectById(projectId, userId);
+    if (!hasAccess) {
+      throw new Error("Access denied: You do not have permission to update this project");
+    }
+
     // Update project record
     const updatedProject = await (prisma.project as any).update({
       where: {
         id: projectId,
-        user_id: userId,
       },
       data: {
         title,
@@ -174,7 +229,7 @@ export class DocumentUploadService {
         content,
         outline,
         word_count: wordCount,
-        citation_style: citationStyle, // Pass directly (Prisma handles undefined gracefully often, or use conditional spread)
+        citation_style: citationStyle,
         updated_at: new Date(),
       },
       include: {
@@ -243,7 +298,8 @@ export class DocumentUploadService {
     title: string,
     description: string,
     content: any,
-    outline: any = null
+    outline: any = null,
+    workspaceId?: string
   ) {
     // Create project record in the database
     const project = await (prisma.project as any).create({
@@ -261,6 +317,7 @@ export class DocumentUploadService {
         },
         outline: outline,
         word_count: content ? this.countWords(JSON.stringify(content)) : 0,
+        workspace_id: workspaceId || null,
       },
       include: {
         originality_scans: true,

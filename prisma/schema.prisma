@@ -4,8 +4,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -70,9 +70,119 @@ model User {
   entitlement           UserEntitlement?
   search_alerts         SearchAlert[]
   research_topics       ResearchTopic[]
+  pdf_documents            PdfDocument[]
+  collaborators            CollaboratorPresence[]
+  document_versions        DocumentVersion[]
 
+  // Workspace Relations
+  owned_workspaces           Workspace[]           @relation("WorkspaceOwner")
+  workspace_memberships      WorkspaceMember[]
+  sent_workspace_invitations WorkspaceInvitation[] @relation("WorkspaceInviter")
+  team_chat_messages         TeamChatMessage[]
+  assigned_tasks             TaskAssignee[]        @relation("TaskAssignees")
+  created_tasks              WorkspaceTask[]       @relation("TaskCreator")
+  task_comments              TaskComment[]         @relation("UserTaskComments")
+  time_entries               TaskTimeEntry[] // Time tracking entries
+  task_trackings             TaskTracking[]
+  notifications              Notification[]
+  notification_settings      NotificationSettings?
+  workspace_activities       WorkspaceActivity[]
+  
   @@index([email])
   @@map("users")
+}
+
+model Workspace {
+  id            String                @id @default(uuid())
+  name          String
+  description   String?
+  icon          String? // URL or emoji
+  created_at    DateTime              @default(now())
+  updated_at    DateTime              @updatedAt
+  owner_id      String
+  owner         User                  @relation("WorkspaceOwner", fields: [owner_id], references: [id])
+  projects      Project[]
+  members       WorkspaceMember[]
+  invitations   WorkspaceInvitation[] // New: pending invitations
+  chat_messages TeamChatMessage[]
+  tasks         WorkspaceTask[]
+  labels        WorkspaceLabel[]
+  views         WorkspaceView[]
+  custom_fields WorkspaceCustomField[]
+  activities    WorkspaceActivity[]
+  templates     DocumentTemplate[]
+  template_id   String?
+  template      WorkspaceTemplate?    @relation(fields: [template_id], references: [id])
+
+  @@index([owner_id])
+  @@index([template_id])
+}
+
+model WorkspaceView {
+  id           String   @id @default(uuid())
+  workspace_id String
+  name         String
+  filters      Json // e.g., { priority: "high", labels: ["id1"], dateStatus: "overdue" }
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id])
+}
+
+model WorkspaceMember {
+  id           String    @id @default(uuid())
+  workspace_id String
+  user_id      String
+  role         String    @default("viewer") // "admin", "editor", "viewer"
+  joined_at    DateTime  @default(now())
+  workspace    Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([workspace_id, user_id])
+  @@index([workspace_id])
+  @@index([user_id])
+}
+
+model WorkspaceInvitation {
+  id           String   @id @default(uuid())
+  workspace_id String
+  email        String
+  role         String   @default("viewer") // "admin", "editor", "viewer"
+  token        String   @unique @default(uuid())
+  status       String   @default("pending") // "pending", "accepted", "declined", "expired"
+  expires_at   DateTime
+  invited_by   String
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  inviter   User      @relation("WorkspaceInviter", fields: [invited_by], references: [id])
+
+  @@unique([workspace_id, email])
+  @@index([token])
+  @@index([email])
+  @@index([status])
+  @@index([expires_at])
+}
+
+model WorkspaceActivity {
+  id           String   @id @default(uuid())
+  workspace_id String
+  user_id      String
+  action       String   // e.g., "MEMBER_ADDED", "PROJECT_CREATED", "SETTINGS_UPDATED"
+  details      Json?    // Context like { role: "editor" } or { oldName: "X", newName: "Y" }
+  ip_address   String?
+  created_at   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([workspace_id])
+  @@index([user_id])
+  @@index([created_at])
+  @@map("workspace_activities")
 }
 
 model RecycledItem {
@@ -163,6 +273,8 @@ model SimilarityMatch {
   source_words     Int                  @default(0)          // Words on source page (urlwords)
   match_percent    Float                @default(0)          // % of source matched (percentmatched)
   similarity_score Float
+  // ... (previous content)
+
   position_start   Int
   position_end     Int
   classification   String
@@ -246,6 +358,7 @@ model Project {
   user_id               String
   title                 String
   description           String?
+  status                String               @default("active") // active, completed, archived, draft
   content               Json?
   outline               Json?                // To store drag-and-drop structural organization
   word_count            Int                  @default(0)
@@ -259,6 +372,7 @@ model Project {
   authorship_activities AuthorshipActivity[]
   certificates          Certificate[]
   chat_messages         ChatMessage[]
+  team_chat_messages    TeamChatMessage[]
   chat_sessions         ChatSession[]
   citations             Citation[]
   exports               Export[]
@@ -267,6 +381,13 @@ model Project {
   user                  User                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
   real_time_activities  RealTimeActivity[]
   source_interactions   SourceInteraction[]
+  workspace_id        String?
+  workspace           Workspace?             @relation(fields: [workspace_id], references: [id])
+  collaborators       CollaboratorPresence[]
+  share_settings      DocumentShareSettings?
+  document_versions   DocumentVersion[]
+  version_schedules   VersionSchedule[]
+  tasks               WorkspaceTask[] // Tasks linked to this research project
 
   @@index([user_id])
   @@index([created_at])
@@ -720,6 +841,8 @@ model DocumentTemplate {
   tags           String[] @default([])
   is_public      Boolean  @default(true)
   user_id        String?  // null for system templates
+  workspace_id   String?  // null for global templates, set for workspace-specific templates
+  workspace      Workspace? @relation(fields: [workspace_id], references: [id])
   citation_style String?  // default citation style for this template
   author_name    String?  @default("ColabWize")
   rating         Float?   @default(0)
@@ -730,7 +853,32 @@ model DocumentTemplate {
   @@index([type])
   @@index([is_public])
   @@index([user_id])
+  @@index([workspace_id])
   @@map("document_templates")
+}
+
+model WorkspaceTemplate {
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  icon           String?  // Emoji or Icon name
+  
+  // Basic structural data as JSON for flexibility
+  // labels: { name: string, color: string }[]
+  // custom_fields: { name: string, type: string, options?: string[] }[]
+  // tasks: { title: string, description?: string, status?: string }[]
+  labels         Json?    @default("[]")
+  custom_fields  Json?    @default("[]")
+  tasks          Json?    @default("[]")
+  
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  
+  workspaces     Workspace[]
+
+  @@index([is_active])
+  @@map("workspace_templates")
 }
 
 model Annotation {
@@ -839,3 +987,441 @@ model ResearchTopic {
   @@map("research_topics")
 }
 
+model Document {
+  id        BigInt                 @id @default(autoincrement())
+  content   String
+  metadata  Json?
+  embedding Unsupported("vector")?
+
+  @@map("documents")
+}
+
+model PdfDocument {
+  id         String   @id @default(uuid())
+  user_id    String
+  filename   String
+  status     String   @default("processing")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  user       User     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
+  @@map("pdf_documents")
+}
+
+model CollaboratorPresence {
+  id             String   @id @default(uuid())
+  project_id     String
+  user_id        String
+  permission     String   @default("view")
+  join_method    String?  @default("workspace_member") // "workspace_member", "link_editor", "direct_invite"
+  last_active_at DateTime @default(now())
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  project        Project  @relation(fields: [project_id], references: [id])
+  user           User     @relation(fields: [user_id], references: [id])
+
+  @@unique([project_id, user_id])
+  @@index([project_id])
+  @@index([user_id])
+  @@index([last_active_at])
+  @@index([join_method])
+}
+
+model DocumentShareSettings {
+  id                   String    @id @default(uuid())
+  project_id           String    @unique
+  link_sharing_enabled Boolean   @default(true)
+  link_permission      String    @default("edit")
+  require_sign_in      Boolean   @default(true)
+  allow_download       Boolean   @default(true)
+  notify_on_view       Boolean   @default(false)
+  expiration           DateTime?
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+  project              Project   @relation(fields: [project_id], references: [id])
+
+  @@index([project_id])
+  @@index([link_sharing_enabled])
+}
+
+model TeamChatMessage {
+  id           String   @id @default(uuid())
+  workspace_id String?
+  project_id   String?
+  user_id      String
+  content      String
+  parent_id    String? // For threading
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace Workspace?        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project   Project?          @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [user_id], references: [id])
+  parent    TeamChatMessage?  @relation("Threads", fields: [parent_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  replies   TeamChatMessage[] @relation("Threads")
+
+  @@index([workspace_id])
+  @@index([project_id])
+  @@index([parent_id])
+  @@index([created_at])
+}
+
+
+model DocumentVersion {
+  id         String   @id @default(uuid())
+  project_id String
+  user_id    String
+  content    Json
+  version    Int
+  created_at DateTime @default(now())
+  word_count Int      @default(0)
+  project    Project  @relation(fields: [project_id], references: [id])
+  user       User     @relation(fields: [user_id], references: [id])
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([created_at])
+}
+
+model VersionSchedule {
+  id         String   @id @default(uuid())
+  project_id String
+  frequency  String
+  next_run   DateTime
+  enabled    Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  project    Project  @relation(fields: [project_id], references: [id])
+
+  @@index([project_id])
+  @@index([enabled])
+  @@index([next_run])
+}
+
+
+model WorkspaceTask {
+  id           String    @id @default(uuid())
+  workspace_id String
+  creator_id   String
+  title        String
+  description  String?
+  status       String    @default("todo")
+  priority     String    @default("medium")
+  due_date     DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  // Recurrence fields
+  is_recurring               Boolean   @default(false)
+  recurrence_pattern         String? // RRULE string or simple pattern
+  recurrence_end_date        DateTime?
+  recurrence_max_occurrences Int?
+  parent_recurring_task_id   String? // Links to parent if this is an instance
+  is_recurrence_exception    Boolean   @default(false)
+  original_due_date          DateTime? // For tracking rescheduled instances
+
+  // Project linking - tasks can optionally belong to a research project
+  project_id String?
+  project    Project? @relation(fields: [project_id], references: [id], onDelete: SetNull)
+
+  // Time tracking
+  estimated_hours Float? // Estimated time to complete in hours
+  time_entries    TaskTimeEntry[] // Time tracking entries
+
+  workspace    Workspace          @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  creator      User               @relation("TaskCreator", fields: [creator_id], references: [id])
+  assignees    TaskAssignee[] // Multiple assignees through junction table
+  comments     TaskComment[]
+  subtasks     WorkspaceSubtask[]
+  labels       WorkspaceLabel[]   @relation("TaskLabels")
+  attachments  TaskAttachment[]
+  dependencies TaskDependency[]   @relation("TaskDependencies")
+  blocked_by   TaskDependency[]   @relation("BlockedTasks")
+
+  // Self-relation for recurring task instances
+  parent_task     WorkspaceTask?  @relation("RecurringTaskInstances", fields: [parent_recurring_task_id], references: [id], onDelete: Cascade)
+  child_instances WorkspaceTask[] @relation("RecurringTaskInstances")
+
+  // Task Template fields
+  is_template       Boolean   @default(false)
+  template_name     String?
+  template_category String?
+
+  custom_field_values TaskCustomFieldValue[]
+
+  @@index([workspace_id])
+  @@index([creator_id])
+  @@index([status])
+  @@index([parent_recurring_task_id])
+  @@index([is_recurring])
+  @@index([due_date])
+  @@index([project_id])
+  @@index([is_template])
+}
+
+model TaskDependency {
+  id            String   @id @default(uuid())
+  task_id       String // The task that depends on another task
+  depends_on_id String // The task that is required (the "blocked by" task)
+  type          String   @default("blocks")
+  created_at    DateTime @default(now())
+
+  task       WorkspaceTask @relation("TaskDependencies", fields: [task_id], references: [id], onDelete: Cascade)
+  depends_on WorkspaceTask @relation("BlockedTasks", fields: [depends_on_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, depends_on_id])
+  @@index([task_id])
+  @@index([depends_on_id])
+}
+
+model WorkspaceSubtask {
+  id         String   @id @default(uuid())
+  task_id    String
+  title      String
+  is_done    Boolean  @default(false)
+  order      Int      @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  task WorkspaceTask @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@index([task_id])
+}
+
+model WorkspaceLabel {
+  id           String   @id @default(uuid())
+  workspace_id String
+  name         String
+  color        String   @default("#94a3b8")
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  workspace Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  tasks     WorkspaceTask[] @relation("TaskLabels")
+
+  @@unique([workspace_id, name])
+  @@index([workspace_id])
+}
+
+model TaskAttachment {
+  id         String   @id @default(uuid())
+  task_id    String
+  name       String
+  file_url   String
+  file_type  String
+  file_size  Int
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  task WorkspaceTask @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@index([task_id])
+}
+
+model WorkspaceCustomField {
+  id           String    @id @default(uuid())
+  workspace_id String
+  name         String
+  type         String    @default("text") // "text", "number", "date", "dropdown"
+  options      Json?     // For dropdown types (array of strings)
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  workspace    Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  values       TaskCustomFieldValue[]
+
+  @@unique([workspace_id, name])
+  @@index([workspace_id])
+}
+
+model TaskCustomFieldValue {
+  id               String               @id @default(uuid())
+  task_id          String
+  field_id         String
+  text_value       String?
+  number_value     Float?
+  date_value       DateTime?
+  
+  task             WorkspaceTask        @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  field            WorkspaceCustomField @relation(fields: [field_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, field_id])
+  @@index([task_id])
+  @@index([field_id])
+}
+
+model TaskTimeEntry {
+  id          String    @id @default(uuid())
+  task_id     String
+  user_id     String
+  start_time  DateTime
+  end_time    DateTime?
+  duration    Int? // Duration in minutes, calculated when timer stops
+  description String?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  task WorkspaceTask @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user User           @relation(fields: [user_id], references: [id])
+
+  @@index([task_id])
+  @@index([user_id])
+}
+
+model TaskAssignee {
+  id                       String    @id @default(uuid())
+  task_id                  String
+  user_id                  String
+  assigned_at              DateTime  @default(now())
+  last_notified_soon_at    DateTime?
+  last_notified_overdue_at DateTime?
+
+  task WorkspaceTask @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user User          @relation("TaskAssignees", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, user_id])
+  @@index([task_id])
+  @@index([user_id])
+}
+
+model TaskComment {
+  id         String   @id @default(uuid())
+  task_id    String
+  user_id    String
+  content    String   @db.Text
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  task WorkspaceTask @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user User          @relation("UserTaskComments", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([task_id])
+  @@index([user_id])
+}
+
+model TaskTracking {
+  id           String   @id @default(cuid())
+  user_id      String
+  action       String
+  service_type String
+  quantity     Int      @default(1)
+  cost         Float    @default(0)
+  metadata     Json?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  user         User     @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
+  @@index([service_type])
+  @@index([action])
+  @@index([created_at])
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  user_id     String
+  type        String
+  title       String
+  message     String
+  read        Boolean  @default(false)
+  dismissed   Boolean  @default(false)
+  snoozed_until DateTime?
+  data        Json?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("notifications")
+}
+
+model NotificationSettings {
+  id                                      String   @id @default(uuid())
+  user_id                                 String   @unique
+  
+  // Project Activity
+  project_activity_enabled                Boolean  @default(true)
+  project_activity_comments               Boolean  @default(true)
+  project_activity_mentions               Boolean  @default(true)
+  project_activity_changes                Boolean  @default(true)
+  project_activity_shared                 Boolean  @default(true)
+
+  // Collaboration
+  collaboration_enabled                   Boolean  @default(true)
+  collaboration_new_collaborator          Boolean  @default(true)
+  collaboration_permission_changes        Boolean  @default(true)
+  collaboration_comments_resolved         Boolean  @default(true)
+  collaboration_real_time                 Boolean  @default(true)
+  collaboration_request_enabled           Boolean  @default(true)
+  collaboration_request_collaborator_request Boolean @default(true)
+
+  // AI Features
+  ai_features_enabled                     Boolean  @default(true)
+  ai_features_plagiarism_complete         Boolean  @default(true)
+  ai_features_ai_limit                    Boolean  @default(true)
+  ai_features_new_features                Boolean  @default(true)
+  ai_features_weekly_summary              Boolean  @default(true)
+
+  // Billing
+  account_billing_enabled                 Boolean  @default(true)
+  account_billing_payment_success         Boolean  @default(true)
+  account_billing_payment_failed          Boolean  @default(true)
+  account_billing_subscription_renewed    Boolean  @default(true)
+  account_billing_subscription_expiring   Boolean  @default(true)
+  account_billing_security_alerts         Boolean  @default(true)
+  account_billing_subscription_created    Boolean  @default(true)
+  account_billing_subscription_updated    Boolean  @default(true)
+  account_billing_subscription_cancelled  Boolean  @default(true)
+  account_billing_subscription_resumed    Boolean  @default(true)
+  account_billing_subscription_expired    Boolean  @default(true)
+  account_billing_payment_refunded        Boolean  @default(true)
+  account_billing_invoice_available       Boolean  @default(true)
+
+  // Product Updates
+  product_updates_enabled                 Boolean  @default(true)
+  product_updates_new_features            Boolean  @default(true)
+  product_updates_tips                    Boolean  @default(true)
+  product_updates_newsletter              Boolean  @default(true)
+  product_updates_special_offers          Boolean  @default(true)
+  
+  // Writing Progress
+  writing_progress_enabled                Boolean @default(true)
+  writing_progress_document_deadline      Boolean @default(true)
+  writing_progress_writing_streak         Boolean @default(true)
+  writing_progress_goal_achieved          Boolean @default(true)
+
+  // Research Updates
+  research_updates_enabled                Boolean @default(true)
+  research_updates_ai_suggestion          Boolean @default(true)
+  research_updates_citation_reminder      Boolean @default(true)
+  research_updates_research_update        Boolean @default(true)
+
+  // Document Management
+  document_management_enabled             Boolean @default(true)
+  document_management_backup_available    Boolean @default(true)
+  document_management_template_update     Boolean @default(true)
+  document_management_document_version    Boolean @default(true)
+
+  // SMS & Push
+  sms_notifications_enabled               Boolean @default(false)
+  sms_notifications_high_priority_only    Boolean @default(true)
+  frequency                               String  @default("realtime") // realtime, daily, weekly
+  quiet_hours_enabled                     Boolean @default(false)
+  quiet_hours_start_time                  String  @default("22:00")
+  quiet_hours_end_time                    String  @default("08:00")
+  push_notifications_enabled              Boolean @default(true)
+  push_notifications_mentions             Boolean @default(true)
+  push_notifications_comments             Boolean @default(true)
+  push_notifications_direct_messages      Boolean @default(true)
+  push_notifications_marketing            Boolean @default(false)
+  in_app_notifications_enabled            Boolean @default(true)
+  in_app_notifications_sound              Boolean @default(true)
+  in_app_notifications_desktop            Boolean @default(true)
+
+  created_at                              DateTime @default(now())
+  updated_at                              DateTime @updatedAt
+  user                                    User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("notification_settings")
+}

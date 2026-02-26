@@ -445,6 +445,93 @@ export class EmailService {
     }
   }
 
+  // Send workspace invitation email
+  static async sendWorkspaceInvitation({
+    to,
+    workspaceName,
+    inviterName,
+    role,
+    acceptUrl,
+    expiresAt
+  }: {
+    to: string;
+    workspaceName: string;
+    inviterName: string;
+    role: string;
+    acceptUrl: string;
+    expiresAt: Date;
+  }): Promise<boolean> {
+    try {
+      if (!resend) {
+        console.error("Resend client not initialized");
+        return false;
+      }
+
+      const roleLabels = {
+        admin: "Administrator",
+        editor: "Editor",
+        viewer: "Viewer",
+      };
+
+      const roleLabel = roleLabels[role as keyof typeof roleLabels] || role;
+
+      const { data, error } = await resend.emails.send({
+        from: "ColabWize <invites@email.colabwize.com>",
+        to,
+        subject: `Workspace Invitation: Join ${workspaceName} on ColabWize`,
+        html: `
+          <div style="font-family: Arial, sans-serif; background-color: #f4f4f5; ">
+            <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 20px 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+              <div style="margin-bottom: 30px;">
+                <img src="https://image2url.com/r2/bucket2/images/1767558424944-e48e15a4-5587-40ac-99b0-ee82c5d68042.png" alt="ColabWize Logo"style="width: 100%; height: 120px; max-height: 200px; margin-bottom: 5px;">
+                <h1 style="color: #1e40af; font-size: 24px; margin: 10px 0;">You've Been Invited! 🚀</h1>
+              </div>
+              
+              <p style="color: #666666; font-size: 16px; line-height: 1.6;">
+                Hello,
+              </p>
+              
+              <p style="color: #666666; font-size: 16px; line-height: 1.6;">
+                <strong>${inviterName}</strong> has invited you to join the <strong>${workspaceName}</strong> workspace on ColabWize as a <strong>${roleLabel}</strong>.
+              </p>
+
+              <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #e2e8f0;">
+                <p style="margin: 0; font-size: 14px; color: #64748b;">
+                  ColabWize is the leading platform for academic integrity and defensible writing. Join your team to collaborate on projects and protect your work.
+                </p>
+              </div>
+              
+              <div style="margin: 35px 0; text-align: center;">
+                <a href="${acceptUrl}" style="background-color: #1e40af; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px -1px rgba(30, 64, 175, 0.2);">
+                  Accept Invitation
+                </a>
+              </div>
+              
+              <p style="color: #666666; font-size: 14px; line-height: 1.6; border-top: 1px solid #eeeeee; padding-top: 20px; margin-top: 20px;">
+                This invitation will expire on <strong>${expiresAt.toLocaleDateString()} at ${expiresAt.toLocaleTimeString()}</strong>.
+              </p>
+
+              <p style="color: #999999; font-size: 13px; margin-top: 40px; margin-bottom: 5px;">
+                ColabWize Team - Your Academic Integrity Partner
+              </p>
+            </div>
+          </div>
+        `,
+      });
+
+      if (error) {
+        console.error("Resend workspace invitation email error:", error);
+        return false;
+      }
+
+      console.log("Workspace invitation email sent successfully via Resend");
+      return true;
+    } catch (error) {
+      console.error("Error sending workspace invitation email via Resend:", error);
+      return false;
+    }
+  }
+
   // Send subscription confirmation email
   static async sendSubscriptionConfirmationEmail(
     to: string,

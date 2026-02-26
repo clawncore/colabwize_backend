@@ -174,9 +174,9 @@ export class RecycleBinService {
 
       const daysUntilPurge = earliestExpiration
         ? Math.ceil(
-            (earliestExpiration.expires_at.getTime() - now.getTime()) /
-              (1000 * 60 * 60 * 24)
-          )
+          (earliestExpiration.expires_at.getTime() - now.getTime()) /
+          (1000 * 60 * 60 * 24)
+        )
         : 0;
 
       return {
@@ -379,9 +379,9 @@ export class RecycleBinService {
   }
 
   /**
-   * Clean up expired items from the recycle bin
+   * Delete expired items from the recycle bin and return count
    */
-  static async cleanupExpiredItems(): Promise<void> {
+  static async deleteExpiredItems(): Promise<number> {
     try {
       const now = new Date();
 
@@ -405,10 +405,12 @@ export class RecycleBinService {
       }
 
       logger.info(
-        `Cleaned up ${expiredItems.length} expired items from recycle bin`
+        `Deleted ${expiredItems.length} expired items from recycle bin`
       );
+
+      return expiredItems.length;
     } catch (error) {
-      logger.error("Error cleaning up expired items:", error);
+      logger.error("Error deleting expired items:", error);
       throw error;
     }
   }
@@ -421,7 +423,7 @@ export class RecycleBinService {
     setInterval(
       async () => {
         try {
-          await this.cleanupExpiredItems();
+          await this.deleteExpiredItems();
         } catch (error) {
           logger.error("Error in scheduled recycle bin cleanup:", error);
         }

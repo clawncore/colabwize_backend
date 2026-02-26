@@ -10,13 +10,17 @@ export type ConsumptionResult = {
   remaining?: number;
   cost?: number;
   message?: string;
-  code?: "PLAN_LIMIT_REACHED" | "INSUFFICIENT_CREDITS" | "FEATURE_NOT_ALLOWED" | "SYSTEM_ERROR";
+  code?:
+  | "PLAN_LIMIT_REACHED"
+  | "INSUFFICIENT_CREDITS"
+  | "FEATURE_NOT_ALLOWED"
+  | "SYSTEM_ERROR";
 };
 
 /**
  * Plan limits and features
  */
-const PLAN_LIMITS = {
+export const plans = {
   free: {
     // Scan Limits
     scans_per_month: 3,
@@ -151,8 +155,12 @@ export class SubscriptionService {
    * Get active plan for user
    * Optimized to accept optional subscription object to avoid DB calls
    */
-  static async getActivePlan(userId: string, existingSubscription?: any): Promise<string> {
-    const subscription = existingSubscription ?? await this.getUserSubscription(userId);
+  static async getActivePlan(
+    userId: string,
+    existingSubscription?: any
+  ): Promise<string> {
+    const subscription =
+      existingSubscription ?? (await this.getUserSubscription(userId));
 
     if (!subscription) {
       return "free";
@@ -171,7 +179,9 @@ export class SubscriptionService {
     // 2. Legacy Status Check (Fallback)
     // Allow active, trialing, on_trial, and past_due (grace period)
     if (
-      !["active", "trialing", "on_trial", "past_due"].includes(subscription.status)
+      !["active", "trialing", "on_trial", "past_due"].includes(
+        subscription.status
+      )
     ) {
       return "free";
     }
@@ -187,8 +197,8 @@ export class SubscriptionService {
    */
   static getPlanLimits(plan: string) {
     let normalizedPlan = plan.toLowerCase().trim();
-    if (normalizedPlan === 'student pro') normalizedPlan = 'student_pro';
-    return PLAN_LIMITS[normalizedPlan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free;
+    if (normalizedPlan === "student pro") normalizedPlan = "student_pro";
+    return plans[normalizedPlan as keyof typeof plans] || plans.free;
   }
 
   /**
@@ -229,12 +239,23 @@ export class SubscriptionService {
     // Fix 3: Billing Cycle Usage Reset
     // Default to Calendar Month (Free Tier / No Sub)
     let periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    let periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    let periodEnd = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59
+    );
 
     // Try to get subscription billing cycle
     try {
       const subscription = await this.getUserSubscription(userId);
-      if (subscription && subscription.current_period_start && subscription.current_period_end) {
+      if (
+        subscription &&
+        subscription.current_period_start &&
+        subscription.current_period_end
+      ) {
         // Use active billing period
         // We trust current_period_start from LemonSqueezy
         periodStart = new Date(subscription.current_period_start);
@@ -245,7 +266,10 @@ export class SubscriptionService {
       }
     } catch (e) {
       // Fallback to calendar month on error
-      logger.warn("Failed to fetch subscription for usage check, defaulting to calendar month", { userId });
+      logger.warn(
+        "Failed to fetch subscription for usage check, defaulting to calendar month",
+        { userId }
+      );
     }
 
     // Map feature to limit key to ensure consistency with PLAN_LIMITS
@@ -292,7 +316,10 @@ export class SubscriptionService {
     feature: string,
     metadata?: any
   ): Promise<ConsumptionResult> {
-    logger.warn("DEPRECATED: SubscriptionService.checkActionEligibility called. Switch to EntitlementService.", { userId, feature });
+    logger.warn(
+      "DEPRECATED: SubscriptionService.checkActionEligibility called. Switch to EntitlementService.",
+      { userId, feature }
+    );
     const plan = await this.getActivePlan(userId);
     const limits = this.getPlanLimits(plan);
     const normalizedPlan = plan.toLowerCase();
@@ -329,25 +356,34 @@ export class SubscriptionService {
 
     // Check if feature is "Plan Restricted" (never allowed on this plan)
     // Canonical Rule: If limit is 0, it's NOT allowed unless it's a base feature.
-    const isPlanRestricted = planLimit === 0 && !["scan", "rephrase", "citation_audit"].includes(feature);
+    const isPlanRestricted =
+      planLimit === 0 &&
+      !["scan", "rephrase", "citation_audit"].includes(feature);
 
     if (isPlanRestricted) {
       return {
         allowed: false,
         source: "BLOCKED",
         code: "FEATURE_NOT_ALLOWED",
-        message: "This feature is not available on your current plan."
+        message: "This feature is not available on your current plan.",
       };
     }
 
     // 4. Entitlements Check (The New Truth)
-    const entitlement = await EntitlementService.checkEligibility(userId, feature);
+    const entitlement = await EntitlementService.checkEligibility(
+      userId,
+      feature
+    );
     if (entitlement.allowed) {
-      return { allowed: true, source: "PLAN", remaining: Math.max(0, entitlement.remaining || 0) };
+      return {
+        allowed: true,
+        source: "PLAN",
+        remaining: Math.max(0, entitlement.remaining || 0),
+      };
     }
 
     // 5. Fallback logic for Student/Payg (already handled by logic above/below or by Entitlement check?)
-    // In new architecture, Entitlements SHOULD handle the count. 
+    // In new architecture, Entitlements SHOULD handle the count.
     // If Entitlements says NO, we check CREDITS.
     // The "Student Plan" Hard Block is an Entitlement Rule (no credits allowed for excess).
 
@@ -357,12 +393,15 @@ export class SubscriptionService {
         allowed: false,
         source: "BLOCKED",
         code: "PLAN_LIMIT_REACHED",
-        message: "Monthly plan limit reached. Upgrade to Researcher for more."
+        message: "Monthly plan limit reached. Upgrade to Researcher for more.",
       };
     }
 
     // Check Auto-Use Preference (for others)
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { auto_use_credits: true } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { auto_use_credits: true },
+    });
     const autoUseEnabled = user?.auto_use_credits ?? true;
 
     if (!autoUseEnabled) {
@@ -370,7 +409,7 @@ export class SubscriptionService {
         allowed: false,
         source: "BLOCKED",
         code: "PLAN_LIMIT_REACHED",
-        message: "Plan limit reached. Enable Auto-Use Credits to continue."
+        message: "Plan limit reached. Enable Auto-Use Credits to continue.",
       };
     }
 
@@ -384,7 +423,7 @@ export class SubscriptionService {
           allowed: false,
           source: "BLOCKED",
           code: "INSUFFICIENT_CREDITS",
-          message: "Plan limit reached and insufficient credits."
+          message: "Plan limit reached and insufficient credits.",
         };
       }
     }
@@ -393,7 +432,7 @@ export class SubscriptionService {
       allowed: false,
       source: "BLOCKED",
       code: "PLAN_LIMIT_REACHED",
-      message: "Plan limit reached."
+      message: "Plan limit reached.",
     };
   }
 
@@ -435,11 +474,22 @@ export class SubscriptionService {
     const now = new Date();
     // Default to Calendar Month logic for history consistency with internal tools
     let periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    let periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    let periodEnd = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59
+    );
 
     try {
       const subscription = await this.getUserSubscription(userId);
-      if (subscription && subscription.current_period_start && subscription.current_period_end) {
+      if (
+        subscription &&
+        subscription.current_period_start &&
+        subscription.current_period_end
+      ) {
         periodStart = new Date(subscription.current_period_start);
         periodEnd = new Date(subscription.current_period_end);
       }
@@ -489,7 +539,6 @@ export class SubscriptionService {
     logger.info("Monthly usage reset completed");
   }
 
-
   /**
    * Consume an action (Plan First, Then Credits)
    * This is the main entry point for feature consumption.
@@ -533,7 +582,11 @@ export class SubscriptionService {
     if (planAvailable) {
       await this.incrementUsage(userId, feature);
       const newUsage = await this.checkMonthlyUsage(userId, feature);
-      return { allowed: true, source: "PLAN", remaining: Math.max(0, planLimit - newUsage) };
+      return {
+        allowed: true,
+        source: "PLAN",
+        remaining: Math.max(0, planLimit - newUsage),
+      };
     }
 
     // 4. If Plan Exhausted / Unavailable / -2 -> Check Credits (Auto-Fallback)
@@ -542,22 +595,35 @@ export class SubscriptionService {
     // Rule: Credits can only be used for features allowed by the plan (or basic features available on Free tier).
 
     // Check if feature is "Plan Restricted" (never allowed on this plan)
-    // We assume if planLimit is defined and > 0, it is allowed. 
+    // We assume if planLimit is defined and > 0, it is allowed.
     // If planLimit is 0 or undefined, effectively "Not Included".
     // EXCEPTION: "scan", "rephrase", "citation_audit", "paper_search" are generally "Base Features" available to all via credits.
 
-    const isPlanRestricted = planLimit === 0 && !["scan", "rephrase", "citation_audit", "paper_search"].includes(feature);
+    const isPlanRestricted =
+      planLimit === 0 &&
+      !["scan", "rephrase", "citation_audit", "paper_search"].includes(feature);
 
     if (isPlanRestricted) {
-      return { allowed: false, source: "BLOCKED", message: "This feature is not available on your current plan." };
+      return {
+        allowed: false,
+        source: "BLOCKED",
+        message: "This feature is not available on your current plan.",
+      };
     }
 
     // Check Auto-Use Preference
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { auto_use_credits: true } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { auto_use_credits: true },
+    });
     const autoUseEnabled = user?.auto_use_credits ?? true; // Default True
 
     if (!autoUseEnabled) {
-      return { allowed: false, source: "BLOCKED", message: "Plan limit reached. Enable Auto-Use Credits to continue." };
+      return {
+        allowed: false,
+        source: "BLOCKED",
+        message: "Plan limit reached. Enable Auto-Use Credits to continue.",
+      };
     }
 
     const cost = CreditService.calculateCost(feature, metadata);
@@ -567,14 +633,27 @@ export class SubscriptionService {
 
       if (hasCredits) {
         // Deduct credits as confirmed usage
-        await CreditService.deductCredits(userId, cost, undefined, `Auto-use: ${feature}`);
+        await CreditService.deductCredits(
+          userId,
+          cost,
+          undefined,
+          `Auto-use: ${feature}`
+        );
         return { allowed: true, source: "CREDIT", cost };
       } else {
-        return { allowed: false, source: "BLOCKED", message: "You don't have enough credits." };
+        return {
+          allowed: false,
+          source: "BLOCKED",
+          message: "You don't have enough credits.",
+        };
       }
     }
 
-    return { allowed: false, source: "BLOCKED", message: "Plan limit reached and no credits available." };
+    return {
+      allowed: false,
+      source: "BLOCKED",
+      message: "Plan limit reached and no credits available.",
+    };
   }
 
   /**
@@ -607,8 +686,11 @@ export class SubscriptionService {
 
     // REBUILD ENTITLEMENTS ON CHANGE (ASYNC FIRE-AND-FORGET)
     // We do not await this to prevent blocking the webhook response or login flow.
-    EntitlementService.rebuildEntitlements(userId).catch(err => {
-      logger.error("Failed to rebuild entitlements async", { userId, error: err.message });
+    EntitlementService.rebuildEntitlements(userId).catch((err) => {
+      logger.error("Failed to rebuild entitlements async", {
+        userId,
+        error: err.message,
+      });
     });
 
     logger.info("Subscription upserted", {
@@ -617,11 +699,11 @@ export class SubscriptionService {
       status: data.status,
     });
 
-    console.log('[DB_SUBSCRIPTION_WRITE]', {
+    console.log("[DB_SUBSCRIPTION_WRITE]", {
       userId,
       plan: data.plan,
       status: data.status,
-      ls_sub_id: data.lemonsqueezy_subscription_id
+      ls_sub_id: data.lemonsqueezy_subscription_id,
     });
 
     return subscription;
@@ -647,7 +729,7 @@ export class SubscriptionService {
       where: { user_id: userId },
       data: {
         cancel_at_period_end: true,
-        // CRITICAL: Do NOT set status to "canceled" here. 
+        // CRITICAL: Do NOT set status to "canceled" here.
         // User retains access until period end.
         // Status updates to "expired" via webhook when period actually ends.
       },
@@ -701,7 +783,7 @@ export class SubscriptionService {
           "Export to PDF/Word",
           "Watermarked certificate",
         ],
-        limits: PLAN_LIMITS.free,
+        limits: plans.free,
       },
       {
         id: "student",
@@ -718,7 +800,7 @@ export class SubscriptionService {
           "Professional certificate (no watermark)",
           "Email support",
         ],
-        limits: PLAN_LIMITS.student,
+        limits: plans.student,
         popular: true,
       },
       {
@@ -737,7 +819,7 @@ export class SubscriptionService {
           "Export to multiple formats",
           "Priority support",
         ],
-        limits: PLAN_LIMITS.researcher,
+        limits: plans.researcher,
       },
     ];
   }
@@ -746,7 +828,11 @@ export class SubscriptionService {
    * Ensure user has a Lemon Squeezy customer ID
    * Creates one silently if missing
    */
-  static async ensureLemonCustomer(user: { id: string; email: string; name?: string | null }): Promise<string> {
+  static async ensureLemonCustomer(user: {
+    id: string;
+    email: string;
+    name?: string | null;
+  }): Promise<string> {
     try {
       // 1. Get current subscription
       const subscription = await this.getUserSubscription(user.id);
@@ -757,17 +843,26 @@ export class SubscriptionService {
       }
 
       // 3. Check if customer already exists in Lemon Squeezy by email
-      logger.info("Checking for existing Lemon Squeezy customer by email", { email: user.email });
-      const existingCustomers = await LemonSqueezyService.getCustomersByEmail(user.email);
+      logger.info("Checking for existing Lemon Squeezy customer by email", {
+        email: user.email,
+      });
+      const existingCustomers = await LemonSqueezyService.getCustomersByEmail(
+        user.email
+      );
 
       let customerId: string;
 
       if (existingCustomers && existingCustomers.length > 0) {
         customerId = existingCustomers[0].id;
-        logger.info("Found existing Lemon Squeezy customer", { email: user.email, customerId });
+        logger.info("Found existing Lemon Squeezy customer", {
+          email: user.email,
+          customerId,
+        });
       } else {
         // 4. Create new customer in Lemon Squeezy
-        logger.info("Initializing new Lemon Squeezy customer for user", { userId: user.id });
+        logger.info("Initializing new Lemon Squeezy customer for user", {
+          userId: user.id,
+        });
 
         const newCustomer = await LemonSqueezyService.createCustomer(
           user.email,
@@ -780,7 +875,9 @@ export class SubscriptionService {
       // CAUTION: Only set defaults if subscription is truly missing, not if it timed out
       if (subscription === null) {
         // Check if user exists first to satisfy FK
-        const userExists = await prisma.user.findUnique({ where: { id: user.id } });
+        const userExists = await prisma.user.findUnique({
+          where: { id: user.id },
+        });
         if (!userExists) throw new Error("User does not exist");
       }
 
@@ -789,7 +886,8 @@ export class SubscriptionService {
         status: subscription?.status || "active", // Default to active for free plan
         lemonsqueezy_customer_id: customerId,
         // Preserve existing fields
-        lemonsqueezy_subscription_id: subscription?.lemonsqueezy_subscription_id,
+        lemonsqueezy_subscription_id:
+          subscription?.lemonsqueezy_subscription_id,
         variant_id: subscription?.variant_id,
         current_period_start: subscription?.current_period_start,
         current_period_end: subscription?.current_period_end,
@@ -797,7 +895,7 @@ export class SubscriptionService {
 
       logger.info("Linked Lemon Squeezy customer successfully", {
         userId: user.id,
-        customerId
+        customerId,
       });
 
       return customerId;
@@ -811,7 +909,10 @@ export class SubscriptionService {
   /**
    * Update Auto-Use Credits Preference
    */
-  static async updateAutoUseCredits(userId: string, enabled: boolean): Promise<void> {
+  static async updateAutoUseCredits(
+    userId: string,
+    enabled: boolean
+  ): Promise<void> {
     await prisma.user.update({
       where: { id: userId },
       data: { auto_use_credits: enabled },

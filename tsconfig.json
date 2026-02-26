@@ -14,6 +14,15 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@tiptap/*": [
+        "node_modules/@tiptap/*"
+      ],
+      "@hocuspocus/*": [
+        "node_modules/@hocuspocus/*"
+      ]
+    },
     "types": [
       "node"
     ]

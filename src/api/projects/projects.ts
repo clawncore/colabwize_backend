@@ -14,15 +14,26 @@ interface AuthenticatedRequest extends Request {
 
 const router = Router();
 
-// Get all projects for a user
+// Get all projects for a user (with optional workspace filtering)
 router.get(
   "/",
   authenticateExpressRequest,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const userId = req.user!.id;
+      const workspaceId = req.query.workspaceId as string | undefined;
 
-      const projects = await DocumentUploadService.getUserProjects(userId);
+      let projects;
+      if (workspaceId === "null") {
+        // Personal projects only (no workspace)
+        projects = await DocumentUploadService.getUserProjects(userId, { personalOnly: true });
+      } else if (workspaceId) {
+        // Projects in a specific workspace
+        projects = await DocumentUploadService.getUserProjects(userId, { workspaceId });
+      } else {
+        // All projects (default, backward compatible)
+        projects = await DocumentUploadService.getUserProjects(userId);
+      }
 
       res.status(200).json({
         success: true,

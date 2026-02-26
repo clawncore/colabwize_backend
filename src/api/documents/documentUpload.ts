@@ -89,7 +89,7 @@ router.post(
   upload.single("document"),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { title, description } = req.body as any;
+      const { title, description, workspaceId, workspace_id } = req.body as any;
       const userId = req.user!.id; // authenticated user ID
 
       // Validate required fields
@@ -106,7 +106,8 @@ router.post(
         userId,
         title,
         description || "",
-        req.file
+        req.file!,
+        workspaceId || workspace_id
       );
 
       return res.status(201).json({
@@ -292,12 +293,12 @@ router.post(
   authenticateExpressRequest,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { title, description, content } = req.body as any;
+      const { title, description, content, workspace_id } = req.body as any;
       const userId = req.user!.id;
 
       logger.info(
-        `[DEBUG] POST /api/documents/create - User: ${userId}, Title: ${title}`,
-        { userId, title }
+        `[DEBUG] POST /api/documents/create - User: ${userId}, Title: ${title}, Workspace: ${workspace_id || 'personal'}`,
+        { userId, title, workspace_id }
       );
 
       // Validate required fields
@@ -310,7 +311,9 @@ router.post(
         userId,
         title,
         description || "",
-        content || null
+        content || null,
+        null, // outline
+        workspace_id || undefined
       );
 
       return res.status(201).json({

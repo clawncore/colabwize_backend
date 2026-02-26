@@ -7,10 +7,8 @@ const router: express.Router = express.Router();
 router.get("/", async (req, res) => {
   try {
     // Create a mock request object that matches the Next.js API route signature
-    const searchParams = new URLSearchParams(
-      req.query as Record<string, string>
-    );
-    const url = new URL(`http://localhost${req.url}?${searchParams}`);
+    // Create a mock request object that matches the Next.js API route signature
+    const url = new URL(`http://localhost${req.url}`);
 
     // Create a mock NextRequest object
     const mockRequest = {
@@ -31,12 +29,7 @@ router.get("/type/:type", async (req, res) => {
   try {
     // Create a mock request object that matches the Next.js API route signature
     const { type } = req.params;
-    const searchParams = new URLSearchParams(
-      req.query as Record<string, string>
-    );
-    const url = new URL(
-      `http://localhost/api/templates/type/${type}?${searchParams}`
-    );
+    const url = new URL(`http://localhost${req.url}`);
 
     // Create a mock NextRequest object
     const mockRequest = {
@@ -90,10 +83,8 @@ router.put("/", async (req, res) => {
 router.delete("/", async (req, res) => {
   try {
     // Create a mock request object that matches the Next.js API route signature
-    const searchParams = new URLSearchParams(
-      req.query as Record<string, string>
-    );
-    const url = new URL(`http://localhost${req.url}?${searchParams}`);
+    // Create a mock request object that matches the Next.js API route signature
+    const url = new URL(`http://localhost${req.url}`);
 
     const mockRequest = {
       url: url.toString(),

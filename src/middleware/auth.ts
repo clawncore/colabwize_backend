@@ -1,10 +1,10 @@
-import { getSupabaseAdminClient } from "../lib/supabase/client";
+import { getSupabaseAdminClient, getSupabaseUrl, getSupabaseAnonKey } from "../lib/supabase/client";
+import axios from "axios";
 import {
   Request as ExpressRequest,
   Response as ExpressResponse,
   NextFunction,
 } from "express";
-import { sendErrorResponse } from "../lib/api-response";
 
 // STRICT AUTHENTICATION MIDDLEWARE
 // Uses Supabase Service Role Key for authoritative verification.
@@ -74,21 +74,42 @@ export async function authenticateExpressRequest(
       return;
     }
 
-    // Verify token authoritatively
-    const { data, error } = await supabase.auth.getUser(token);
+    // Verify token authoritatively using Supabase Admin Client
+    // This is more robust than raw axios as it uses the official SDK's resilience patterns
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
-    if (error || !data.user) {
-      // console.warn("Supabase Auth Failed:", error?.message);
-      res.status(401).json({
+      if (authError || !user) {
+        console.warn("Supabase Auth Failed for token:", token.substring(0, 10) + "...", authError?.message);
+
+        // If it's a timeout or network error, return 503
+        if (authError?.status === 503 || authError?.message?.includes("fetch")) {
+          res.status(503).json({
+            success: false,
+            message: "Authentication service unreachable"
+          });
+        } else {
+          res.status(401).json({
+            success: false,
+            message: "Invalid or expired token"
+          });
+        }
+        return;
+      }
+
+      // Success - Attach User
+      console.log("Auth Success for user:", user.id);
+      (req as any).user = user;
+      next();
+
+    } catch (err: any) {
+      console.error("Unexpected Auth Error:", err.message);
+      res.status(503).json({
         success: false,
-        message: "Invalid or expired token"
+        message: "Authentication service unreachable"
       });
       return;
     }
-
-    // Success - Attach User
-    (req as any).user = data.user;
-    next();
 
   } catch (error) {
     console.error("Auth Middleware Error:", error);

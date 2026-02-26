@@ -113,10 +113,109 @@ router.delete("/topics/:id", async (req: Request, res: Response) => {
             },
         });
 
-        return res.json({ success: true, message: "Topic deleted" });
+        return res.json({ success: false, message: "Topic deleted" });
     } catch (error: any) {
         logger.error("Failed to delete research topic", { error: error.message });
         return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+});
+
+/**
+ * POST /api/research/chat-project
+ * Chat with a specific project using vectorized content
+ */
+router.post("/chat-project", async (req: Request, res: Response) => {
+    try {
+        const userId = (req as AuthenticatedRequest).user?.id;
+        if (!userId) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+
+        const { message, projectId, history = [] } = req.body;
+
+        if (!message || !projectId) {
+            return res.status(400).json({ error: "Missing required fields: message, projectId" });
+        }
+
+        const prisma = await initializePrisma();
+
+        // Verify project ownership
+        const project = await prisma.project.findFirst({
+            where: {
+                id: projectId,
+                user_id: userId,
+            },
+            select: {
+                id: true,
+                title: true,
+                content: true,
+            },
+        });
+
+        if (!project) {
+            return res.status(404).json({ error: "Project not found or access denied" });
+        }
+
+        // Import services dynamically to avoid circular dependencies
+        const { VectorStoreService } = await import("../../services/vectorStoreService");
+        const { ChatOpenAI } = await import("@langchain/openai");
+        const { SecretsService } = await import("../../services/secrets-service");
+
+        // Search for relevant context in project
+        const relevantDocs = await VectorStoreService.searchProjectContext(
+            projectId,
+            message,
+            5, // Top 5 most relevant chunks
+        );
+
+        if (relevantDocs.length === 0) {
+            return res.status(200).json({
+                answer: "I don't have enough context from this project to answer your question. The project might not have been vectorized yet.",
+            });
+        }
+
+        // Build context from relevant documents
+        const context = relevantDocs
+            .map((doc: any, idx: number) => `[${idx + 1}] ${doc.pageContent}`)
+            .join("\n\n");
+
+        // Build conversation history
+        const conversationHistory = history
+            .map((msg: any) => `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}`)
+            .join("\n");
+
+        // Create prompt for LLM
+        const prompt = `You are a helpful assistant answering questions about a project titled "${project.title}".
+
+Context from the project:
+${context}
+
+${conversationHistory ? `Previous conversation:\n${conversationHistory}\n` : ""}
+User question: ${message}
+
+Please answer based on the provided context. If the context doesn't contain enough information to answer the question, say so clearly.`;
+
+        // Get OpenAI API key
+        const apiKey = await SecretsService.getOpenAiApiKey();
+        if (!apiKey) {
+            throw new Error("OPENAI_API_KEY not configured");
+        }
+
+        // Create chat model
+        const model = new ChatOpenAI({
+            openAIApiKey: apiKey,
+            modelName: "gpt-4o-mini",
+            temperature: 0.7,
+        });
+
+        // Generate response
+        const response = await model.invoke(prompt);
+        const answer = response.content as string;
+
+        return res.json({ answer });
+    } catch (error: any) {
+        logger.error("Failed to process project chat", { error: error.message });
+        return res.status(500).json({ error: error.message });
     }
 });
 
