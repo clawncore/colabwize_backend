@@ -5,7 +5,7 @@ import {
     SupportStatus,
     VerificationProvenance
 } from "../../types/citationAudit";
-import { CitationPair } from "./citationMatcher";
+import { SimpleCitationPair as CitationPair } from "./ForensicAuditService";
 import logger from "../../monitoring/logger";
 
 /**

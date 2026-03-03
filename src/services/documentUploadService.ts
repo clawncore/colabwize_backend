@@ -10,6 +10,7 @@ import { RecycleBinService } from "./recycleBinService";
 import logger from "../monitoring/logger";
 import { PdfConversionService } from "./pdfConversionService";
 import { VectorStoreService } from "./vectorStoreService";
+import { CitationMappingService } from "./citationMappingService";
 
 interface ExtendedRequest extends Request {
   user?: {
@@ -38,25 +39,8 @@ export class DocumentUploadService {
     const wordCount = this.countWords(extractedContent);
 
     // Prepare content for database
-    // If HTML, store as is (Tiptap finds HTML string acceptable for setContent)
-    // If text, wrap in Tiptap JSON structure
-    const projectContent =
-      format === "html"
-        ? extractedContent
-        : {
-          type: "doc",
-          content: [
-            {
-              type: "paragraph",
-              content: [
-                {
-                  type: "text",
-                  text: extractedContent,
-                },
-              ],
-            },
-          ],
-        };
+    // Pass extracted text to Citation Mapping Service for canonical linking
+    const projectContent = CitationMappingService.parseDocument(extractedContent, format);
 
     // Create project record in the database
     const project = await prisma.project.create({

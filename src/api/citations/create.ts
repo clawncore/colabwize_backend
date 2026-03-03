@@ -32,10 +32,10 @@ router.post(
         });
       }
 
-      if (!title || !author || !year) {
+      if (!title) {
         return res.status(400).json({
           success: false,
-          error: "Title, author, and year are required",
+          error: "Title (or raw reference text) is required",
         });
       }
 
@@ -44,8 +44,8 @@ router.post(
         userId,
         {
           title,
-          author,
-          year,
+          author: author || "Unknown",
+          year: year || 0,
           type: type || "journal-article",
           doi,
           url,
