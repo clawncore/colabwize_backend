@@ -1,481 +1,305 @@
 import express, { Request, Response } from "express";
 import {
-  AuditRequest,
-  AuditResponse,
-  CitationFlag,
-  VerificationResult,
-  AuditTier,
+    AuditRequest,
+    AuditReport,
+    CitationFlag,
+    VerificationResult
 } from "../../types/citationAudit";
 import { getStyleRules } from "../../services/citationAudit/styleRules";
-import { RiskAnalysisService } from "../../services/citationAudit/riskAnalysisService";
 
 const router = express.Router();
 
 router.post("/audit", async (req: Request, res: Response) => {
-  console.log("\n\n🚀🚀🚀 TIERED AUDIT ENDPOINT CALLED! 🚀🚀🚀\n");
-
-  try {
-    // 1. Authentication Check
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res
-        .status(401)
-        .json({ error: "Missing or invalid authorization header" });
-    }
-
-    // Token verification (simplified for brevity, mirroring existing pattern)
-    const { getSupabaseClient } = await import("../../lib/supabase/client");
-    const token = authHeader.substring(7);
-    let userId: string;
+    console.log("\n\n🚀🚀🚀 AUDIT ENDPOINT CALLED! 🚀🚀🚀\n");
 
     try {
-      const client = await getSupabaseClient();
-      if (!client) throw new Error("Supabase client missing");
-      const {
-        data: { user },
-        error,
-      } = await client.auth.getUser(token);
-      if (error || !user) throw new Error("Invalid token");
-      userId = user.id;
-    } catch (e) {
-      return res.status(401).json({ error: "Invalid or expired token" });
-    }
-
-    const {
-      declaredStyle,
-      patterns,
-      referenceList,
-      sections,
-      citationLibrary,
-      wordCount,
-    } = req.body as AuditRequest & { wordCount?: number };
-    const docWordCount = wordCount || 1000;
-
-    // 2. Entitlement Check
-    const { EntitlementService } =
-      await import("../../services/EntitlementService");
-    try {
-      await EntitlementService.assertCanUse(userId, "citation_audit", {
-        wordCount: docWordCount,
-      });
-    } catch (error: any) {
-      let status = 403;
-      if (error.code === "INSUFFICIENT_CREDITS") status = 402;
-      return res.status(status).json({
-        error: error.message || "Plan limit reached.",
-        code: error.code || "PLAN_LIMIT_REACHED",
-        data: { upgrade_url: "/pricing" },
-      });
-    }
-
-    console.log("📋 Forensic Audit Request:", {
-      style: declaredStyle,
-      patterns: patterns?.length,
-      normalized: !!citationLibrary,
-    });
-
-    // Load Style Rules
-    const rules = getStyleRules(declaredStyle);
-    const flags: CitationFlag[] = [];
-    const tiersExecuted: AuditTier[] = [];
-    const tierMetadata: AuditResponse["tierMetadata"] = {};
-
-    // =========================================================================
-    // TIER 1: STRUCTURAL AUDIT (Mandatory)
-    // Checks format, existence, and uniqueness.
-    // =========================================================================
-    tiersExecuted.push(AuditTier.STRUCTURAL);
-
-    // 1.1 Inline Pattern Checks (Style Violations)
-    if (patterns) {
-      patterns.forEach((pattern) => {
-        if (rules.disallowedInlinePatterns.includes(pattern.patternType)) {
-          flags.push({
-            type: "INLINE_STYLE",
-            ruleId: `${rules.style}.NO_${pattern.patternType}`,
-            message:
-              rules.messages[pattern.patternType] ||
-              `Invalid pattern ${pattern.patternType}`,
-            anchor: {
-              start: pattern.start,
-              end: pattern.end,
-              text: pattern.text,
-            },
-            tier: AuditTier.STRUCTURAL,
-            reason: `Standard ${declaredStyle} requires ${rules.messages[pattern.patternType] || "different formatting"}.`,
-            action: "Use the 'Fix Formatting' tool in the sidebar.",
-            source: pattern.text,
-          });
+        // 1. Authentication Check
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({ error: "Missing or invalid authorization header" });
         }
-      });
-    }
 
-    // 1.2 Reference Section Check
-    if (referenceList) {
-      const foundTitle = referenceList.sectionTitle.trim().toLowerCase();
-      const validTitles = rules.referenceList.requiredSectionTitle.map((t) =>
-        t.toLowerCase(),
-      );
-      if (!validTitles.includes(foundTitle)) {
-        flags.push({
-          type: "STRUCTURAL",
-          ruleId: `${rules.style}.WRONG_REF_SECTION_TITLE`,
-          section: "Reference List",
-          message: rules.messages["WRONG_SECTION_TITLE"],
-          expected: rules.referenceList.requiredSectionTitle[0],
-          tier: AuditTier.STRUCTURAL,
-          reason: `Heading "${referenceList.sectionTitle}" does not match standard ${declaredStyle} terminology.`,
-          action: `Rename this heading to "${rules.referenceList.requiredSectionTitle[0]}".`,
-        });
-      }
-    }
+        // Decode token to get userId (Mock or Real Supabase check)
+        // For consistency with other files, let's use the Supabase client logic if possible
+        // or just trust the custom middleware if it was mounted (it wasn't).
+        // Let's implement quick token verification or use the service.
+        // Assuming we need to verify token similar to generate.ts
+        const { getSupabaseClient } = await import("../../lib/supabase/client");
+        const token = authHeader.substring(7);
+        let userId: string;
 
-    // 1.3 Citation Matching (Normalization-Aware)
-    const { CitationMatcher } =
-      await import("../../services/citationAudit/citationMatcher");
-    const validPatterns = patterns || [];
-    const validEntries = referenceList?.entries || [];
+        try {
+            const client = await getSupabaseClient();
+            if (!client) throw new Error("Supabase client missing");
+            const { data: { user }, error } = await client.auth.getUser(token);
+            if (error || !user) throw new Error("Invalid token");
+            userId = user.id;
+        } catch (e) {
+            return res.status(401).json({ error: "Invalid or expired token" });
+        }
 
-    const matchedPairs = CitationMatcher.matchCitations(
-      validPatterns,
-      validEntries,
-      declaredStyle,
-      citationLibrary,
-    ) as any[]; // Cast as any[] or use a proper interface if shared
+        const { declaredStyle, patterns, referenceList, sections, wordCount } = req.body as AuditRequest & { wordCount?: number };
 
-    // Analyze Structural Integrity
-    let matchedCount = 0;
+        // 2. Pre-flight Limit Check (Don't consume yet)
+        // User rule: "Citation audit consumes credits based on document length"
+        const docWordCount = wordCount || 1000;
 
-    // Check for UNMATCHED Citations
-    matchedPairs.forEach((pair: any) => {
-      if (!pair.reference) {
-        // If it's unresolved by normalization, provide a more helpful message
-        if (pair.inline.normalizationStatus === "unresolved") {
-          flags.push({
-            type: "STRUCTURAL",
-            ruleId: "UNRESOLVED_CITATION",
-            message:
-              "This citation could not be automatically resolved to a source.",
-            anchor: {
-              start: pair.inline.start,
-              end: pair.inline.end,
-              text: pair.inline.text,
-            },
-            tier: AuditTier.STRUCTURAL,
-            reason:
-              "Normalization failed to find a high-confidence match in your library or the bibliography.",
-            action: "Click to search academic databases for this source.",
-            source: pair.inline.text,
-          });
+        const { SubscriptionService } = await import("../../services/subscriptionService");
+
+        // Check if user has enough balance/limit roughly
+        // Check if user has enough balance/limit roughly
+        const eligibility = await SubscriptionService.checkActionEligibility(userId, "citation_audit", { wordCount: docWordCount });
+
+        if (!eligibility.allowed) {
+            // Map reason to status code
+            let status = 403;
+            if (eligibility.code === "INSUFFICIENT_CREDITS") {
+                status = 402; // Payment required/insufficient funds
+            }
+
+            return res.status(status).json({
+                error: eligibility.message || "Plan limit reached.",
+                code: eligibility.code || "PLAN_LIMIT_REACHED",
+                data: {
+                    upgrade_url: "/pricing",
+                    limit_info: eligibility
+                }
+            });
+        }
+
+        console.log("📋 Declared Style:", declaredStyle);
+        console.log("📝 Patterns received:", patterns ? patterns.length : 0);
+        console.log("📚 Reference list:", referenceList ? "Yes" : "No");
+        if (referenceList) {
+            console.log("   - Entries:", referenceList.entries.length);
+        }
+
+        // Step 1: Load Style Rules (Authoritative)
+        const rules = getStyleRules(declaredStyle);
+        const flags: CitationFlag[] = [];
+
+        // Step 2: Inline Citation Violations
+        if (patterns) {
+            patterns.forEach(pattern => {
+                // Check if pattern is disallowed for this style
+                if (rules.disallowedInlinePatterns.includes(pattern.patternType)) {
+                    flags.push({
+                        type: "INLINE_STYLE",
+                        ruleId: `${rules.style}.NO_${pattern.patternType}`,
+                        message: rules.messages[pattern.patternType] || `Invalid pattern ${pattern.patternType}`,
+                        anchor: {
+                            start: pattern.start,
+                            end: pattern.end,
+                            text: pattern.text
+                        }
+                    });
+                }
+            });
+        }
+
+        // Step 3: Reference Section Title Check
+        if (referenceList) {
+            // Case insensitive check
+            const foundTitle = referenceList.sectionTitle.trim();
+            const validTitles = rules.referenceList.requiredSectionTitle.map(t => t.toLowerCase());
+
+            if (!validTitles.includes(foundTitle.toLowerCase())) {
+                flags.push({
+                    type: "STRUCTURAL",
+                    ruleId: `${rules.style}.WRONG_REF_SECTION_TITLE`,
+                    section: "Reference List",
+                    message: rules.messages["WRONG_SECTION_TITLE"],
+                    expected: rules.referenceList.requiredSectionTitle[0]
+                });
+            }
         } else {
-          flags.push({
-            type: "STRUCTURAL",
-            ruleId: "UNMATCHED_CITATION",
-            message:
-              "This citation is not linked to any entry in the bibliography.",
-            anchor: {
-              start: pair.inline.start,
-              end: pair.inline.end,
-              text: pair.inline.text,
-            },
-            tier: AuditTier.STRUCTURAL,
-            reason:
-              "A corresponding entry for this author/year was not found in the References section.",
-            action:
-              "Add the reference entry or use 'Link to Source' to manually resolve.",
-            source: pair.inline.text,
-          });
-        }
-      } else {
-        matchedCount++;
-      }
-    });
-
-    // Check for ORPHAN References
-    const matchedRefIndices = new Set(
-      matchedPairs
-        .map((p: any) => p.reference?.index)
-        .filter((i: any) => i !== undefined),
-    );
-    validEntries.forEach((ref) => {
-      // Forensic Rule: Do NOT flag if there are unresolved citations (they might point here)
-      const hasUnresolved = validPatterns.some(
-        (p) => p.normalizationStatus === "unresolved",
-      );
-
-      if (!matchedRefIndices.has(ref.index)) {
-        flags.push({
-          type: "STRUCTURAL",
-          ruleId: "ORPHAN_REFERENCE",
-          message: "This reference is not cited anywhere in the document.",
-          anchor: { start: ref.start, end: ref.end, text: ref.rawText },
-          tier: AuditTier.STRUCTURAL,
-          reason:
-            "The audit engine found no inline citation linking to this specific reference entry.",
-          action: hasUnresolved
-            ? "Review unresolved citations above to see if they should link here."
-            : "Remove this entry or add a corresponding inline citation.",
-          source: ref.rawText.substring(0, 50) + "...",
-        });
-      }
-    });
-
-    tierMetadata[AuditTier.STRUCTURAL] = {
-      executed: true,
-      stats: {
-        totalCitations: validPatterns.length,
-        matched: matchedCount,
-        orphans: validEntries.length - matchedRefIndices.size,
-      },
-    };
-
-    // =========================================================================
-    // TIER 2: CLAIM-LEVEL & FORENSIC AUDIT (Conditional)
-    // Runs only where citations support factual/quantitative claims.
-    // =========================================================================
-
-    // Signal-based filtering for Tier 2 to prioritize high-impact verification
-    const claimSignals = [
-      "show",
-      "suggest",
-      "found",
-      "demonstrate",
-      "according to",
-      "percent",
-      "%",
-      "increase",
-      "decrease",
-      "study",
-      "research",
-    ];
-    const claimAuditCitations = matchedPairs.filter((pair: any) => {
-      if (!pair.inline.context) return false;
-      return claimSignals.some((signal) =>
-        pair.inline.context?.toLowerCase().includes(signal),
-      );
-    });
-
-    let verificationResults: VerificationResult[] = [];
-    let forensicResults: any[] = [];
-
-    if (claimAuditCitations.length > 0) {
-      tiersExecuted.push(AuditTier.CLAIM);
-      console.log(
-        `🔍 [Tier 2/Forensic] Verifying ${claimAuditCitations.length} claim-bearing citations.`,
-      );
-
-      const { ForensicAuditService } =
-        await import("../../services/citationAudit/ForensicAuditService");
-      forensicResults =
-        await ForensicAuditService.auditCitations(claimAuditCitations);
-
-      // Map forensic results back to flags and verificationResults for compatibility
-      forensicResults.forEach((fRes) => {
-        if (fRes.status !== "VERIFIED") {
-          flags.push({
-            type: "VERIFICATION", // General bucket
-            ruleId: `FORENSIC_${fRes.status}`,
-            message: fRes.issues[0] || "Citation issue detected.",
-            tier: AuditTier.CLAIM,
-            anchor: {
-              start: fRes.pair.inline.start,
-              end: fRes.pair.inline.end,
-              text: fRes.pair.inline.text,
-            },
-            reason: fRes.issues.join(" "),
-            action: "Review the evidence card.",
-          });
+            // Check if user has "References" but we didn't extract it as referenceList?
+            // Or if document is long enough to require one?
+            // For now, only flag if extracted list title is explicitly wrong.
+            // But we can check sections too.
+            const refSection = sections.find(s => s.type === "REFERENCE_SECTION");
+            if (refSection) {
+                const foundTitle = refSection.title.trim();
+                const validTitles = rules.referenceList.requiredSectionTitle.map(t => t.toLowerCase());
+                if (!validTitles.includes(foundTitle.toLowerCase())) {
+                    flags.push({
+                        type: "STRUCTURAL",
+                        ruleId: `${rules.style}.WRONG_REF_SECTION_TITLE`,
+                        section: "Reference List",
+                        message: rules.messages["WRONG_SECTION_TITLE"],
+                        expected: rules.referenceList.requiredSectionTitle[0]
+                    });
+                }
+            }
         }
 
-        // Keep verificationResults populated for legacy UI
-        if (fRes.evidence) verificationResults.push(fRes.evidence);
-      });
+        // Step 4: Reference Entry Checks
+        if (referenceList && referenceList.entries.length > 0) {
+            // Check Numbering
+            const firstEntry = referenceList.entries[0];
+            const isNumbered = /^\s*\[\d+\]/.test(firstEntry.rawText) || /^\s*\d+\./.test(firstEntry.rawText);
 
-      tierMetadata[AuditTier.CLAIM] = {
-        executed: true,
-        stats: {
-          candidates: claimAuditCitations.length,
-          verified: forensicResults.length,
-          remediations: 0,
-        },
-      };
-    } else {
-      tierMetadata[AuditTier.CLAIM] = {
-        executed: false,
-        skippedReason:
-          "No claim-bearing citations detected in surrounding context.",
-      };
+            if (rules.referenceList.numberingAllowed === false && isNumbered) {
+                // Violation: Numbered but shouldn't be
+                flags.push({
+                    type: "REF_LIST_ENTRY",
+                    ruleId: `${rules.style}.NUMBERED_ENTRIES_DISALLOWED`,
+                    section: referenceList.sectionTitle,
+                    message: rules.messages["NUMBERED_ENTRIES_DISALLOWED"],
+                    anchor: {
+                        start: firstEntry.start,
+                        end: firstEntry.start + 3, // Highlight the number part approx
+                        text: firstEntry.rawText.substring(0, 3) + "..."
+                    }
+                });
+            } else if (rules.referenceList.numberingAllowed === true && !isNumbered) {
+                // Violation: Not numbered but should be (IEEE)
+                flags.push({
+                    type: "REF_LIST_ENTRY",
+                    ruleId: `${rules.style}.NUMBERED_ENTRIES_REQUIRED`,
+                    section: referenceList.sectionTitle,
+                    message: rules.messages["NUMBERED_ENTRIES_REQUIRED"],
+                    anchor: {
+                        start: firstEntry.start,
+                        end: firstEntry.start + 10,
+                        text: firstEntry.rawText.substring(0, 10) + "..."
+                    }
+                });
+            }
+        }
+
+        // Step 5: Auto-Detection Logic
+        const detectedStyles: string[] = [];
+        if (patterns && patterns.length > 0) {
+            // Fingerprints registry
+            const FINGERPRINTS: Record<string, { inline: string[] }> = {
+                "MLA": { inline: ["AUTHOR_PAGE", "et_al_with_period"] },
+                "APA": { inline: ["AUTHOR_YEAR", "AMPERSAND_IN_PAREN"] },
+                "IEEE": { inline: ["NUMERIC_BRACKET"] },
+                "Chicago": { inline: [] } // Todo: Footnotes
+            };
+
+            const styleCandidates = Object.entries(FINGERPRINTS).filter(([style, fingerprint]) => {
+                return patterns.some(p => fingerprint.inline.includes(p.patternType as any));
+            }).map(([style]) => style);
+
+            detectedStyles.push(...styleCandidates);
+        }
+
+
+        // Step 6: Citation Matching & External Verification
+        let verificationResults: VerificationResult[] = [];
+
+        // Process citations even if there's no reference list
+        if (patterns && patterns.length > 0) {
+            try {
+                console.log("\n========== CITATION MATCHING DEBUG ==========");
+                console.log("📝 Inline Citations Found:", patterns.length);
+                patterns.forEach((p, i) => {
+                    console.log(`  [${i + 1}] "${p.text}" at position ${p.start}-${p.end}`);
+                });
+
+                // Check if we have a reference list
+                if (referenceList && referenceList.entries.length > 0) {
+                    console.log("\n📚 Reference Entries Found:", referenceList.entries.length);
+                    referenceList.entries.forEach((r, i) => {
+                        console.log(`  [${i + 1}] ${r.rawText.substring(0, 80)}...`);
+                    });
+
+                    // Import services
+                    const { CitationMatcher } = await import("../../services/citationAudit/citationMatcher");
+
+                    // Match inline citations to reference entries
+                    const citationPairs = CitationMatcher.matchCitations(
+                        patterns,
+                        referenceList.entries,
+                        declaredStyle
+                    );
+
+                    console.log("\n🔗 Citation Pairs Matched:", citationPairs.length);
+                    citationPairs.forEach((pair, i) => {
+                        console.log(`\n  Pair ${i + 1}:`);
+                        console.log(`    Inline: "${pair.inline.text}"`);
+                        if (pair.reference) {
+                            console.log(`    ✅ Matched: ${pair.reference.rawText.substring(0, 60)}...`);
+                            console.log(`    📖 Title: ${pair.reference.extractedTitle || 'N/A'}`);
+                            console.log(`    👤 Author: ${pair.reference.extractedAuthor || 'N/A'}`);
+                            console.log(`    📅 Year: ${pair.reference.extractedYear || 'N/A'}`);
+                        } else {
+                            console.log(`    ❌ No match found`);
+                        }
+                    });
+
+                    // External verification using free public APIs (CrossRef, arXiv, PubMed)
+                    console.log("\n🔍 STARTING VERIFICATION...");
+                    const { ExternalVerificationService } = await import("../../services/citationAudit/externalVerification");
+                    verificationResults = await ExternalVerificationService.verifyCitationPairs(citationPairs);
+                    console.log("✅ Verification complete:", verificationResults.length, "results");
+                } else {
+                    // NO REFERENCE LIST - All citations are unmatched
+                    console.log("\n⚠️  NO REFERENCE LIST FOUND");
+                    console.log("   Creating UNMATCHED_REFERENCE results for all citations");
+
+                    verificationResults = patterns.map(pattern => ({
+                        inlineLocation: {
+                            start: pattern.start,
+                            end: pattern.end,
+                            text: pattern.text
+                        },
+                        status: "UNMATCHED_REFERENCE" as const,
+                        message: `No reference list found. Citation "${pattern.text}" has no matching bibliography entry.`
+                    }));
+
+                    console.log(`   📝 Created ${verificationResults.length} UNMATCHED_REFERENCE results`);
+                }
+            } catch (err) {
+                console.error("Citation verification failed (non-fatal):", err);
+            }
+        }
+
+        // Step 7: Construct Response
+        const report: AuditReport = {
+            style: declaredStyle,
+            timestamp: new Date().toISOString(),
+            flags,
+            verificationResults,  // NEW: Include verification results
+            detectedStyles
+        };
+
+        // Summary of verification results
+        if (verificationResults && verificationResults.length > 0) {
+            const verified = verificationResults.filter(r => r.status === "VERIFIED").length;
+            const failed = verificationResults.filter(r => r.status === "VERIFICATION_FAILED").length;
+            const unmatched = verificationResults.filter(r => r.status === "UNMATCHED_REFERENCE").length;
+            const insufficient = verificationResults.filter(r => r.status === "INSUFFICIENT_INFO").length;
+
+            console.log("\n📊 VERIFICATION SUMMARY:");
+            console.log(`   ✅ Verified: ${verified}`);
+            console.log(`   ❌ Failed: ${failed}`);
+            console.log(`   ⚠️  Unmatched: ${unmatched}`);
+            console.log(`   📝 Insufficient Info: ${insufficient}`);
+            console.log(`   📦 Total Results: ${verificationResults.length}`);
+        }
+
+        // DEDUCT credits finally
+        const finalConsumption = await SubscriptionService.consumeAction(userId, "citation_audit", { wordCount: docWordCount });
+        if (!finalConsumption.allowed) {
+            // Edge case: User ran out of credits during processing?
+            // Should we return the report? Maybe return with a warning?
+            // Prompt says: "4. If credits < required → block". We blocked at start.
+            // "6. Deduct credits". using consumeAction.
+            // If this fails, let's log error but returning the report seems fair if work is done.
+            // BUT stricter implementation would fail.
+            // Let's assume if pre-check passed, this passes unless race condition.
+            console.error("CRITICAL: Credit deduction failed AFTER work done", { userId });
+        }
+
+        res.status(200).json(report);
+
+    } catch (error) {
+        console.error("Audit Backend Error:", error);
+        res.status(500).json({ error: "Internal Audit Error" });
     }
-
-    // =========================================================================
-    // TIER 3: RISK & BIAS AUDIT (Contextual)
-    // Runs when risk signals are detected (Medical, Policy).
-    // =========================================================================
-    const fullText = JSON.stringify(sections || []);
-    const shouldRunRisk = RiskAnalysisService.shouldRunRiskAudit(fullText);
-
-    if (shouldRunRisk) {
-      tiersExecuted.push(AuditTier.RISK);
-      console.log("⚠️ Tier 3 Triggered: Risk signals detected.");
-
-      const riskResult = await RiskAnalysisService.analyzeRisks(
-        matchedPairs.map((p: any) => ({
-          text: p.inline.text,
-          context: p.inline.context,
-        })),
-      );
-
-      if (riskResult.hasRisk) {
-        riskResult.riskFactors.forEach((risk) => {
-          flags.push({
-            type: "RISK",
-            ruleId: `RISK_${risk.type}`,
-            message: risk.description,
-            // Attach to document start or relevant citation if we had that mapping
-            anchor: {
-              start: 0,
-              end: 0, // Top of doc
-              text: "Risk Audit",
-            },
-            tier: AuditTier.RISK,
-          });
-        });
-      }
-
-      tierMetadata[AuditTier.RISK] = {
-        executed: true,
-        stats: { risksFound: riskResult.riskFactors.length },
-      };
-    } else {
-      tierMetadata[AuditTier.RISK] = {
-        executed: false,
-        skippedReason: "No high-risk domains detected.",
-      };
-    }
-
-    // =========================================================================
-    // RESPONSE ASSEMBLY
-    // =========================================================================
-
-    // Calculate Integrity Index (Simplified for new model)
-    // Base 100
-    // -5 per Structural flag
-    // -10 per Risk flag
-    // -5 per Verification Failure
-    let integrityIndex = 100;
-    integrityIndex -=
-      flags.filter((f) => f.tier === AuditTier.STRUCTURAL).length * 5;
-    integrityIndex -=
-      flags.filter((f) => f.tier === AuditTier.RISK).length * 10;
-    integrityIndex -=
-      verificationResults.filter((r) => r.existenceStatus === "NOT_FOUND")
-        .length * 5;
-    integrityIndex = Math.max(0, integrityIndex);
-
-    const response: AuditResponse = {
-      style: declaredStyle,
-      flags: flags,
-      verificationResults: verificationResults,
-      integrityIndex: integrityIndex,
-      tiersExecuted: tiersExecuted,
-      tierMetadata: tierMetadata,
-    };
-
-    res.status(200).json(response);
-  } catch (error) {
-    console.error("Audit Backend Error:", error);
-    res.status(500).json({ error: "Internal Audit Error" });
-  }
-});
-
-router.post("/forensic-audit", async (req: Request, res: Response) => {
-  try {
-    // 1. Authentication Check
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res
-        .status(401)
-        .json({ error: "Missing or invalid authorization header" });
-    }
-
-    const { getSupabaseClient } = await import("../../lib/supabase/client");
-    const token = authHeader.substring(7);
-    let userId: string;
-
-    try {
-      const client = await getSupabaseClient();
-      if (!client) throw new Error("Supabase client missing");
-      const {
-        data: { user },
-        error,
-      } = await client.auth.getUser(token);
-      if (error || !user) throw new Error("Invalid token");
-      userId = user.id;
-    } catch (e) {
-      return res.status(401).json({ error: "Invalid or expired token" });
-    }
-
-    const { pairs, projectId } = req.body;
-
-    if (!pairs || !Array.isArray(pairs)) {
-      return res
-        .status(400)
-        .json({ error: "Pairs are required for forensic audit" });
-    }
-
-    console.log(
-      `🔍 [Forensic Audit] Project: ${projectId}, Pairs: ${pairs.length}`,
-    );
-
-    const { ForensicAuditService } =
-      await import("../../services/citationAudit/ForensicAuditService");
-    const forensicResults = await ForensicAuditService.auditCitations(pairs);
-
-    const flags: CitationFlag[] = [];
-    const verificationResults: VerificationResult[] = [];
-
-    forensicResults.forEach((fRes) => {
-      if (fRes.status !== "VERIFIED") {
-        flags.push({
-          type: "VERIFICATION",
-          ruleId: `FORENSIC_${fRes.status}`,
-          message: fRes.issues[0] || "Citation issue detected.",
-          tier: AuditTier.CLAIM,
-          anchor: {
-            start: fRes.pair.inline.start,
-            end: fRes.pair.inline.end,
-            text: fRes.pair.inline.text,
-          },
-          reason: fRes.issues.join(" "),
-          action: "Review the evidence card.",
-        });
-      }
-
-      if (fRes.evidence) verificationResults.push(fRes.evidence);
-    });
-
-    return res.status(200).json({
-      flags,
-      verificationResults,
-      success: true,
-    });
-  } catch (error) {
-    console.error("Forensic Audit Backend Error:", error);
-    res.status(500).json({ error: "Internal forensic audit error" });
-  }
-});
-
-// We keep the old endpoint signature around but make it basically a no-op
-// just in case any other frontend components are still calling it.
-router.post("/audit", async (req: Request, res: Response) => {
-  res.status(200).json({
-    style: req.body.declaredStyle || "APA",
-    flags: [],
-    verificationResults: [],
-    integrityIndex: 100,
-    tiersExecuted: [],
-    tierMetadata: {},
-  });
-});
+}); // Close /audit route
 
 export default router;
