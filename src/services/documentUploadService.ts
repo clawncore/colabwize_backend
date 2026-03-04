@@ -8,6 +8,7 @@ import { RecycleBinService } from "./recycleBinService";
 import logger from "../monitoring/logger";
 import { PdfConversionService } from "./pdfConversionService";
 import { VectorStoreService } from "./vectorStoreService";
+import { CitationMappingService } from "./citationMappingService";
 import { WorkspaceActivityService } from "./workspaceActivityService";
 
 interface ExtendedRequest extends Request {
@@ -43,19 +44,19 @@ export class DocumentUploadService {
       format === "html"
         ? extractedContent
         : {
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-                content: [
-                  {
-                    type: "text",
-                    text: extractedContent,
-                  },
-                ],
-              },
-            ],
-          };
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                {
+                  type: "text",
+                  text: extractedContent,
+                },
+              ],
+            },
+          ],
+        };
 
     // Create project record in the database
     const project = await prisma.project.create({

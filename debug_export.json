@@ -2,11 +2,38 @@
   "type": "doc",
   "content": [
     {
-      "type": "paragraph",
+      "type": "heading",
+      "attrs": {
+        "level": 1,
+        "textAlign": null
+      },
       "content": [
         {
-          "text": "Line 1",
-          "type": "text"
+          "text": "Dolutegravir in HIV-1 Treatment: Pharmacology, Clinical Efficacy, and Safety",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Abstract",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
         }
       ]
     },
@@ -14,7 +41,53 @@
       "type": "paragraph",
       "content": [
         {
-          "text": "Line 2",
+          "text": "Dolutegravir (DTG) is a second-generation integrase strand transfer inhibitor (INSTI) that has become a cornerstone of antiretroviral therapy (ART) for people living with HIV-1. Its high potency, favorable pharmacokinetic profile, strong genetic barrier to resistance, and once-daily dosing distinguish it from earlier agents. This paper reviews the drug's mechanism of action, clinical efficacy, safety, resistance patterns, and its role in contemporary HIV management. Evidence from randomized controlled trials and clinical studies supports its widespread adoption in treatment-naïve and treatment-experienced patients.",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "1. Introduction",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Since the discovery of HIV in the early 1980s, antiretroviral therapy has transformed the disease from a terminal illness into a manageable chronic condition ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Deeks, Lewin, & Havlir, 2013)",
+            "status": "resolved",
+            "citationId": "fe3540f3-9009-4dcb-be3e-9348e4ca44cd"
+          }
+        },
+        {
+          "text": ". Integrase strand transfer inhibitors (INSTIs) represent a key class of antiretrovirals that target the HIV integrase enzyme, preventing viral DNA from integrating into the host genome ",
           "type": "text"
         }
       ]
@@ -27,10 +100,1156 @@
       "type": "paragraph",
       "content": [
         {
-          "text": "Line 4",
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Finn et al., 2016)",
+            "status": "resolved",
+            "citationId": "94916eb3-2554-4a92-8eef-14349db40df3"
+          }
+        },
+        {
+          "text": "second-generation INSTI, was approved by the U.S. Food and Drug Administration in 2013 and has rapidly become a first-line treatment option due to its efficacy and tolerability ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Walmsley et al., 2013)",
+            "status": "resolved",
+            "citationId": "4af65261-b403-4399-a57e-1165290598a4"
+          }
+        },
+        {
+          "text": ".",
           "type": "text"
         }
       ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "2. Mechanism ",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Walmsley et al., 2013)",
+            "status": "resolved",
+            "citationId": "4af65261-b403-4399-a57e-1165290598a4"
+          }
+        },
+        {
+          "text": " inhibits the HIV integrase enzyme by binding to the integrase–DNA complex and blocking the strand transfer step necessary for viral replication ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Hare et al., 2010)",
+            "status": "resolved",
+            "citationId": "8c8fdcf2-d33d-4417-873c-f8efd3d0fd99"
+          }
+        },
+        {
+          "text": "s a slow dissociation from this complex, contributing to its prolonged antiviral activity and high genetic barrier to resistance compared with earlier INSTIs like raltegravir and elvitegravir ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Steigbigel et al., 2012)",
+            "status": "resolved",
+            "citationId": "5e369287-9131-48bc-94ee-8ac7f774eecd"
+          }
+        },
+        {
+          "text": ".",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "3. Pharmacoki",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Steigbigel et al., 2012)",
+            "status": "resolved",
+            "citationId": "5e369287-9131-48bc-94ee-8ac7f774eecd"
+          }
+        },
+        {
+          "text": "cs",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Dolutegravir is absorbed orally, reaching peak plasma concentrations within 2–3 hours, and demonstrates a terminal half-life of approximately 14 hours, allowing for once-daily administration without pharmacokinetic boosting ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Min et al., 2011)",
+            "status": "resolved",
+            "citationId": "64ad6758-9fa6-444e-967b-22f893883794"
+          }
+        },
+        {
+          "text": "ed primarily through uridine diphosphate glucuronosyltransferase 1A1 (UGT1A1) with a minor role for CYP3A4, contributing to a low potential for drug–drug interactions when compared with protease inhibitors ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Min et al., 2011)",
+            "status": "resolved",
+            "citationId": "64ad6758-9fa6-444e-967b-22f893883794"
+          }
+        },
+        {
+          "text": ".",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Organization., 2021)",
+            "status": "resolved",
+            "citationId": "9ecbba5c-a2dd-4368-8375-c0045ace8172"
+          }
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "4. Clinical ",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Min et al., 2011)",
+            "status": "resolved",
+            "citationId": "64ad6758-9fa6-444e-967b-22f893883794"
+          }
+        },
+        {
+          "text": "tment-Naïve Patients",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Multiple Phase III trials have demonstrated the superior or noninferior efficacy of dolutegravir-based regimens in treatment-naïve adults. In the SPRING-2 study, dolutegravir showed noninferior virologic suppression compared with raltegravir at 48 weeks ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Raffi et al., 2013)",
+            "status": "resolved",
+            "citationId": "0d6e9abc-f7e9-4e32-b95b-a6cb56dbe808"
+          }
+        },
+        {
+          "text": "demonstrated that dolutegravir combined with abacavir/lamivudine resulted in superior viral suppression compared with efavirenz/tenofovir/emtricitabine ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Walmsley et al., 2013)",
+            "status": "resolved",
+            "citationId": "4af65261-b403-4399-a57e-1165290598a4"
+          }
+        },
+        {
+          "text": ".",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 3,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "4.2 Treatment-E",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Walmsley et al., 2013)",
+            "status": "resolved",
+            "citationId": "4af65261-b403-4399-a57e-1165290598a4"
+          }
+        },
+        {
+          "text": "r treatment-experienced patients with prior INSTI failure, dolutegravir given twice daily has shown robust activity. The VIKING studies revealed significant reductions in viral load, even in the presence of mutations conferring resistance to earlier INSTIs ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Grinsztejn et al., 2014)",
+            "status": "resolved",
+            "citationId": "d735f228-e403-4941-afda-2c06ec568853"
+          }
+        },
+        {
+          "text": "bility",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Dolutegravir is generally well tolerated. Common adverse effects include headache, nausea, and insomnia ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Walmsley et al., 2013)",
+            "status": "resolved",
+            "citationId": "4af65261-b403-4399-a57e-1165290598a4"
+          }
+        },
+        {
+          "text": "ted weight gain and neuropsychiatric symptoms in a subset of patients, requiring clinical monitoring ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Lake & Currier, 2013)",
+            "status": "resolved",
+            "citationId": "e8b103e9-170c-4b25-8972-4585f7170468"
+          }
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Lake & Currier, 2013)",
+            "status": "resolved",
+            "citationId": "e8b103e9-170c-4b25-8972-4585f7170468"
+          }
+        },
+        {
+          "text": "erum creatinine are frequently observed due to inhibition of tubular secretion but do not indicate actual decline in renal glomerular filtration rate ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Min et al., 2011)",
+            "status": "resolved",
+            "citationId": "64ad6758-9fa6-444e-967b-22f893883794"
+          }
+        },
+        {
+          "text": ".",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "6. Resistance Pro",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Min et al., 2011)",
+            "status": "resolved",
+            "citationId": "64ad6758-9fa6-444e-967b-22f893883794"
+          }
+        },
+        {
+          "text": " has a high genetic barrier to resistance. In treatment-naïve patients, resistance mutations are rare, even on virologic failure ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Steigbigel et al., 2012)",
+            "status": "resolved",
+            "citationId": "5e369287-9131-48bc-94ee-8ac7f774eecd"
+          }
+        },
+        {
+          "text": "., R263K) confer modest resistance in vitro but remain uncommon in clinical practice, underscoring the drug’s robustness (Mesplède & Wainberg, 20",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Mesplède & Wainberg, 2015)",
+            "status": "resolved",
+            "citationId": "48d135fe-4f17-4818-ba14-4f0966e77790"
+          }
+        },
+        {
+          "text": "ary HIV Treatment",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Because of its high efficacy, tolerability, and convenience, dolutegravir is recommended by international guidelines as a first-line agent for most individuals with HIV-1 ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(World Health Organization, 2021)",
+            "status": "resolved",
+            "citationId": "temp_1772515920741_domvsmhvo"
+          }
+        },
+        {
+          "text": ". Its use in dual therapy regimens with lamivudine and other nucleoside reverse transcriptase inhibitors is also supported by evidence demonstrating maintained viral suppression with reduced drug exposure ",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": null,
+            "text": "(Van Wyk et al., 2019)",
+            "status": "resolved",
+            "citationId": "be552934-514f-4c27-9982-f53c3cb94d90"
+          }
+        },
+        {
+          "text": "lutegravir represents a major advancement in HIV therapy, offering strong virologic suppression, a favorable safety profile, and minimal drug interactions. Its high genetic barrier to resistance positions it as a cornerstone of modern ART regimens globally. Future research should continue monitoring long-term outcomes, resistance patterns, and impacts on quality of life.",
+          "type": "text"
+        },
+        {
+          "type": "citation",
+          "attrs": {
+            "url": "https://www.who.int/publications/i/item/9789240031593",
+            "text": "(World, 2021)",
+            "status": "resolved",
+            "citationId": "9ecbba5c-a2dd-4368-8375-c0045ace8172"
+          }
+        }
+      ]
+    },
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2,
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "References",
+          "type": "text",
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Deeks, S. G., Lewin, S. R., & Havlir, D. V. (2013). The end of AIDS: HIV infection as a chronic disease. ",
+          "type": "text"
+        },
+        {
+          "text": "Lancet",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "382",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": "(9903), 1525–1533. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1016/S0140-6736(13)61809-7",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1016/S0140-6736(13)61809-7",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Finn, A., et al. (2016). Integrase Strand Transfer Inhibitors. ",
+          "type": "text"
+        },
+        {
+          "text": "Journal of Antimicrobial Chemotherapy",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "71",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": "(4), 1031–1048. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1093/jac/dkv423",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1093/jac/dkv423",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Grinsztejn, B., et al. (2014). Efficacy and safety of dolutegravir in subjects with raltegravir-resistant HIV-1 infection (VIKING-3). ",
+          "type": "text"
+        },
+        {
+          "text": "Lancet Infectious Diseases",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "14",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": "(2), 129–135. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1016/S1473-3099(13)70277-X",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1016/S1473-3099(13)70277-X",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Hare, S., et al. (2010). Structural basis for HIV-1 integrase inhibition and drug resistance. ",
+          "type": "text"
+        },
+        {
+          "text": "Proceedings of the National Academy of Sciences",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "107",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": "(46), 19747–19752. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1073/pnas.1011128107",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1073/pnas.1011128107",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Lake, J. E., & Currier, J. S. (2013). Metabolic disease in HIV infection. ",
+          "type": "text"
+        },
+        {
+          "text": "Lancet Diabetes & Endocrinology",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "1",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": "(1), 66–75. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1016/S2213-8587(13)70011-Z",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1016/S2213-8587(13)70011-Z",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Mesplède, T., & Wainberg, M. A. (2015). Resistance to integrase inhibitors. ",
+          "type": "text"
+        },
+        {
+          "text": "Infection, Genetics and Evolution",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "36",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", 359–380. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1016/j.meegid.2015.10.019",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1016/j.meegid.2015.10.019",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Min, S., et al. (2011). Safety, pharmacokinetics, and antiviral activity of dolutegravir. ",
+          "type": "text"
+        },
+        {
+          "text": "Antimicrobial Agents and Chemotherapy",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "55",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": "(9), 3536–3542. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1128/AAC.00273-11",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1128/AAC.00273-11",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Raffi, F., et al. (2013). Once-daily dolutegravir versus raltegravir in treatment-naïve adults with HIV-1 infection. ",
+          "type": "text"
+        },
+        {
+          "text": "Lancet",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "381",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": "(9868), 735–743. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1016/S0140-6736(12)61999-8",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1016/S0140-6736(12)61999-8",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Steigbigel, R. T., et al. (2012). Dolutegravir in HIV-infected patients with raltegravir resistance: Results from the VIKING studies. ",
+          "type": "text"
+        },
+        {
+          "text": "Journal of Infectious Diseases",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "206",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": "(1), 48–55. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1093/infdis/jis355",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1093/infdis/jis355",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Van Wyk, J., et al. (2019). Dolutegravir with lamivudine for initial treatment of HIV-1 infection. ",
+          "type": "text"
+        },
+        {
+          "text": "New England Journal of Medicine",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "381",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": "(18), 1690–1701. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1056/NEJMoa1902821",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1056/NEJMoa1902821",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "Walmsley, S., et al. (2013). Dolutegravir plus abacavir–lamivudine for the treatment of HIV-1 infection. ",
+          "type": "text"
+        },
+        {
+          "text": "New England Journal of Medicine",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "text": "369",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": "(19), 1807–1818. ",
+          "type": "text"
+        },
+        {
+          "text": "https://doi.org/10.1056/NEJMoa1305415",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://doi.org/10.1056/NEJMoa1305415",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      },
+      "content": [
+        {
+          "text": "World Health Organization. (2021). ",
+          "type": "text"
+        },
+        {
+          "text": "Consolidated guidelines on HIV prevention, testing, treatment, service delivery, and monitoring: Recommendations for a public health approach",
+          "type": "text",
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ]
+        },
+        {
+          "text": ". ",
+          "type": "text"
+        },
+        {
+          "text": "https://www.who.int/publications/i/item/9789240031593",
+          "type": "text",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "rel": "noopener noreferrer nofollow",
+                "href": "https://www.who.int/publications/i/item/9789240031593",
+                "class": "text-blue-600 underline",
+                "title": null,
+                "target": "_blank"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "bibliographyEntry",
+      "attrs": {
+        "doi": null,
+        "url": null,
+        "refText": "(Organization., 2021)",
+        "citationId": "9ecbba5c-a2dd-4368-8375-c0045ace8172"
+      },
+      "content": [
+        {
+          "text": "(Organization., 2021)",
+=======
+          "text": "Line 4",
+>>>>>>> origin/craig-update
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "textAlign": null
+      }
     }
   ]
 }

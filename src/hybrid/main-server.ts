@@ -63,6 +63,7 @@ import sourcesRouter from "../api/sources/index";
 import unsplashRouter from "../api/integrations/unsplash";
 import searchAlertsRouter from "../api/search-alerts/index";
 import researchRouter from "../api/research/index";
+import auditRouter from "../audit/index";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
 
@@ -325,6 +326,9 @@ app.use("/api/authorship", authMiddleware, authorshipRouter);
 
 // AI Detection API
 app.use("/api/ai-detection", authMiddleware, aiDetectionRouter);
+
+// Comprehensive Citation Audit Engine API
+app.use("/api/audit", authMiddleware, auditRouter);
 
 // Apply auth middleware to notification routes
 app.use("/api/notifications", authMiddleware);

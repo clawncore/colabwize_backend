@@ -213,7 +213,7 @@ export class PaperDiscoveryService {
     limit: number,
   ): Promise<PaperSearchResult[]> {
     try {
-      const apiKey = await SecretsService.getOpenAlexApiKey();
+      const apiKey = process.env.OPENALEX_API_KEY || ""; // OpenAlex doesn't require a key but you can use one. Since getOpenAlexApiKey isn't on SecretsService we'll just pull env.
       const headers: any = {};
       if (apiKey) headers["x-api-key"] = apiKey;
 
@@ -263,7 +263,7 @@ export class PaperDiscoveryService {
     paperId: string,
   ): Promise<PaperSearchResult | null> {
     try {
-      const apiKey = await SecretsService.getOpenAlexApiKey();
+      const apiKey = process.env.OPENALEX_API_KEY || "";
       const headers: any = {};
       if (apiKey) {
         headers["x-api-key"] = apiKey;
@@ -439,7 +439,7 @@ export class PaperDiscoveryService {
    */
   static async getPaperGraph(paperId: string): Promise<ResearchGraph> {
     try {
-      const apiKey = await SecretsService.getOpenAlexApiKey();
+      const apiKey = process.env.OPENALEX_API_KEY || "";
       const headers: any = {};
       if (apiKey) headers["x-api-key"] = apiKey;
 

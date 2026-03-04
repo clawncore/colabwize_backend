@@ -1,11 +1,20 @@
 import { ExternalVerificationService } from "./externalVerification";
-import { CitationPair } from "./citationMatcher";
+export interface SimpleCitationPair {
+    inline: { text: string; start: number; end: number; context?: string };
+    reference?: {
+        rawText: string;
+        extractedAuthor?: string;
+        extractedTitle?: string;
+        extractedYear?: number;
+        extractedDOI?: string;
+    };
+}
 import { VerificationResult, AuditResponse, CitationFlag, AuditTier } from "../../types/citationAudit";
 import { SemanticClaimService } from "./semanticClaimService";
 import logger from "../../monitoring/logger";
 
 export interface ForensicResult {
-    pair: CitationPair;
+    pair: SimpleCitationPair;
     status: "VERIFIED" | "SUSPICIOUS" | "HALLUCINATION" | "UNSUPPORTED" | "MISMATCH";
     confidence: number;
     issues: string[];
@@ -18,7 +27,7 @@ export class ForensicAuditService {
     /**
      * Run a full forensic audit on a list of citation pairs
      */
-    static async auditCitations(pairs: CitationPair[]): Promise<ForensicResult[]> {
+    static async auditCitations(pairs: SimpleCitationPair[]): Promise<ForensicResult[]> {
         const results: ForensicResult[] = [];
 
         // 1. Verify Existence and Basic Metadata
@@ -27,7 +36,7 @@ export class ForensicAuditService {
 
         for (let i = 0; i < pairs.length; i++) {
             const pair = pairs[i];
-            const ver = verificationResults.find(v => v.inlineLocation?.text === pair.inline.text); // naive match or use index
+            const ver = verificationResults.find((v: VerificationResult) => v.inlineLocation?.text === pair.inline.text); // naive match or use index
 
             if (!ver) {
                 results.push({
@@ -64,7 +73,7 @@ export class ForensicAuditService {
                 // Simple inclusion check
                 // Check if cited identifier (e.g. "Smith") is in the real author list
                 const keywords = citedAuthor.split(/[\s,]+/);
-                const match = keywords.some(k => realAuthors.includes(k) && k.length > 2);
+                const match = keywords.some((k: string) => realAuthors.includes(k) && k.length > 2);
 
                 if (!match) {
                     status = "MISMATCH";

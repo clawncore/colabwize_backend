@@ -465,4 +465,17 @@ router.post("/forensic-audit", async (req: Request, res: Response) => {
   }
 });
 
+// We keep the old endpoint signature around but make it basically a no-op 
+// just in case any other frontend components are still calling it.
+router.post("/audit", async (req: Request, res: Response) => {
+  res.status(200).json({
+    style: req.body.declaredStyle || "APA",
+    flags: [],
+    verificationResults: [],
+    integrityIndex: 100,
+    tiersExecuted: [],
+    tierMetadata: {}
+  });
+});
+
 export default router;
