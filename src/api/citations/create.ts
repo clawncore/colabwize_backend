@@ -1,58 +1,9 @@
 import express, { Request, Response } from "express";
 import { CitationConfidenceService } from "../../services/citationConfidenceService";
 import logger from "../../monitoring/logger";
+import { checkUsageLimit } from "../../middleware/usageMiddleware";
 
 const router = express.Router();
-
-/**
- * GET /api/citations/:projectId
- * Get all citations for a project
- */
-router.get("/:projectId", async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).user?.id;
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        error: "Authentication required",
-      });
-    }
-
-    const { projectId } = req.params;
-
-    if (!projectId) {
-      return res.status(400).json({
-        success: false,
-        error: "Project ID is required",
-      });
-    }
-
-    const { prisma } = await import("../../lib/prisma");
-    const citations = await prisma.citation.findMany({
-      where: {
-        project_id: projectId,
-      },
-      orderBy: {
-        created_at: "desc",
-      },
-    });
-
-    return res.status(200).json({
-      success: true,
-      data: citations,
-    });
-  } catch (error: any) {
-    logger.error("Error fetching citations", {
-      error: error.message,
-      projectId: req.params.projectId,
-    });
-
-    return res.status(500).json({
-      success: false,
-      error: error.message || "Failed to fetch citations",
-    });
-  }
-});
 
 /**
  * POST /api/citations/:projectId
@@ -72,17 +23,7 @@ router.post(
       }
 
       const { projectId } = req.params;
-      const {
-        title,
-        author,
-        year,
-        type,
-        doi,
-        url,
-        source,
-        abstract,
-        formatted_citations,
-      } = req.body as any;
+      const { title, author, year, type, doi, url, source, abstract, formatted_citations } = req.body as any;
 
       if (!projectId) {
         return res.status(400).json({
@@ -91,10 +32,10 @@ router.post(
         });
       }
 
-      if (!title) {
+      if (!title || !author || !year) {
         return res.status(400).json({
           success: false,
-          error: "Title (or raw reference text) is required",
+          error: "Title, author, and year are required",
         });
       }
 
@@ -103,15 +44,15 @@ router.post(
         userId,
         {
           title,
-          author: author || "Unknown",
-          year: year || 0,
+          author,
+          year,
           type: type || "journal-article",
           doi,
           url,
           source,
           abstract,
           formatted_citations,
-        },
+        }
       );
 
       return res.status(201).json({
@@ -129,7 +70,7 @@ router.post(
         error: error.message || "Failed to add citation",
       });
     }
-  },
+  }
 );
 
 export default router;

@@ -1,5 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { Request } from "express";
+import { Worker } from "worker_threads";
+import path from "path";
 import fs from "fs/promises";
 // @ts-ignore
 import pdfParse from "pdf-parse";
@@ -7,9 +9,6 @@ import mammoth from "mammoth";
 import { RecycleBinService } from "./recycleBinService";
 import logger from "../monitoring/logger";
 import { PdfConversionService } from "./pdfConversionService";
-import { VectorStoreService } from "./vectorStoreService";
-import { CitationMappingService } from "./citationMappingService";
-import { WorkspaceActivityService } from "./workspaceActivityService";
 
 interface ExtendedRequest extends Request {
   user?: {
@@ -27,8 +26,7 @@ export class DocumentUploadService {
     userId: string,
     title: string,
     description: string,
-    file: Express.Multer.File,
-    workspaceId?: string,
+    file: Express.Multer.File
   ) {
     // Extract text/html from the uploaded document
     const { content: extractedContent, format } =
@@ -68,7 +66,6 @@ export class DocumentUploadService {
         word_count: wordCount,
         file_path: file.path,
         file_type: file.mimetype,
-        workspace_id: workspaceId || null,
       },
       include: {
         originality_scans: true,
@@ -76,85 +73,17 @@ export class DocumentUploadService {
       },
     });
 
-    // Notify workspace members about new project
-    if (workspaceId) {
-      try {
-        const { createNotification } = require("./notificationService");
-        const workspaceMembers = await prisma.workspaceMember.findMany({
-          where: { workspace_id: workspaceId, user_id: { not: userId } },
-        });
-
-        for (const member of workspaceMembers) {
-          await createNotification(
-            member.user_id,
-            "document_shared",
-            "New Project Created",
-            `A new project "${title}" has been created in your workspace.`,
-            { workspaceId, documentId: project.id },
-          );
-        }
-      } catch (notifError) {
-        logger.error(
-          "Failed to send project creation notification:",
-          notifError,
-        );
-      }
-    }
-
-    // Vectorize project content for chat functionality (async, don't block response)
-    VectorStoreService.storeProjectContent(
-      project.id,
-      userId,
-      projectContent,
-    ).catch((error) => {
-      console.error(`Failed to vectorize project ${project.id}:`, error);
-      // Don't fail the request if vectorization fails
-    });
-
-    return this.mapProjectWithProgress(project);
+    return project;
   }
 
   /**
-   * Gets all projects for a user, with optional workspace filtering
-   * When workspaceId is provided, returns ALL projects in that workspace
-   * (shared visibility), not just the requesting user's.
+   * Gets all projects for a user
    */
-  static async getUserProjects(
-    userId: string,
-    options?: {
-      personalOnly?: boolean;
-      workspaceId?: string;
-      fetchArchived?: boolean;
-    },
-  ) {
-    const where: any = {};
-
-    if (options?.personalOnly) {
-      where.user_id = userId;
-      where.workspace_id = null; // Only personal projects (no workspace)
-    } else if (options?.workspaceId) {
-      // Shared visibility: all projects in this workspace, not just the user's
-      where.workspace_id = options.workspaceId;
-    } else {
-      // All projects for this user (backward compatible)
-      where.user_id = userId;
-    }
-
-    // Handle archived vs active projects
-    // If we don't explicitly ask for archived, don't return them
-    if (options && "fetchArchived" in options) {
-      if ((options as any).fetchArchived) {
-        where.status = "archived";
-      } else {
-        where.status = { not: "archived" };
-      }
-    } else {
-      // Default behavior: don't return archived unless explicitly queried
-      where.status = { not: "archived" };
-    }
-
-    const projects = await prisma.project.findMany({
-      where,
+  static async getUserProjects(userId: string) {
+    return await prisma.project.findMany({
+      where: {
+        user_id: userId,
+      },
       orderBy: {
         created_at: "desc",
       },
@@ -163,20 +92,11 @@ export class DocumentUploadService {
         user_id: true,
         title: true,
         description: true,
-        status: true,
         word_count: true,
         file_path: true,
         file_type: true,
         created_at: true,
         updated_at: true,
-        workspace_id: true,
-        user: {
-          select: {
-            id: true,
-            full_name: true,
-            email: true,
-          },
-        },
         originality_scans: {
           orderBy: {
             created_at: "desc",
@@ -184,33 +104,20 @@ export class DocumentUploadService {
           take: 1, // Get most recent scan
         },
         citations: {
-          take: 0, // Don't fetch citations list in dashboard
-        },
+          take: 0 // Don't fetch citations list in dashboard
+        }
       },
     });
-
-    // Map projects to include calculated progress
-    return projects.map((project: any) => this.mapProjectWithProgress(project));
   }
 
   /**
-   * Gets a specific project by ID for a user.
-   * Allows access if the user owns the project OR is a member of the project's workspace OR is a direct collaborator.
+   * Gets a specific project by ID for a user
    */
   static async getProjectById(projectId: string, userId: string) {
-    // Check for access using a single query with OR
-    const project = await prisma.project.findFirst({
+    return await prisma.project.findFirst({
       where: {
         id: projectId,
-        OR: [
-          { user_id: userId },
-          { collaborators: { some: { user_id: userId } } },
-          {
-            workspace: {
-              members: { some: { user_id: userId } },
-            },
-          },
-        ],
+        user_id: userId,
       },
       include: {
         originality_scans: {
@@ -218,16 +125,10 @@ export class DocumentUploadService {
             created_at: "desc",
           },
         },
+
         citations: true,
-        workspace: {
-          include: {
-            members: true,
-          },
-        },
       },
     });
-
-    return this.mapProjectWithProgress(project);
   }
 
   /**
@@ -259,21 +160,13 @@ export class DocumentUploadService {
     content: any,
     wordCount: number,
     citationStyle?: string,
-    outline?: any,
-    updates?: any,
+    outline?: any
   ) {
-    // Check if user has permission to update (permission check)
-    const hasAccess = await this.getProjectById(projectId, userId);
-    if (!hasAccess) {
-      throw new Error(
-        "Access denied: You do not have permission to update this project",
-      );
-    }
-
     // Update project record
     const updatedProject = await (prisma.project as any).update({
       where: {
         id: projectId,
+        user_id: userId,
       },
       data: {
         title,
@@ -281,9 +174,8 @@ export class DocumentUploadService {
         content,
         outline,
         word_count: wordCount,
-        citation_style: citationStyle,
+        citation_style: citationStyle, // Pass directly (Prisma handles undefined gracefully often, or use conditional spread)
         updated_at: new Date(),
-        ...updates,
       },
       include: {
         originality_scans: true,
@@ -291,7 +183,7 @@ export class DocumentUploadService {
       },
     });
 
-    return this.mapProjectWithProgress(updatedProject);
+    return updatedProject;
   }
 
   /**
@@ -308,10 +200,10 @@ export class DocumentUploadService {
     // Delete access denied check
     if (project.user_id !== userId) {
       logger.warn(
-        `[DEBUG] Delete access denied. Owner: ${project.user_id}, Requestor: ${userId}`,
+        `[DEBUG] Delete access denied. Owner: ${project.user_id}, Requestor: ${userId}`
       );
       throw new Error(
-        `Access denied: Project owned by ${project.user_id}, not ${userId}`,
+        `Access denied: Project owned by ${project.user_id}, not ${userId}`
       );
     }
 
@@ -351,8 +243,7 @@ export class DocumentUploadService {
     title: string,
     description: string,
     content: any,
-    outline: any = null,
-    workspaceId?: string,
+    outline: any = null
   ) {
     // Create project record in the database
     const project = await (prisma.project as any).create({
@@ -370,7 +261,6 @@ export class DocumentUploadService {
         },
         outline: outline,
         word_count: content ? this.countWords(JSON.stringify(content)) : 0,
-        workspace_id: workspaceId || null,
       },
       include: {
         originality_scans: true,
@@ -378,32 +268,7 @@ export class DocumentUploadService {
       },
     });
 
-    // Notify workspace members about new project
-    if (workspaceId) {
-      try {
-        const { createNotification } = require("./notificationService");
-        const workspaceMembers = await prisma.workspaceMember.findMany({
-          where: { workspace_id: workspaceId, user_id: { not: userId } },
-        });
-
-        for (const member of workspaceMembers) {
-          await createNotification(
-            member.user_id,
-            "document_shared",
-            "New Project Created",
-            `A new project "${title}" has been created in your workspace.`,
-            { workspaceId, documentId: project.id },
-          );
-        }
-      } catch (notifError) {
-        logger.error(
-          "Failed to send project creation notification:",
-          notifError,
-        );
-      }
-    }
-
-    return this.mapProjectWithProgress(project);
+    return project;
   }
 
   /**
@@ -411,7 +276,7 @@ export class DocumentUploadService {
    * Returns an object with content and format type
    */
   public static async extractTextFromDocument(
-    file: Express.Multer.File,
+    file: Express.Multer.File
   ): Promise<{ content: string; format: "text" | "html" }> {
     if (!file) {
       throw new Error("File is required for text extraction");
@@ -425,6 +290,7 @@ export class DocumentUploadService {
     }
 
     try {
+
       switch (fileExtension) {
         case "pdf":
           // 0. Enterprise-Grade Parsing (Mathpix)
@@ -432,65 +298,46 @@ export class DocumentUploadService {
           if (process.env.MATHPIX_APP_ID && process.env.MATHPIX_APP_KEY) {
             try {
               const { MathpixService } = require("./mathpixService");
-              logger.info("[PDF-CONVERSION] Attempting Mathpix conversion", {
-                filePath,
-              });
+              logger.info("[PDF-CONVERSION] Attempting Mathpix conversion", { filePath });
 
               const html = await MathpixService.convertPdfToHtml(filePath);
               logger.info("[PDF-CONVERSION] Mathpix conversion successful");
 
               return { content: html, format: "html" };
             } catch (mathpixError: any) {
-              logger.warn(
-                "[PDF-CONVERSION] Mathpix conversion failed, falling back to local tools",
-                {
-                  error: mathpixError.message,
-                },
-              );
+              logger.warn("[PDF-CONVERSION] Mathpix conversion failed, falling back to local tools", {
+                error: mathpixError.message
+              });
               // Fall through to next method
             }
           }
 
           // 1. First fallback: Convert PDF to DOCX (LibreOffice) to preserve formatting
           try {
-            logger.info("[PDF-CONVERSION] Attempting PDF to DOCX conversion", {
-              filePath,
-            });
-            const docxPath =
-              await PdfConversionService.convertPdfToDocx(filePath);
+            logger.info('[PDF-CONVERSION] Attempting PDF to DOCX conversion', { filePath });
+            const docxPath = await PdfConversionService.convertPdfToDocx(filePath);
 
             // If conversion succeeds, extract content from the converted DOCX
-            logger.info(
-              "[PDF-CONVERSION] PDF to DOCX conversion successful, extracting content",
-              { docxPath },
-            );
+            logger.info('[PDF-CONVERSION] PDF to DOCX conversion successful, extracting content', { docxPath });
             const html = await this.extractHtmlFromDOCX(docxPath);
 
             // Clean up the temporary DOCX file
             try {
               await fs.unlink(docxPath);
-              logger.info("[PDF-CONVERSION] Temporary DOCX file cleaned up", {
-                docxPath,
-              });
+              logger.info('[PDF-CONVERSION] Temporary DOCX file cleaned up', { docxPath });
             } catch (cleanupError: any) {
-              logger.warn(
-                "[PDF-CONVERSION] Failed to clean up temporary DOCX file",
-                {
-                  docxPath,
-                  error: cleanupError.message,
-                },
-              );
+              logger.warn('[PDF-CONVERSION] Failed to clean up temporary DOCX file', {
+                docxPath,
+                error: cleanupError.message
+              });
             }
 
             return { content: html, format: "html" };
           } catch (conversionError: any) {
-            logger.warn(
-              "[PDF-CONVERSION] PDF to DOCX conversion failed, falling back to text extraction",
-              {
-                error: conversionError.message,
-                filePath,
-              },
-            );
+            logger.warn('[PDF-CONVERSION] PDF to DOCX conversion failed, falling back to text extraction', {
+              error: conversionError.message,
+              filePath
+            });
 
             // If conversion fails, fall back to the original text extraction
             const pdfText = await this.extractTextFromPDF(filePath);
@@ -528,17 +375,15 @@ export class DocumentUploadService {
         stack: error.stack,
         fileName: file?.originalname,
         fileExtension,
-        filePath: file?.path,
+        filePath: file?.path
       });
 
       // Return more user-friendly error message
       let userMessage = "Unable to extract content from document";
       if (error.message.includes("parse PDF")) {
-        userMessage =
-          "Unable to extract text from PDF. The PDF may be scanned, password-protected, or corrupted.";
+        userMessage = "Unable to extract text from PDF. The PDF may be scanned, password-protected, or corrupted.";
       } else if (error.message.includes("extractable text content")) {
-        userMessage =
-          "PDF appears to contain no extractable text. It may be a scanned document or image-based PDF.";
+        userMessage = "PDF appears to contain no extractable text. It may be a scanned document or image-based PDF.";
       }
 
       return {
@@ -563,7 +408,7 @@ export class DocumentUploadService {
       logger.info(`[PDF] File read successfully`, {
         filePath,
         fileSize: buffer.length,
-        duration: Date.now() - startTime,
+        duration: Date.now() - startTime
       });
 
       const data = await pdfParse(buffer);
@@ -573,18 +418,16 @@ export class DocumentUploadService {
         duration,
         filePath,
         textLength: data.text.length,
-        numPages: data.numpages,
+        numPages: data.numpages
       });
 
       // Validate that we actually got content
       if (!data.text || data.text.trim().length === 0) {
         logger.warn(`[PDF] PDF parsed but returned empty content`, {
           filePath,
-          numPages: data.numpages,
+          numPages: data.numpages
         });
-        throw new Error(
-          "PDF parsed successfully but contains no extractable text content",
-        );
+        throw new Error("PDF parsed successfully but contains no extractable text content");
       }
 
       return data.text;
@@ -594,7 +437,7 @@ export class DocumentUploadService {
         duration,
         error: error.message,
         stack: error.stack,
-        filePath,
+        filePath
       });
       throw new Error(`Failed to parse PDF: ${error.message}`);
     }
@@ -622,38 +465,5 @@ export class DocumentUploadService {
     // Strip HTML tags for word count
     const plainText = text.replace(/<[^>]*>/g, " ");
     return plainText.trim() === "" ? 0 : plainText.trim().split(/\s+/).length;
-  }
-
-  /**
-   * Calculates progress percentage based on project status
-   */
-  private static calculateProjectProgress(status: string): number {
-    switch (status) {
-      case "completed":
-        return 100;
-      case "in-progress":
-        return 40;
-      case "planning":
-        return 20;
-      case "draft":
-        return 10;
-      case "active":
-        return 30;
-      case "archived":
-        return 0;
-      default:
-        return 0;
-    }
-  }
-
-  /**
-   * Maps a project object to include the progress field
-   */
-  private static mapProjectWithProgress(project: any) {
-    if (!project) return null;
-    return {
-      ...project,
-      progress: this.calculateProjectProgress(project.status),
-    };
   }
 }

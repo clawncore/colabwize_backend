@@ -1,3 +1,5 @@
+// Backend Types for Citation Audit - FINAL RULE CONTRACT
+
 export type CitationStyle = "APA" | "MLA" | "IEEE" | "Chicago";
 
 export type PatternType =
@@ -7,9 +9,7 @@ export type PatternType =
     | "et_al_no_period"   // et al
     | "et_al_with_period" // et al.
     | "AMPERSAND_IN_PAREN" // (Smith & Jones)
-    | "AMPERSAND_IN_PAREN" // (Smith & Jones)
-    | "AND_IN_PAREN"      // (Smith and Jones)
-    | "MIXED_STYLE";       // Multiple styles detected
+    | "AND_IN_PAREN";      // (Smith and Jones)
 
 export interface DocumentMeta {
     language: string;
@@ -21,6 +21,7 @@ export type SectionType = "BODY" | "REFERENCE_SECTION";
 export interface DocumentSection {
     title: string;
     type: SectionType;
+    // We might want to track range here if needed for structural flags
     range?: { start: number; end: number };
 }
 
@@ -30,16 +31,13 @@ export interface ExtractedPattern {
     start: number;
     end: number;
     section: SectionType;
-    context?: string; // Surrounding sentence
-    citationId?: string; // For normalization mapping
-    normalizationStatus?: "resolved" | "ambiguous" | "unresolved";
-    confidence?: number;
+    context?: string;
 }
 
 export interface ReferenceEntry {
     index: number;
     rawText: string;
-    start: number;
+    start: number; // Anchor for the entry
     end: number;
 }
 
@@ -48,90 +46,68 @@ export interface ReferenceListExtraction {
     entries: ReferenceEntry[];
 }
 
+// Backend Request Payload
 export interface AuditRequest {
     declaredStyle: CitationStyle;
     documentMeta: DocumentMeta;
     sections: DocumentSection[];
     patterns: ExtractedPattern[];
-    referenceList: ReferenceListExtraction | null;
-    citationLibrary?: Record<string, any>; // [NEW] Map of citationId -> metadata for Tier 1 matching
+    referenceList: ReferenceListExtraction | null; // Null if no ref list found
 }
 
-export type CitationViolationType = "INLINE_STYLE" | "REF_LIST_ENTRY" | "STRUCTURAL" | "VERIFICATION" | "RISK";
+// Backend Response Types
+export type CitationViolationType = "INLINE_STYLE" | "REF_LIST_ENTRY" | "STRUCTURAL" | "VERIFICATION";
 
 export interface CitationFlag {
     type: CitationViolationType;
-    ruleId: string;
+    ruleId: string; // e.g., "MLA.NO_NUMERIC"
     message: string;
     anchor?: {
         start: number;
         end: number;
         text: string;
     };
+    category?: CitationViolationType; // Deprecated by 'type', but keeping for compatibility if needed. Actually 'type' covers it.
+    // Let's use 'type' as the main classifier as per prompt.
+    // Structural details
     section?: string;
     expected?: string;
-    tier?: AuditTier; // Which tier generated this flag
-    reason?: string;  // Forensic requirement: Why this issue exists
-    action?: string;  // Forensic requirement: What the user can do
-    source?: string;  // Forensic requirement: Normalized citation reference
 }
 
-export type ExistenceStatus = "CONFIRMED" | "NOT_FOUND" | "SERVICE_ERROR" | "PENDING" | "UNMATCHED_REFERENCE";
-export type SupportStatus = "SUPPORTED" | "WEAKLY_SUPPORTED" | "UNSUPPORTED" | "AMBIGUOUS" | "NOT_EVALUATED" | "PLAUSIBLE" | "CONTRADICTORY" | "UNRELATED";
+// Verification Results (separate from flags)
+export type VerificationStatus =
+    | "VERIFIED"                // Paper found and matches
+    | "VERIFICATION_FAILED"      // Paper not found or low similarity
+    | "UNMATCHED_REFERENCE"      // Inline citation has no matching reference
+    | "INSUFFICIENT_INFO";       // Citation too short to verify
 
 export interface VerificationResult {
-    inlineLocation?: { start: number; end: number; text: string };
-    existenceStatus: ExistenceStatus;
-    supportStatus: SupportStatus;
-    provenance: any[];
+    inlineLocation: {
+        start: number;
+        end: number;
+        text: string;
+    };
+    status: VerificationStatus;
     message: string;
-    reason?: string;
-    action?: string;
-    source?: string;
-    suggestions?: any[]; // "Find Papers" remediation suggestions
     similarity?: number;
     foundPaper?: {
-        title?: string;
-        authors?: string[];
-        year?: number | string;
-        url?: string;
-        doi?: string;
-        database?: string;
+        title: string;
+        year?: number;
+        url: string;
+        database: string;
         abstract?: string;
         isRetracted?: boolean;
     };
-    semanticAnalysis?: {
-        reasoning?: string;
-        confidence?: number;
+    semanticSupport?: {
+        status: "SUPPORTED" | "DISPUTED" | "PARTIALLY_SUPPORTED" | "UNRELATED" | "PENDING";
+        reasoning: string;
     };
 }
 
-export interface VerificationProvenance {
-    source: string;
-    status: "SUCCESS" | "FAILED";
-    latencyMs: number;
-}
-
-/**
- * TIERED AUDIT DEFINITIONS
- */
-export enum AuditTier {
-    STRUCTURAL = "STRUCTURAL", // Tier 1: Format only
-    CLAIM = "CLAIM",           // Tier 2: Claim verification
-    RISK = "RISK"              // Tier 3: Risk & Bias
-}
-
-export interface AuditResponse {
+export interface AuditReport {
     style: CitationStyle;
+    timestamp: string;
     flags: CitationFlag[];
-    verificationResults?: VerificationResult[];
-    integrityIndex?: number;
-    tiersExecuted: AuditTier[];
-    tierMetadata?: {
-        [key in AuditTier]?: {
-            executed: boolean;
-            skippedReason?: string;
-            stats?: any;
-        }
-    };
+    verificationResults?: VerificationResult[];  // NEW: Separate verification results
+    detectedStyles?: string[]; // Auto-detected style indicators
 }

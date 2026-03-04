@@ -10,7 +10,6 @@ import gapsRouter from "./gaps";
 import intentRouter from "./intent";
 import credibilityRouter from "./credibility";
 import consensusRouter from "./consensus";
-import importRouter from "./import";
 
 const router = express.Router();
 
@@ -34,6 +33,5 @@ router.use("/", gapsRouter); // Mounts as /:projectId/gaps
 router.use("/", intentRouter); // Mounts as /:citationId/classify-intent and /batch-classify-intents
 router.use("/", credibilityRouter); // Mounts as /credibility-score and /batch-credibility
 router.use("/", consensusRouter); // Mounts as /:projectId/consensus
-router.use("/import", importRouter);
 
 export default router;
