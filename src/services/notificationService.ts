@@ -615,39 +615,41 @@ export async function getUserNotifications(
     if (filters?.priority) {
       // Map priority to notification types matching frontend NotificationBell.tsx
       const highPriorityTypes = [
-        "security_alert",
-        "payment_failed",
-        "subscription_expiring",
-        "subscription_expired",
-        "subscription_cancelled",
-      ];
-
-      const mediumPriorityTypes = [
         "comment",
         "mention",
         "document_change",
         "document_shared",
         "new_collaborator",
         "permission_change",
+        "comment_resolved",
+        "real_time_edit",
+        "plagiarism_complete",
+        "ai_limit",
+        "payment_failed",
+        "subscription_expiring",
+        "security_alert",
+        "document_deadline",
+        "ai_suggestion",
+        "citation_reminder",
         "collaborator_request",
         "collaboration_invite",
         "collaboration_invite_accepted",
         "collaboration_invite_declined",
         "collaboration_removed",
-        "comment_resolved",
         "comment_added",
-        "real_time_edit",
-        "editor_activity",
-        "plagiarism_complete",
-        "ai_suggestion",
-        "ai_limit",
-        "document_deadline",
         "document_exported",
+        "subscription_cancelled",
+        "subscription_expired",
+        "writing_streak",
+        "goal_achieved",
+        "invoice_available",
+      ];
+
+      const mediumPriorityTypes = [
         "new_feature",
         "weekly_summary",
         "payment_success",
         "subscription_renewed",
-        "citation_reminder",
         "new_feature_announcement",
         "product_tip",
         "research_update",
@@ -686,6 +688,7 @@ export async function getUserNotifications(
         "template_preview_generated",
         "template_preview_updated",
         "template_preview_deleted",
+        "template_update",
       ];
 
       if (filters.priority === "high") {
