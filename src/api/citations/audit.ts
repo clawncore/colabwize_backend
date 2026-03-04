@@ -141,13 +141,13 @@ router.post("/audit", async (req: Request, res: Response) => {
       validEntries,
       declaredStyle,
       citationLibrary,
-    );
+    ) as any[]; // Cast as any[] or use a proper interface if shared
 
     // Analyze Structural Integrity
     let matchedCount = 0;
 
     // Check for UNMATCHED Citations
-    matchedPairs.forEach((pair) => {
+    matchedPairs.forEach((pair: any) => {
       if (!pair.reference) {
         // If it's unresolved by normalization, provide a more helpful message
         if (pair.inline.normalizationStatus === "unresolved") {
@@ -194,8 +194,8 @@ router.post("/audit", async (req: Request, res: Response) => {
     // Check for ORPHAN References
     const matchedRefIndices = new Set(
       matchedPairs
-        .map((p) => p.reference?.index)
-        .filter((i) => i !== undefined),
+        .map((p: any) => p.reference?.index)
+        .filter((i: any) => i !== undefined),
     );
     validEntries.forEach((ref) => {
       // Forensic Rule: Do NOT flag if there are unresolved citations (they might point here)
@@ -248,7 +248,7 @@ router.post("/audit", async (req: Request, res: Response) => {
       "study",
       "research",
     ];
-    const claimAuditCitations = matchedPairs.filter((pair) => {
+    const claimAuditCitations = matchedPairs.filter((pair: any) => {
       if (!pair.inline.context) return false;
       return claimSignals.some((signal) =>
         pair.inline.context?.toLowerCase().includes(signal),
@@ -319,7 +319,7 @@ router.post("/audit", async (req: Request, res: Response) => {
       console.log("⚠️ Tier 3 Triggered: Risk signals detected.");
 
       const riskResult = await RiskAnalysisService.analyzeRisks(
-        matchedPairs.map((p) => ({
+        matchedPairs.map((p: any) => ({
           text: p.inline.text,
           context: p.inline.context,
         })),
@@ -465,7 +465,7 @@ router.post("/forensic-audit", async (req: Request, res: Response) => {
   }
 });
 
-// We keep the old endpoint signature around but make it basically a no-op 
+// We keep the old endpoint signature around but make it basically a no-op
 // just in case any other frontend components are still calling it.
 router.post("/audit", async (req: Request, res: Response) => {
   res.status(200).json({
@@ -474,7 +474,7 @@ router.post("/audit", async (req: Request, res: Response) => {
     verificationResults: [],
     integrityIndex: 100,
     tiersExecuted: [],
-    tierMetadata: {}
+    tierMetadata: {},
   });
 });
 
