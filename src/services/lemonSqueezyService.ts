@@ -34,7 +34,7 @@ export class LemonSqueezyService {
   private static async makeRequest(
     endpoint: string,
     method: string = "GET",
-    body?: any
+    body?: any,
   ): Promise<any> {
     await this.initialize();
 
@@ -60,8 +60,16 @@ export class LemonSqueezyService {
     const data = await response.json();
 
     if (!response.ok) {
-      logger.error("LemonSqueezy API error", { status: response.status, data });
-      throw new Error(`LemonSqueezy API error: ${response.status}`);
+      logger.error("LemonSqueezy API error detail", {
+        status: response.status,
+        endpoint,
+        method,
+        errors: data.errors,
+      });
+      const error = new Error(`LemonSqueezy API error: ${response.status}`);
+      (error as any).status = response.status;
+      (error as any).data = data;
+      throw error;
     }
 
     return data;
@@ -129,7 +137,7 @@ export class LemonSqueezyService {
   static async cancelSubscription(subscriptionId: string) {
     const response = await this.makeRequest(
       `subscriptions/${subscriptionId}`,
-      "DELETE"
+      "DELETE",
     );
     return response.data;
   }
@@ -151,7 +159,7 @@ export class LemonSqueezyService {
     const response = await this.makeRequest(
       `subscriptions/${subscriptionId}`,
       "PATCH",
-      updateData
+      updateData,
     );
     return response.data;
   }
@@ -184,15 +192,66 @@ export class LemonSqueezyService {
       },
     };
 
-    const response = await this.makeRequest("customers", "POST", customerData);
-    return response.data;
+    try {
+      const response = await this.makeRequest(
+        "customers",
+        "POST",
+        customerData,
+      );
+      return response.data;
+    } catch (error: any) {
+      // If customer already exists (422 email taken), fetch it instead
+      if (error.status === 422) {
+        const errors = error.data?.errors;
+        const isEmailTaken = errors?.some(
+          (e: any) =>
+            e.detail?.toLowerCase().includes("email has already been taken") ||
+            e.source?.pointer === "/data/attributes/email" ||
+            e.title === "Unprocessable Entity",
+        );
+
+        if (isEmailTaken) {
+          logger.info("Customer email taken, attempt recovery by fetching", {
+            email,
+          });
+          const existing = await this.getCustomersByEmail(email);
+          if (existing && existing.length > 0) {
+            logger.info("Found existing customer during recovery", {
+              customerId: existing[0].id,
+            });
+            return existing[0];
+          } else {
+            logger.warn(
+              "Customer email taken but search returned no results. Fallback to global search.",
+              { email },
+            );
+            // Try searching without store filter as a last resort
+            const globalSearch = await this.makeRequest(
+              `customers?filter[email]=${encodeURIComponent(email)}`,
+            );
+            if (globalSearch.data && globalSearch.data.length > 0) {
+              logger.info("Found customer globally during recovery", {
+                customerId: globalSearch.data[0].id,
+              });
+              return globalSearch.data[0];
+            }
+          }
+        }
+      }
+      throw error;
+    }
   }
 
   /**
    * Get customer by email
    */
   static async getCustomersByEmail(email: string) {
-    const response = await this.makeRequest(`customers?filter[email]=${encodeURIComponent(email)}`);
+    if (!this.storeId) await this.initialize();
+
+    // Most robust way: filter by both store and email
+    const response = await this.makeRequest(
+      `customers?filter[store_id]=${this.storeId}&filter[email]=${encodeURIComponent(email)}`,
+    );
     return response.data;
   }
 
@@ -209,7 +268,10 @@ export class LemonSqueezyService {
    * @param payload - Raw request body (Buffer or string)
    * @param signature - X-Signature header value from LemonSqueezy
    */
-  static async verifyWebhookSignature(payload: Buffer | string, signature: string): Promise<boolean> {
+  static async verifyWebhookSignature(
+    payload: Buffer | string,
+    signature: string,
+  ): Promise<boolean> {
     await this.initialize(); // Ensure webhook secret is loaded from SecretsService
 
     if (!this.webhookSecret) {
@@ -218,7 +280,9 @@ export class LemonSqueezyService {
     }
 
     // Convert Buffer to string if needed, but use the raw bytes for HMAC
-    const payloadData = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, "utf8");
+    const payloadData = Buffer.isBuffer(payload)
+      ? payload
+      : Buffer.from(payload, "utf8");
 
     const computed = crypto
       .createHmac("sha256", this.webhookSecret)
@@ -229,14 +293,14 @@ export class LemonSqueezyService {
     try {
       const isValid = crypto.timingSafeEqual(
         Buffer.from(computed, "hex"),
-        Buffer.from(signature, "hex")
+        Buffer.from(signature, "hex"),
       );
 
       if (!isValid) {
         logger.warn("Webhook signature mismatch", {
           signatureLength: signature.length,
           computedLength: computed.length,
-          payloadSize: payloadData.length
+          payloadSize: payloadData.length,
         });
       } else {
         logger.info("Webhook signature verified successfully");
@@ -247,7 +311,7 @@ export class LemonSqueezyService {
       // timingSafeEqual throws if buffer lengths don't match
       logger.warn("Webhook signature verification failed", {
         error: error.message,
-        signatureLength: signature.length
+        signatureLength: signature.length,
       });
       return false;
     }
@@ -270,7 +334,10 @@ export class LemonSqueezyService {
       // Fallback: The generic my-orders page
       return "https://app.lemonsqueezy.com/my-orders";
     } catch (error) {
-      logger.warn("Failed to fetch customer for portal URL, using fallback", { customerId, error: JSON.stringify(error, Object.getOwnPropertyNames(error)) });
+      logger.warn("Failed to fetch customer for portal URL, using fallback", {
+        customerId,
+        error: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+      });
       return "https://app.lemonsqueezy.com/my-orders";
     }
   }
@@ -279,7 +346,7 @@ export class LemonSqueezyService {
    * Get update payment method URL for a specific subscription
    */
   static async getUpdatePaymentMethodUrl(
-    subscriptionId: string
+    subscriptionId: string,
   ): Promise<string> {
     try {
       const subscription = await this.getSubscription(subscriptionId);

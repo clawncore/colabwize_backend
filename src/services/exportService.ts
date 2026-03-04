@@ -2,6 +2,7 @@ import logger from "../monitoring/logger";
 import { prisma } from "../lib/prisma";
 import { SecretsService } from "./secrets-service";
 import { PublicationExportService } from "./publicationExportService";
+import { DocumentUploadService } from "./documentUploadService";
 import { promises as fs } from "fs";
 import path from "path";
 import archiver from "archiver";
@@ -46,7 +47,7 @@ export class ExportService {
   static async exportProject(
     projectId: string,
     userId: string,
-    options: ExportOptions
+    options: ExportOptions,
   ): Promise<ExportResult> {
     try {
       logger.info("Starting project export", {
@@ -55,16 +56,11 @@ export class ExportService {
         format: options.format,
       });
 
-      // Fetch project data
-      const project = await prisma.project.findFirst({
-        where: {
-          id: projectId,
-          user_id: userId,
-        },
-        include: {
-          citations: true,
-        },
-      });
+      // Fetch project data using DocumentUploadService to ensure workspace/collaborator access is checked
+      const project = await DocumentUploadService.getProjectById(
+        projectId,
+        userId,
+      );
 
       if (!project) {
         throw new Error("Project not found or access denied");
@@ -110,7 +106,7 @@ export class ExportService {
   private static async exportAsDOCX(
     projectId: string,
     userId: string,
-    options: ExportOptions
+    options: ExportOptions,
   ): Promise<ExportResult> {
     const result = await PublicationExportService.exportPublicationReady(
       projectId,
@@ -125,8 +121,8 @@ export class ExportService {
         performStructuralAudit: false,
         metadata: options.metadata,
         template: options.journalTemplate,
-        citationPolicy: options.citationPolicy
-      }
+        citationPolicy: options.citationPolicy,
+      },
     );
 
     return {
@@ -141,21 +137,20 @@ export class ExportService {
   private static async exportAsPDF(
     projectId: string,
     userId: string,
-    options: ExportOptions
+    options: ExportOptions,
   ): Promise<ExportResult> {
     const { HtmlExportService } = require("./htmlExportService");
     const { HyperlinkInjector } = require("./hyperlinkInjector");
     const { CitationEngine } = require("./citationEngine");
 
-    // 1. Fetch project data (re-fetching to ensure we have it if coming from internal call)
-    // Optimization: If project is already passed or available, use it. But current flow fetches in exportProject.
-    const project = await prisma.project.findFirst({
-      where: { id: projectId, user_id: userId },
-      include: { citations: true },
-    });
+    // 1. Fetch project data using DocumentUploadService
+    const project = await DocumentUploadService.getProjectById(
+      projectId,
+      userId,
+    );
 
     if (!project) {
-      throw new Error("Project not found");
+      throw new Error("Project not found or access denied");
     }
 
     // 2. Generate HTML with Citation Tokens
@@ -165,12 +160,15 @@ export class ExportService {
       coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
       includeAuthorshipCertificate: options.includeAuthorshipCertificate,
       metadata: options.metadata,
-      useCitationTokens: true // REQUEST TOKENS
+      useCitationTokens: true, // REQUEST TOKENS
     });
 
     // 3. Inject Hyperlinks & Format Citations
     try {
-      const engine = new CitationEngine(project.citations || [], options.citationStyle || 'apa');
+      const engine = new CitationEngine(
+        project.citations || [],
+        options.citationStyle || "apa",
+      );
       await engine.initialize(); // Load styles/locales
       const injector = new HyperlinkInjector();
 
@@ -187,14 +185,14 @@ export class ExportService {
     // 4. Render PDF via Puppeteer
     let browser;
     try {
-      const puppeteer = await import('puppeteer');
+      const puppeteer = await import("puppeteer");
       browser = await this.launchBrowser(puppeteer.default);
       const page = await browser.newPage();
 
       // Emulate Print Media to ensure print styles (colors etc) are applied if restricted by screen
       // Although usually 'screen' is better for preserving hyperlinks if print css hides them.
       // But user requested "Emulate print CSS media".
-      await page.emulateMediaType('print');
+      await page.emulateMediaType("print");
 
       // Set content
       await page.setContent(html, { waitUntil: "networkidle0" });
@@ -209,7 +207,7 @@ export class ExportService {
           left: "1in",
           right: "1in",
         },
-        displayHeaderFooter: false
+        displayHeaderFooter: false,
       });
 
       return {
@@ -220,11 +218,15 @@ export class ExportService {
       logger.error("Puppeteer PDF generation failed", { error: error.message });
 
       // Check if it's a Chrome not found error
-      if (error.message.includes("Could not find Chrome") || error.message.includes("Failed to launch the browser")) {
+      if (
+        error.message.includes("Could not find Chrome") ||
+        error.message.includes("Failed to launch the browser")
+      ) {
         throw new Error(
           "PDF export requires Chrome to be installed on the server. " +
-          "Contact your administrator to install Chrome or configure Puppeteer properly. " +
-          "Error: " + error.message
+            "Contact your administrator to install Chrome or configure Puppeteer properly. " +
+            "Error: " +
+            error.message,
         );
       }
 
@@ -241,7 +243,7 @@ export class ExportService {
    */
   private static async exportAsTXT(
     project: any,
-    options: ExportOptions
+    options: ExportOptions,
   ): Promise<ExportResult> {
     let content = `${project.title}\n`;
     content += `${"=".repeat(project.title.length)}\n\n`;
@@ -272,7 +274,7 @@ export class ExportService {
    */
   private static async exportAsLaTeX(
     project: any,
-    options: ExportOptions
+    options: ExportOptions,
   ): Promise<ExportResult> {
     let content = "\\documentclass[12pt]{article}\n";
     content += "\\usepackage[utf8]{inputenc}\n";
@@ -321,7 +323,7 @@ export class ExportService {
    */
   private static async exportAsRTF(
     project: any,
-    options: ExportOptions
+    options: ExportOptions,
   ): Promise<ExportResult> {
     const defaultFontSize = 24; // 12pt
     let content = "{\\rtf1\\ansi\\deff0\n";
@@ -370,7 +372,7 @@ export class ExportService {
     const processNode = (
       node: any,
       indentLevel: number = 0,
-      listIndex?: number
+      listIndex?: number,
     ): string => {
       let text = "";
       const indent = "  ".repeat(indentLevel);
@@ -769,7 +771,7 @@ export class ExportService {
 
   private static async exportAsZip(
     project: any,
-    options: ExportOptions
+    options: ExportOptions,
   ): Promise<ExportResult> {
     const archive = archiver("zip", {
       zlib: { level: 9 }, // Sets the compression level.
@@ -861,16 +863,19 @@ export class ExportService {
               includeCoverPage: true,
               coverPageStyle: "apa",
               includeTOC: false,
-              performStructuralAudit: false
-            }
+              performStructuralAudit: false,
+            },
           );
 
           archive.append(result.buffer, { name: `projects/${safeTitle}.docx` });
         } catch (err) {
-          logger.warn(`Failed to export project ${project.id} to DOCX inside zip`, err);
+          logger.warn(
+            `Failed to export project ${project.id} to DOCX inside zip`,
+            err,
+          );
           // Fallback to JSON if DOCX fails?
           archive.append(JSON.stringify(project, null, 2), {
-            name: `projects/${this.sanitizeFilename(project.title)}_fallback.json`
+            name: `projects/${this.sanitizeFilename(project.title)}_fallback.json`,
           });
         }
       }
@@ -911,14 +916,19 @@ export class ExportService {
           // Check if file exists
           if (file.file_path) {
             // Resolve path: if absolute, use it. If relative, prepend uploads dir?
-            // The error suggests it's looking in backend root. 
+            // The error suggests it's looking in backend root.
             // Let's check if the file exists before reading.
             try {
               // If fs.access throws, file doesn't exist
               await fs.access(file.file_path);
               const fileContent = await fs.readFile(file.file_path);
-              const safeFileName = this.sanitizeFilename(file.file_name || "document");
-              const ext = path.extname(file.file_path) || path.extname(file.file_name) || "";
+              const safeFileName = this.sanitizeFilename(
+                file.file_name || "document",
+              );
+              const ext =
+                path.extname(file.file_path) ||
+                path.extname(file.file_name) ||
+                "";
 
               archive.append(fileContent, {
                 name: `documents/${safeFileName}${ext}`,
@@ -941,7 +951,9 @@ export class ExportService {
             try {
               await fs.access(cert.file_path);
               const certContent = await fs.readFile(cert.file_path);
-              const safeCertName = this.sanitizeFilename(cert.title || cert.file_name || "certificate");
+              const safeCertName = this.sanitizeFilename(
+                cert.title || cert.file_name || "certificate",
+              );
               const ext = path.extname(cert.file_path) || ".pdf";
 
               archive.append(certContent, {
@@ -954,7 +966,7 @@ export class ExportService {
         } catch (error) {
           logger.warn(
             `Failed to add certificate to export zip: ${cert.id}`,
-            error
+            error,
           );
         }
       }
@@ -974,9 +986,9 @@ export class ExportService {
           },
         },
         null,
-        2
+        2,
       ),
-      { name: "export_metadata.json" }
+      { name: "export_metadata.json" },
     );
 
     await archive.finalize();
@@ -1044,25 +1056,30 @@ export class ExportService {
       "--disable-dev-shm-usage",
       "--disable-gpu",
       "--disable-web-security", // Needed for some local assets if strict
-      "--font-render-hinting=none"
+      "--font-render-hinting=none",
     ];
 
     try {
       // 1. Try default bundled path or ENV (Linux/Production usually)
       return await puppeteer.launch({
         headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
+        executablePath:
+          process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
         args: launchArgs,
       });
     } catch (error) {
-      logger.warn("Default Puppeteer launch failed, checking system paths...", { error });
+      logger.warn("Default Puppeteer launch failed, checking system paths...", {
+        error,
+      });
 
       // 2. Try common system paths (Windows local dev fallback)
-      const fs = require('fs');
+      const fs = require("fs");
       const systemPaths = [
-        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Users\\' + (process.env.USERNAME || 'Admin') + '\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe'
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+        "C:\\Users\\" +
+          (process.env.USERNAME || "Admin") +
+          "\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe",
       ];
 
       for (const path of systemPaths) {

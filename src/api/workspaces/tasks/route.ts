@@ -39,51 +39,59 @@ router.get("/templates/all", async (req: any, res) => {
 /**
  * Save a task as a template
  */
-router.post("/templates/save", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { taskId, templateName, category } = req.body;
+router.post(
+  "/templates/save",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { taskId, templateName, category } = req.body;
 
-    if (!taskId || !templateName) {
-      return res
-        .status(400)
-        .json({ error: "Task ID and Template Name are required" });
+      if (!taskId || !templateName) {
+        return res
+          .status(400)
+          .json({ error: "Task ID and Template Name are required" });
+      }
+
+      const template = await WorkspaceTaskService.saveAsTemplate(
+        taskId,
+        templateName,
+        category,
+      );
+      return res.status(201).json({ success: true, template });
+    } catch (error: any) {
+      console.error("Error saving as template:", error);
+      return res.status(500).json({ error: error.message });
     }
-
-    const template = await WorkspaceTaskService.saveAsTemplate(
-      taskId,
-      templateName,
-      category,
-    );
-    return res.status(201).json({ success: true, template });
-  } catch (error: any) {
-    console.error("Error saving as template:", error);
-    return res.status(500).json({ error: error.message });
-  }
-});
+  },
+);
 
 /**
  * Create a task from a template
  */
-router.post("/from-template", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { templateId, overrides } = req.body;
-    const userId = req.user?.id;
+router.post(
+  "/from-template",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { templateId, overrides } = req.body;
+      const userId = req.user?.id;
 
-    if (!templateId) {
-      return res.status(400).json({ error: "Template ID is required" });
+      if (!templateId) {
+        return res.status(400).json({ error: "Template ID is required" });
+      }
+
+      const task = await WorkspaceTaskService.createFromTemplate(
+        templateId,
+        userId,
+        overrides,
+      );
+      return res.status(201).json({ success: true, task });
+    } catch (error: any) {
+      console.error("Error creating from template:", error);
+      return res.status(500).json({ error: error.message });
     }
-
-    const task = await WorkspaceTaskService.createFromTemplate(
-      templateId,
-      userId,
-      overrides,
-    );
-    return res.status(201).json({ success: true, task });
-  } catch (error: any) {
-    console.error("Error creating from template:", error);
-    return res.status(500).json({ error: error.message });
-  }
-});
+  },
+);
 
 // GET /api/workspaces/tasks - Fetch tasks
 router.get("/", async (req: any, res) => {
@@ -144,19 +152,23 @@ router.get("/time/active", async (req: any, res) => {
 });
 
 // POST /api/workspaces/tasks/:taskId/clone - Clone a task
-router.post("/:taskId/clone", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { taskId } = req.params;
-    const userId = req.user?.id;
+router.post(
+  "/:taskId/clone",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { taskId } = req.params;
+      const userId = req.user?.id;
 
-    const clonedTask = await WorkspaceTaskService.cloneTask(taskId, userId);
+      const clonedTask = await WorkspaceTaskService.cloneTask(taskId, userId);
 
-    res.status(201).json({ task: clonedTask });
-  } catch (error: any) {
-    console.error("Error cloning task:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
+      res.status(201).json({ task: clonedTask });
+    } catch (error: any) {
+      console.error("Error cloning task:", error);
+      res.status(500).json({ error: error.message || "Internal server error" });
+    }
+  },
+);
 
 // GET /api/workspaces/tasks/:taskId - Fetch a single task
 router.get("/:taskId", async (req: any, res) => {
@@ -198,8 +210,13 @@ router.post("/", checkWorkspaceRole("editor"), async (req: any, res) => {
 router.patch("/", checkWorkspaceRole("editor"), async (req: any, res) => {
   try {
     const { taskId, ...updateData } = req.body;
+    const userId = req.user?.id;
 
-    const task = await WorkspaceTaskService.updateTask(taskId, updateData);
+    const task = await WorkspaceTaskService.updateTask(
+      taskId,
+      userId,
+      updateData,
+    );
 
     res.status(200).json({ task });
   } catch (error: any) {
@@ -209,25 +226,31 @@ router.patch("/", checkWorkspaceRole("editor"), async (req: any, res) => {
 });
 
 // PATCH /api/workspaces/tasks/:taskId/custom-fields - Update task custom field values
-router.patch("/:taskId/custom-fields", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { taskId } = req.params;
-    const { values } = req.body; // Record<field_id, value>
+router.patch(
+  "/:taskId/custom-fields",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { taskId } = req.params;
+      const { values } = req.body; // Record<field_id, value>
 
-    if (!taskId || !values) {
-      return res.status(400).json({ error: "Task ID and values are required" });
+      if (!taskId || !values) {
+        return res
+          .status(400)
+          .json({ error: "Task ID and values are required" });
+      }
+
+      const task = await WorkspaceTaskService.updateTaskCustomFields(
+        taskId,
+        values,
+      );
+      res.status(200).json({ task });
+    } catch (error: any) {
+      console.error("Error updating task custom fields:", error);
+      res.status(500).json({ error: error.message || "Internal server error" });
     }
-
-    const task = await WorkspaceTaskService.updateTaskCustomFields(
-      taskId,
-      values,
-    );
-    res.status(200).json({ task });
-  } catch (error: any) {
-    console.error("Error updating task custom fields:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
+  },
+);
 
 // DELETE /api/workspaces/tasks - Delete a task
 router.delete("/", checkWorkspaceRole("editor"), async (req: any, res) => {
@@ -238,7 +261,7 @@ router.delete("/", checkWorkspaceRole("editor"), async (req: any, res) => {
       return res.status(400).json({ error: "Task ID is required" });
     }
 
-    await WorkspaceTaskService.deleteTask(taskId);
+    await WorkspaceTaskService.deleteTask(taskId, req.user.id);
 
     res.status(200).json({ success: true });
   } catch (error: any) {
@@ -253,9 +276,11 @@ router.delete("/", checkWorkspaceRole("editor"), async (req: any, res) => {
 router.patch("/bulk", checkWorkspaceRole("editor"), async (req: any, res) => {
   try {
     const { workspaceId, taskIds, ...updateData } = req.body;
+    const userId = req.user?.id;
 
     const tasks = await WorkspaceTaskService.bulkUpdateTasks(
       workspaceId,
+      userId,
       taskIds,
       updateData,
     );
@@ -273,7 +298,8 @@ router.delete("/bulk", checkWorkspaceRole("editor"), async (req: any, res) => {
     const workspaceId = req.query.workspaceId as string;
     const taskIds = JSON.parse(req.query.taskIds as string);
 
-    await WorkspaceTaskService.bulkDeleteTasks(workspaceId, taskIds);
+    const userId = req.user?.id;
+    await WorkspaceTaskService.bulkDeleteTasks(workspaceId, taskIds, userId);
 
     res.status(200).json({ success: true });
   } catch (error: any) {
@@ -285,50 +311,58 @@ router.delete("/bulk", checkWorkspaceRole("editor"), async (req: any, res) => {
 // --- Comment Routes ---
 
 // POST /api/workspaces/tasks/comments - Add a comment
-router.post("/comments", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { taskId, content } = req.body;
-    const userId = req.user?.id;
+router.post(
+  "/comments",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { taskId, content } = req.body;
+      const userId = req.user?.id;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      if (!taskId || !content) {
+        return res
+          .status(400)
+          .json({ error: "Task ID and content are required" });
+      }
+
+      const comment = await TaskCommentService.addComment(
+        taskId,
+        userId,
+        content,
+      );
+      res.status(201).json({ comment });
+    } catch (error: any) {
+      console.error("Error in Task Comment POST:", error);
+      res.status(500).json({ error: error.message || "Internal server error" });
     }
-
-    if (!taskId || !content) {
-      return res
-        .status(400)
-        .json({ error: "Task ID and content are required" });
-    }
-
-    const comment = await TaskCommentService.addComment(
-      taskId,
-      userId,
-      content,
-    );
-    res.status(201).json({ comment });
-  } catch (error: any) {
-    console.error("Error in Task Comment POST:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
+  },
+);
 
 // DELETE /api/workspaces/tasks/comments/:id - Delete a comment
-router.delete("/comments/:id", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const commentId = req.params.id;
-    const userId = req.user?.id;
+router.delete(
+  "/comments/:id",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const commentId = req.params.id;
+      const userId = req.user?.id;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      await TaskCommentService.deleteComment(commentId, userId);
+      res.status(200).json({ success: true });
+    } catch (error: any) {
+      console.error("Error in Task Comment DELETE:", error);
+      res.status(500).json({ error: error.message || "Internal server error" });
     }
-
-    await TaskCommentService.deleteComment(commentId, userId);
-    res.status(200).json({ success: true });
-  } catch (error: any) {
-    console.error("Error in Task Comment DELETE:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
+  },
+);
 
 // --- Attachment Routes ---
 
@@ -368,7 +402,29 @@ router.post(
 );
 
 // DELETE /api/workspaces/tasks/attachments/:id - Delete an attachment
-router.delete("/attachments/:id", checkWorkspaceRole("editor"), async (req: any, res) => {
+router.delete(
+  "/attachments/:id",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const attachmentId = req.params.id;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      await TaskAttachmentService.deleteAttachment(attachmentId);
+      res.status(200).json({ success: true });
+    } catch (error: any) {
+      console.error("Error in Task Attachment DELETE:", error);
+      res.status(500).json({ error: error.message || "Internal server error" });
+    }
+  },
+);
+
+// GET /api/workspaces/tasks/attachments/:id/stream - Stream attachment content
+router.get("/attachments/:id/stream", async (req: any, res) => {
   try {
     const attachmentId = req.params.id;
     const userId = req.user?.id;
@@ -377,10 +433,78 @@ router.delete("/attachments/:id", checkWorkspaceRole("editor"), async (req: any,
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    await TaskAttachmentService.deleteAttachment(attachmentId);
-    res.status(200).json({ success: true });
+    const attachment =
+      await TaskAttachmentService.getAttachmentById(attachmentId);
+    if (!attachment) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
+
+    // If file_url is already a full external URL (Supabase public URL), redirect to it
+    const fileUrl = attachment.file_url;
+    if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
+      // Stream through to avoid CORS issues
+      const https = fileUrl.startsWith("https")
+        ? require("https")
+        : require("http");
+      return https.get(fileUrl, (fileRes: any) => {
+        res.setHeader(
+          "Content-Type",
+          attachment.file_type || "application/octet-stream",
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `inline; filename="${encodeURIComponent(attachment.name)}"`,
+        );
+        res.setHeader("Cache-Control", "private, max-age=3600");
+        fileRes.pipe(res);
+      });
+    }
+
+    // Otherwise download from Supabase storage using the service
+    const { data, mimeType } =
+      await TaskAttachmentService.downloadAttachment(attachmentId);
+    res.setHeader("Content-Type", mimeType || "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${encodeURIComponent(attachment.name)}"`,
+    );
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.send(data);
   } catch (error: any) {
-    console.error("Error in Task Attachment DELETE:", error);
+    console.error("Error in Task Attachment Stream GET:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
+// GET /api/workspaces/tasks/attachments/:id/annotations - Get saved annotations
+router.get("/attachments/:id/annotations", async (req: any, res) => {
+  try {
+    const attachmentId = req.params.id;
+    const attachment =
+      await TaskAttachmentService.getAttachmentById(attachmentId);
+    if (!attachment)
+      return res.status(404).json({ error: "Attachment not found" });
+    res.json({ annotations: (attachment as any).annotations || [] });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
+// PUT /api/workspaces/tasks/attachments/:id/annotations - Save annotations
+router.put("/attachments/:id/annotations", async (req: any, res) => {
+  try {
+    const attachmentId = req.params.id;
+    const { annotations } = req.body;
+    if (!Array.isArray(annotations)) {
+      return res.status(400).json({ error: "annotations must be an array" });
+    }
+    const { prisma } = require("../../../lib/prisma");
+    const updated = await prisma.taskAttachment.update({
+      where: { id: attachmentId },
+      data: { annotations },
+    });
+    res.json({ annotations: (updated as any).annotations });
+  } catch (error: any) {
     res.status(500).json({ error: error.message || "Internal server error" });
   }
 });
@@ -530,67 +654,79 @@ router.use("/:taskId/dependencies", dependenciesRouter);
 // ============ TIME TRACKING ENDPOINTS ============
 
 // POST /api/workspaces/tasks/:taskId/time/start - Start a timer
-router.post("/:taskId/time/start", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { taskId } = req.params;
-    const { description } = req.body;
-    const userId = req.user?.id;
+router.post(
+  "/:taskId/time/start",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { taskId } = req.params;
+      const { description } = req.body;
+      const userId = req.user?.id;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const entry = await TaskTimeTrackingService.startTimer(
+        taskId,
+        userId,
+        description,
+      );
+
+      res.status(200).json(entry);
+    } catch (error: any) {
+      console.error("Error starting timer:", error);
+      res.status(500).json({ error: error.message || "Internal server error" });
     }
-
-    const entry = await TaskTimeTrackingService.startTimer(
-      taskId,
-      userId,
-      description,
-    );
-
-    res.status(200).json(entry);
-  } catch (error: any) {
-    console.error("Error starting timer:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
+  },
+);
 
 // POST /api/workspaces/tasks/time/stop - Stop active timer
-router.post("/time/stop/:entryId", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { entryId } = req.params;
+router.post(
+  "/time/stop/:entryId",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { entryId } = req.params;
 
-    const entry = await TaskTimeTrackingService.stopTimer(entryId);
+      const entry = await TaskTimeTrackingService.stopTimer(entryId);
 
-    res.status(200).json(entry);
-  } catch (error: any) {
-    console.error("Error stopping timer:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
+      res.status(200).json(entry);
+    } catch (error: any) {
+      console.error("Error stopping timer:", error);
+      res.status(500).json({ error: error.message || "Internal server error" });
+    }
+  },
+);
 
 // POST /api/workspaces/tasks/:taskId/time/log - Log manual time entry
-router.post("/:taskId/time/log", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { taskId } = req.params;
-    const { start_time, end_time, duration, description } = req.body;
-    const userId = req.user?.id;
+router.post(
+  "/:taskId/time/log",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { taskId } = req.params;
+      const { start_time, end_time, duration, description } = req.body;
+      const userId = req.user?.id;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const entry = await TaskTimeTrackingService.logTime(taskId, userId, {
+        start_time: new Date(start_time),
+        end_time: end_time ? new Date(end_time) : undefined,
+        duration,
+        description,
+      });
+
+      res.status(200).json(entry);
+    } catch (error: any) {
+      console.error("Error logging time:", error);
+      res.status(500).json({ error: error.message || "Internal server error" });
     }
-
-    const entry = await TaskTimeTrackingService.logTime(taskId, userId, {
-      start_time: new Date(start_time),
-      end_time: end_time ? new Date(end_time) : undefined,
-      duration,
-      description,
-    });
-
-    res.status(200).json(entry);
-  } catch (error: any) {
-    console.error("Error logging time:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
+  },
+);
 
 // GET /api/workspaces/tasks/:taskId/time - Get time entries for a task
 router.get("/:taskId/time", async (req: any, res) => {
@@ -621,51 +757,59 @@ router.get("/:taskId/time/total", async (req: any, res) => {
 });
 
 // DELETE /api/workspaces/tasks/time/:entryId - Delete a time entry
-router.delete("/time/:entryId", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { entryId } = req.params;
-    const userId = req.user?.id;
+router.delete(
+  "/time/:entryId",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { entryId } = req.params;
+      const userId = req.user?.id;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      await TaskTimeTrackingService.deleteTimeEntry(entryId, userId);
+
+      res.status(200).json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting time entry:", error);
+      res.status(500).json({ error: error.message || "Internal server error" });
     }
-
-    await TaskTimeTrackingService.deleteTimeEntry(entryId, userId);
-
-    res.status(200).json({ success: true });
-  } catch (error: any) {
-    console.error("Error deleting time entry:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
+  },
+);
 
 // PATCH /api/workspaces/tasks/time/:entryId - Update a time entry
-router.patch("/time/:entryId", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { entryId } = req.params;
-    const { start_time, end_time, duration, description } = req.body;
-    const userId = req.user?.id;
+router.patch(
+  "/time/:entryId",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { entryId } = req.params;
+      const { start_time, end_time, duration, description } = req.body;
+      const userId = req.user?.id;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const entry = await TaskTimeTrackingService.updateTimeEntry(
+        entryId,
+        userId,
+        {
+          start_time: start_time ? new Date(start_time) : undefined,
+          end_time: end_time ? new Date(end_time) : undefined,
+          duration,
+          description,
+        },
+      );
+
+      res.status(200).json(entry);
+    } catch (error: any) {
+      console.error("Error updating time entry:", error);
+      res.status(500).json({ error: error.message || "Internal server error" });
     }
-
-    const entry = await TaskTimeTrackingService.updateTimeEntry(
-      entryId,
-      userId,
-      {
-        start_time: start_time ? new Date(start_time) : undefined,
-        end_time: end_time ? new Date(end_time) : undefined,
-        duration,
-        description,
-      },
-    );
-
-    res.status(200).json(entry);
-  } catch (error: any) {
-    console.error("Error updating time entry:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
+  },
+);
 
 export default router;

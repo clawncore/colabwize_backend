@@ -33,7 +33,7 @@ import originalityRouter from "../api/originality/index";
 import citationsRouter from "../api/citations/index";
 import annotationsRouter from "../api/annotations/index";
 import notificationsRouter from "../api/notifications/index";
-import teamChatRouter from "../api/team-chat/route";
+import teamChatRouter from "../api/team-chat/index";
 import pdfRouter from "../api/pdf/index";
 import workspacesRouter from "../api/workspaces/index";
 import authorshipRouter from "../api/authorship/index";
@@ -81,26 +81,33 @@ app.set("trust proxy", true);
 // Robust CORS Configuration
 const allowedOrigins = [
   "https://colabwize.com",
+  "https://colabwize.com/",
   "https://www.colabwize.com",
+  "https://www.colabwize.com/",
   "https://app.colabwize.com",
+  "https://app.colabwize.com/",
   "https://api.colabwize.com",
+  "https://api.colabwize.com/",
   "http://localhost:3000",
+  "http://localhost:3000/",
   "http://localhost:3001",
+  "http://localhost:3001/",
   "http://localhost:5173",
+  "http://localhost:5173/",
   /\.vercel\.app$/,
 ];
 
 const corsOptions = {
   origin: (
     origin: string | undefined,
-    callback: (err: Error | null, allow?: boolean) => void
+    callback: (err: Error | null, allow?: boolean) => void,
   ) => {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
 
     if (
       allowedOrigins.some((o) =>
-        typeof o === "string" ? o === origin : o.test(origin)
+        typeof o === "string" ? o === origin : o.test(origin),
       )
     ) {
       return callback(null, true);
@@ -139,7 +146,7 @@ app.use(
     verify: (req: any, res, buf) => {
       req.rawBody = buf;
     },
-  })
+  }),
 );
 
 // Apply Global API Rate Limiter
@@ -179,11 +186,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     // Console output for immediate visibility
     if (duration > 300) {
       console.log(
-        `[PERF][SLOW] ${req.method} ${req.url} ${res.statusCode} - ${duration}ms (Auth: ${authTime}ms)`
+        `[PERF][SLOW] ${req.method} ${req.url} ${res.statusCode} - ${duration}ms (Auth: ${authTime}ms)`,
       );
     } else {
       console.log(
-        `[PERF] ${req.method} ${req.url} ${res.statusCode} - ${duration}ms (Auth: ${authTime}ms)`
+        `[PERF] ${req.method} ${req.url} ${res.statusCode} - ${duration}ms (Auth: ${authTime}ms)`,
       );
     }
   });
@@ -214,7 +221,7 @@ app.get("/health", async (req, res) => {
   try {
     // Timeout promise (200ms) to ensure strict response time
     const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("DB_TIMEOUT")), 200)
+      setTimeout(() => reject(new Error("DB_TIMEOUT")), 200),
     );
 
     // Database check promise
@@ -446,7 +453,7 @@ app.get("/api/notifications", async (req, res) => {
 
     Object.keys(filters).forEach(
       (key) =>
-        (filters as any)[key] === undefined && delete (filters as any)[key]
+        (filters as any)[key] === undefined && delete (filters as any)[key],
     );
 
     // Get notifications
@@ -454,7 +461,7 @@ app.get("/api/notifications", async (req, res) => {
       userId,
       limit,
       offset,
-      filters
+      filters,
     );
 
     // Get unread count
@@ -650,7 +657,7 @@ app.post("/api/notifications/test", async (req, res) => {
       userId,
       type as any,
       title,
-      message
+      message,
     );
 
     return res.status(200).json({ success: true, notification });
@@ -998,7 +1005,7 @@ const startServer = async () => {
 
   try {
     console.log("🚀 Starting server initialization...");
-    const PORT = Number(process.env.PORT) || 10000;
+    const PORT = Number(process.env.PORT) || 3001;
 
     // PRIORITY 1: Bind port immediately for Render
     const server = app.listen(PORT, "0.0.0.0", () => {
@@ -1058,7 +1065,7 @@ const startServer = async () => {
     } catch (error) {
       logger.error(
         "Failed to initialize notification WebSocket server:",
-        error
+        error,
       );
     }
 
@@ -1070,7 +1077,7 @@ const startServer = async () => {
     } catch (error) {
       logger.error(
         "Failed to initialize WebSocket collaboration server:",
-        error
+        error,
       );
     }
   } catch (error: any) {

@@ -35,7 +35,7 @@ function getCachedSubscription(userId: string): any | null {
 function setCachedSubscription(userId: string, data: any): void {
   subscriptionCache.set(userId, {
     data,
-    timestamp: Date.now()
+    timestamp: Date.now(),
   });
 
   // Cleanup old entries (keep cache size manageable)
@@ -99,12 +99,14 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     const cachedData = getCachedSubscription(user.id);
     if (cachedData) {
       const cacheAge = Date.now() - cachedData.generatedTimestamp;
-      console.log(`✅ [CACHE HIT] Returning cached subscription (age: ${cacheAge}ms)`);
+      console.log(
+        `✅ [CACHE HIT] Returning cached subscription (age: ${cacheAge}ms)`,
+      );
 
       // Add cache metadata
       return res.status(200).json({
         ...cachedData,
-        source: 'cache',
+        source: "cache",
         cacheAge,
       });
     }
@@ -114,37 +116,52 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     // await SubscriptionService.ensureLemonCustomer(user);
 
     // Helper for timeout wrapping
-    const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | "TIMEOUT"> => {
+    const withTimeout = <T>(
+      promise: Promise<T>,
+      ms: number,
+    ): Promise<T | "TIMEOUT"> => {
       let timeoutId: NodeJS.Timeout;
       const timeoutPromise = new Promise<"TIMEOUT">((resolve) => {
         timeoutId = setTimeout(() => resolve("TIMEOUT"), ms);
       });
 
       return Promise.race([
-        promise.then(res => {
-          clearTimeout(timeoutId);
-          return res;
-        }).catch(err => {
-          clearTimeout(timeoutId);
-          console.error("Dependency failed:", err);
-          return "TIMEOUT" as const; // Treat error as timeout/failure for fallback
-        }),
-        timeoutPromise
+        promise
+          .then((res) => {
+            clearTimeout(timeoutId);
+            return res;
+          })
+          .catch((err) => {
+            clearTimeout(timeoutId);
+            console.error("Dependency failed:", err);
+            return "TIMEOUT" as const; // Treat error as timeout/failure for fallback
+          }),
+        timeoutPromise,
       ]);
     };
 
     // EXECUTE CORE LOGIC WRAPPED IN TOTAL DEADLINE
     const executeLogic = async () => {
       // 1. FETCH SUBSCRIPTION FIRST (Critical Path)
-      const subResult = await withTimeout(SubscriptionService.getUserSubscription(user.id), DB_TIMEOUT_MS);
+      const subResult = await withTimeout(
+        SubscriptionService.getUserSubscription(user.id),
+        DB_TIMEOUT_MS,
+      );
 
-      const subscriptionForUsage = subResult === "TIMEOUT" ? undefined : subResult;
+      const subscriptionForUsage =
+        subResult === "TIMEOUT" ? undefined : subResult;
 
       // 2. FETCH OTHERS IN PARALLEL (Dependent on Step 1 for optimization)
       const [usageResult, creditResult, totalResult] = await Promise.all([
-        withTimeout(UsageService.getCurrentUsage(user.id, subscriptionForUsage), DB_TIMEOUT_MS),
+        withTimeout(
+          UsageService.getCurrentUsage(user.id, subscriptionForUsage),
+          DB_TIMEOUT_MS,
+        ),
         withTimeout(CreditService.getBalance(user.id), DB_TIMEOUT_MS),
-        withTimeout(prisma.originalityScan.count({ where: { user_id: user.id } }), DB_TIMEOUT_MS)
+        withTimeout(
+          prisma.originalityScan.count({ where: { user_id: user.id } }),
+          DB_TIMEOUT_MS,
+        ),
       ]);
 
       return { subResult, usageResult, creditResult, totalResult };
@@ -153,7 +170,12 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     // RACE AGAINST HARD HTTP TIMEOUT
     const result = await Promise.race([
       executeLogic(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("HTTP_HARD_TIMEOUT")), TOTAL_TIMEOUT_MS))
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("HTTP_HARD_TIMEOUT")),
+          TOTAL_TIMEOUT_MS,
+        ),
+      ),
     ]);
 
     const { subResult, usageResult, creditResult, totalResult } = result as any;
@@ -169,14 +191,19 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     let subscriptionData = subResult === "TIMEOUT" ? null : subResult;
 
     // Resolve Plan from Subscription (No extra DB call)
-    console.log('[SUBSCRIPTION_RESOLVE]', {
+    console.log("[SUBSCRIPTION_RESOLVE]", {
       userId: user.id,
       dbPlan: subscriptionData?.plan,
       dbStatus: subscriptionData?.status,
-      isTimeout
+      isTimeout,
     });
 
-    if (subscriptionData && ["active", "trialing", "on_trial", "past_due"].includes(subscriptionData.status)) {
+    if (
+      subscriptionData &&
+      ["active", "trialing", "on_trial", "past_due"].includes(
+        subscriptionData.status,
+      )
+    ) {
       plan = subscriptionData.plan;
     } else if (isTimeout) {
       status = "unknown"; // UI should show warning/cached state
@@ -184,16 +211,27 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       status = "inactive"; // Valid response, but no active sub
     }
 
+    // Normalize Plan ID for frontend consistency
+    const normalizedPlan = SubscriptionService.normalizePlanId(plan);
+    console.log("[SUBSCRIPTION_RESOLVED_FINAL]", {
+      originalPlan: plan,
+      normalizedPlan,
+      userId: user.id,
+    });
+
     // Resolve Limits & Usage
-    const limits = SubscriptionService.getPlanLimits(plan);
+    const limits = SubscriptionService.getPlanLimits(normalizedPlan);
 
     // If usage timed out, return safe empty object (don't block UI)
-    const usage = usageResult === "TIMEOUT" ? {
-      documents: 0,
-      words: 0,
-      scans: 0,
-      // ... add other zeroed counters if needed
-    } : usageResult;
+    const usage =
+      usageResult === "TIMEOUT"
+        ? {
+            documents: 0,
+            words: 0,
+            scans: 0,
+            // ... add other zeroed counters if needed
+          }
+        : usageResult;
 
     // Is credits timed out?
     const creditBalance = creditResult === "TIMEOUT" ? 0 : creditResult;
@@ -203,14 +241,16 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
 
     const responseDuration = Date.now() - start;
     if (responseDuration > 1000) {
-      console.warn(`[SLOW RESPONSE] /subscription/current took ${responseDuration}ms`);
+      console.warn(
+        `[SLOW RESPONSE] /subscription/current took ${responseDuration}ms`,
+      );
     }
 
     // Build response object
     const responseData = {
       success: true,
-      status,      // active | inactive | unknown
-      plan,        // free | student | pro | ...
+      status, // active | inactive | unknown
+      plan: normalizedPlan, // free | plus | premium | ...
       limits,
       usage,
       creditBalance,
@@ -220,7 +260,13 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       generatedAt,
       generatedTimestamp: Date.now(), // For cache age calculation
       // Keep legacy fields for backward compatibility if needed, but prefer flat structure above
-      subscription: subscriptionData || { plan: "free", status: status === "unknown" ? "unknown" : "active" }
+      subscription: {
+        ...(subscriptionData || {}),
+        plan: normalizedPlan,
+        status:
+          subscriptionData?.status ||
+          (status === "unknown" ? "unknown" : "active"),
+      },
     };
 
     // ============================================================================
@@ -232,10 +278,14 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     }
 
     return res.status(200).json(responseData);
-
   } catch (error: any) {
     const isHardTimeout = error.message === "HTTP_HARD_TIMEOUT";
-    console.error(isHardTimeout ? "CRITICAL: HTTP Hard Timeout in /subscription/current" : "Critical error in /subscription/current:", error);
+    console.error(
+      isHardTimeout
+        ? "CRITICAL: HTTP Hard Timeout in /subscription/current"
+        : "Critical error in /subscription/current:",
+      error,
+    );
 
     // FAIL SAFE: Never return 500 for this critical endpoint
     return res.status(200).json({
@@ -247,7 +297,7 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
       creditBalance: 0,
       totalDocuments: 0,
       source: isHardTimeout ? "fallback_timeout" : "fallback_error",
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
     });
   }
 });
@@ -268,20 +318,26 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
       });
     }
     // 1. DUPLICATE SUBSCRIPTION CHECK (Strict Policy)
-    const currentSubscription = await SubscriptionService.getUserSubscription(user.id);
-    if (currentSubscription &&
-      ["active", "trialing", "past_due", "on_trial"].includes(currentSubscription.status) &&
+    const currentSubscription = await SubscriptionService.getUserSubscription(
+      user.id,
+    );
+    if (
+      currentSubscription &&
+      ["active", "trialing", "past_due", "on_trial"].includes(
+        currentSubscription.status,
+      ) &&
       !currentSubscription.cancel_at_period_end &&
       currentSubscription.plan !== "free"
     ) {
       // Allow ONLY if it's a credit purchase (PAYG / Credits)
       // If plan is 'credits_XX' or 'payg' it is allowed as an add-on.
-      // But if plan is 'student' or 'researcher' -> BLOCK
+      // But if plan is 'plus', 'premium'
       if (!plan.startsWith("credits_") && plan !== "payg") {
         return res.status(409).json({
           success: false,
-          message: "You already have an active subscription. Please manage your existing plan to upgrade or switch.",
-          error_code: "DUPLICATE_SUBSCRIPTION"
+          message:
+            "You already have an active subscription. Please manage your existing plan to upgrade or switch.",
+          error_code: "DUPLICATE_SUBSCRIPTION",
         });
       }
     }
@@ -293,8 +349,9 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
     if (isSubscriptionPlan && policyAccepted !== true) {
       return res.status(400).json({
         success: false,
-        message: "You must accept the Refund Policy and Terms of Service to proceed.",
-        error_code: "POLICY_NOT_ACCEPTED"
+        message:
+          "You must accept the Refund Policy and Terms of Service to proceed.",
+        error_code: "POLICY_NOT_ACCEPTED",
       });
     }
 
@@ -303,14 +360,14 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
     if (isSubscriptionPlan) {
       await prisma.user.update({
         where: { id: user.id },
-        data: { policy_accepted_at: new Date() }
+        data: { policy_accepted_at: new Date() },
       });
     }
 
     // Validate plan - accept subscription plans and credit packages
     const validPlans = [
-      "student",
-      "researcher",
+      "plus",
+      "premium",
       "payg",
       "credits_trial",
       "credits_standard",
@@ -331,16 +388,16 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
     const config = await SecretsService.getLemonSqueezyConfig();
     let variantId: string;
 
-    if (plan === "student") {
+    if (plan === "plus") {
       variantId =
         billingPeriod === "yearly"
-          ? config.studentProAnnualVariantId || ""
-          : config.studentProMonthlyVariantId || "";
-    } else if (plan === "researcher") {
+          ? config.plusAnnualVariantId || ""
+          : config.plusMonthlyVariantId || "";
+    } else if (plan === "premium") {
       variantId =
         billingPeriod === "yearly"
-          ? config.researcherAnnualVariantId || ""
-          : config.researcherMonthlyVariantId || "";
+          ? config.premiumAnnualVariantId || ""
+          : config.premiumMonthlyVariantId || "";
     } else if (plan === "payg") {
       // Legacy PAYG - generic one-time variant
       variantId = config.onetimeVariantId || "";
@@ -413,7 +470,7 @@ router.post("/portal", authenticateHybridRequest, async (req, res) => {
     }
 
     const portalUrl = await LemonSqueezyService.getCustomerPortalUrl(
-      subscription.lemonsqueezy_customer_id
+      subscription.lemonsqueezy_customer_id,
     );
 
     return res.status(200).json({
@@ -543,7 +600,7 @@ router.get(
       const { CertificateRetentionService } =
         await import("../../services/certificateRetentionService");
       const retentionInfo = await CertificateRetentionService.getRetentionInfo(
-        user.id
+        user.id,
       );
 
       return res.status(200).json({
@@ -557,7 +614,7 @@ router.get(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
 );
 
 /**
@@ -575,7 +632,7 @@ router.get("/payment-methods", authenticateHybridRequest, async (req, res) => {
       });
     }
 
-    // Ensure customer exists before fetching methods (though methods come from our DB, 
+    // Ensure customer exists before fetching methods (though methods come from our DB,
     // it's good practice to ensure the link exists if we wanted to fetch from LS)
     await SubscriptionService.ensureLemonCustomer(user);
 
@@ -608,7 +665,8 @@ router.get("/payment-methods", authenticateHybridRequest, async (req, res) => {
     return res.status(200).json({
       success: true,
       paymentMethods: [], // Degraded state: empty list
-      message: "Service temporarily unavailable. Could not fetch payment methods.",
+      message:
+        "Service temporarily unavailable. Could not fetch payment methods.",
     });
   }
 });
@@ -675,7 +733,6 @@ router.get("/invoices", authenticateHybridRequest, async (req, res) => {
 
 // Deleted routes for adding/removing/setting default payment methods manually
 
-
 /**
  * POST /api/subscription/payment-methods/update
  * Update payment method (Get Portal URL)
@@ -700,7 +757,8 @@ router.post(
 
       // 2. Generate Portal URL
       // We prioritize the Customer Portal URL which handles all billing needs
-      const redirectUrl = await LemonSqueezyService.getCustomerPortalUrl(customerId);
+      const redirectUrl =
+        await LemonSqueezyService.getCustomerPortalUrl(customerId);
 
       return res.status(200).json({
         success: true,
@@ -713,47 +771,51 @@ router.post(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
 );
 
 /**
  * POST /api/subscription/credits/auto-use
  * Update auto-use credits preference
  */
-router.post("/credits/auto-use", authenticateHybridRequest, async (req, res) => {
-  try {
-    const user = (req as any).user;
-    const { enabled } = req.body;
+router.post(
+  "/credits/auto-use",
+  authenticateHybridRequest,
+  async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { enabled } = req.body;
 
-    if (!user) {
-      return res.status(401).json({
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: "Not authenticated",
+        });
+      }
+
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({
+          success: false,
+          message: "Enabled status required (boolean)",
+        });
+      }
+
+      await SubscriptionService.updateAutoUseCredits(user.id, enabled);
+
+      return res.status(200).json({
+        success: true,
+        message: `Auto-use credits ${enabled ? "enabled" : "disabled"}`,
+        autoUseCredits: enabled,
+      });
+    } catch (error) {
+      console.error("Update auto-use credits error:", error);
+      return res.status(500).json({
         success: false,
-        message: "Not authenticated",
+        message: "Failed to update preference",
       });
     }
-
-    if (typeof enabled !== "boolean") {
-      return res.status(400).json({
-        success: false,
-        message: "Enabled status required (boolean)",
-      });
-    }
-
-    await SubscriptionService.updateAutoUseCredits(user.id, enabled);
-
-    return res.status(200).json({
-      success: true,
-      message: `Auto-use credits ${enabled ? 'enabled' : 'disabled'}`,
-      autoUseCredits: enabled
-    });
-  } catch (error) {
-    console.error("Update auto-use credits error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update preference",
-    });
-  }
-});
+  },
+);
 
 /**
  * GET /api/subscription/credits/history
@@ -806,7 +868,14 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
     }
 
     // Fetch all data in parallel
-    const [subscription, usage, paymentMethods, documentsThisMonth, documentsLastMonth, dailyTrend] = await Promise.all([
+    const [
+      subscription,
+      usage,
+      paymentMethods,
+      documentsThisMonth,
+      documentsLastMonth,
+      dailyTrend,
+    ] = await Promise.all([
       SubscriptionService.getUserSubscription(user.id),
       UsageService.getCurrentUsage(user.id),
       prisma.paymentMethod.findMany({
@@ -828,7 +897,11 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
         where: {
           user_id: user.id,
           uploaded_at: {
-            gte: new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1),
+            gte: new Date(
+              new Date().getFullYear(),
+              new Date().getMonth() - 1,
+              1,
+            ),
             lt: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
           },
         },
@@ -850,7 +923,8 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
         const dailyCounts: number[] = Array(30).fill(0);
         documents.forEach((doc: { uploaded_at: Date }) => {
           const daysDiff = Math.floor(
-            (Date.now() - new Date(doc.uploaded_at).getTime()) / (1000 * 60 * 60 * 24)
+            (Date.now() - new Date(doc.uploaded_at).getTime()) /
+              (1000 * 60 * 60 * 24),
           );
           if (daysDiff >= 0 && daysDiff < 30) {
             dailyCounts[29 - daysDiff]++;
@@ -862,17 +936,26 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
     ]);
 
     // Get plan info
-    const plan = subscription && ["active", "trialing", "on_trial", "past_due"].includes(subscription.status)
-      ? subscription.plan
-      : "free";
+    const plan =
+      subscription &&
+      ["active", "trialing", "on_trial", "past_due"].includes(
+        subscription.status,
+      )
+        ? subscription.plan
+        : "free";
     const limits = SubscriptionService.getPlanLimits(plan);
 
     // Build response matching professional SaaS pattern
     return res.status(200).json({
       success: true,
       plan: {
-        name: plan.charAt(0).toUpperCase() + plan.slice(1),
-        price: plan === "free" ? 0 : plan === "student" ? 4.99 : 12.99,
+        name:
+          plan === "plus"
+            ? "Plus"
+            : plan === "premium"
+              ? "Premium"
+              : plan.charAt(0).toUpperCase() + plan.slice(1),
+        price: plan === "free" ? 0 : plan === "plus" ? 4.99 : 12.99,
         interval: subscription?.current_period_start ? "month" : undefined,
         status: subscription?.status || "active",
         renewsAt: subscription?.current_period_end || null,
@@ -884,7 +967,8 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
         },
         originalityScans: {
           used: usage?.originality_scan || 0,
-          limit: limits.originality_scan === -1 ? null : limits.originality_scan,
+          limit:
+            limits.originality_scan === -1 ? null : limits.originality_scan,
         },
         citationChecks: {
           used: usage?.citation_audit || 0,
@@ -902,12 +986,13 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
       trends: {
         documentsDaily: dailyTrend,
       },
-      paymentMethod: paymentMethods.length > 0
-        ? {
-          brand: paymentMethods[0].type,
-          last4: paymentMethods[0].last_four || "",
-        }
-        : null,
+      paymentMethod:
+        paymentMethods.length > 0
+          ? {
+              brand: paymentMethods[0].type,
+              last4: paymentMethods[0].last_four || "",
+            }
+          : null,
     });
   } catch (error) {
     console.error("Get billing overview error:", error);
@@ -946,7 +1031,7 @@ router.get(
 
       const hasAccess = await SubscriptionService.checkFeatureAccess(
         user.id,
-        feature as string
+        feature as string,
       );
 
       return res.status(200).json({
@@ -961,7 +1046,7 @@ router.get(
         message: "Failed to check feature access",
       });
     }
-  }
+  },
 );
 
 export default router;

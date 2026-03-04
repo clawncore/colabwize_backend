@@ -1,8 +1,8 @@
 import prisma from "../lib/prisma";
 import logger from "../monitoring/logger";
-import { createNotification } from "./notificationService";
 import { getNotificationServer } from "../lib/notificationServer";
 import RecurringTaskService from "./RecurringTaskService";
+import { WorkspaceActivityService } from "./workspaceActivityService";
 
 export interface TaskData {
   title: string;
@@ -554,26 +554,26 @@ export class WorkspaceTaskService {
           recurrence_max_occurrences: data.recurrence_max_occurrences,
           assignees: data.assignee_ids
             ? {
-              create: data.assignee_ids.map((userId) => ({
-                user: { connect: { id: userId } },
-              })),
-            }
+                create: data.assignee_ids.map((userId) => ({
+                  user: { connect: { id: userId } },
+                })),
+              }
             : undefined,
           custom_field_values: data.custom_field_values
             ? {
-              create: Object.entries(data.custom_field_values).map(
-                ([fieldId, value]) => {
-                  const fieldVal: any = { field_id: fieldId };
-                  // Determine which column to use based on value type or field definition
-                  // For simplicity, we can store everything in text_value or use types
-                  if (typeof value === "number")
-                    fieldVal.number_value = value;
-                  else if (value instanceof Date) fieldVal.date_value = value;
-                  else fieldVal.text_value = String(value);
-                  return fieldVal;
-                },
-              ),
-            }
+                create: Object.entries(data.custom_field_values).map(
+                  ([fieldId, value]) => {
+                    const fieldVal: any = { field_id: fieldId };
+                    // Determine which column to use based on value type or field definition
+                    // For simplicity, we can store everything in text_value or use types
+                    if (typeof value === "number")
+                      fieldVal.number_value = value;
+                    else if (value instanceof Date) fieldVal.date_value = value;
+                    else fieldVal.text_value = String(value);
+                    return fieldVal;
+                  },
+                ),
+              }
             : undefined,
         },
         include: {
@@ -607,48 +607,36 @@ export class WorkspaceTaskService {
         }
       }
 
-      // Notify assignees
-      if (data.assignee_ids && data.assignee_ids.length > 0) {
-        const { createNotification } = require("./notificationService");
-
-        for (const assigneeId of data.assignee_ids) {
-          if (assigneeId === creatorId) continue; // Don't notify self
-
-          await createNotification(
-            assigneeId,
-            "task_assigned",
-            `New Task Assigned: ${task.title}`,
-            `You have been assigned to a new task in ${task.workspace?.name || "workspace"}.`,
-            {
-              workspaceId: task.workspace_id,
-              projectId: task.project_id,
-              taskId: task.id,
-              senderId: creatorId,
-            }
-          );
-        }
-      }
-
-      // Send notifications to assignees
-      if (data.assignee_ids && data.assignee_ids.length > 0) {
-        for (const userId of data.assignee_ids) {
-          // Don't notify the creator if they assigned themselves
-          if (userId === creatorId) continue;
-
-          await createNotification(
-            userId,
-            "task_assigned",
-            "New Task Assigned",
-            `You have been assigned to task "${task.title}" in workspace "${(task as any).workspace.name}".`,
-            {
-              taskId: task.id,
-              workspaceId: task.workspace_id,
-              projectId: task.project_id,
-              senderId: creatorId,
-            },
-          );
-        }
-      }
+      // Broadcast task creation
+      const {
+        broadcastWorkspaceNotification,
+      } = require("./notificationService");
+      await broadcastWorkspaceNotification(
+        workspaceId,
+        creatorId,
+        "task_assigned",
+        {
+          actor: (actorName: string) => ({
+            title: "Task Created",
+            message: `You created task "${task.title}".`,
+          }),
+          recipient: (actorName: string) => ({
+            title: "New Task Assigned",
+            message: `${actorName} assigned you to task "${task.title}".`,
+          }),
+          others: (actorName: string, recipientName?: string) => ({
+            title: "Task Created",
+            message: `${actorName} created task "${task.title}"${data.assignee_ids && data.assignee_ids.length > 0 ? ` and assigned ${data.assignee_ids.length > 1 ? `${data.assignee_ids.length} members` : recipientName}` : ""}.`,
+          }),
+        },
+        {
+          taskId: task.id,
+          workspaceId: task.workspace_id,
+          projectId: task.project_id,
+          senderId: creatorId,
+        },
+        data.assignee_ids || [],
+      );
 
       // Broadcast real-time event
       try {
@@ -661,6 +649,18 @@ export class WorkspaceTaskService {
         logger.error("Failed to broadcast TASK_CREATED event:", err);
       }
 
+      // Log workspace activity
+      await WorkspaceActivityService.logActivity(
+        workspaceId,
+        creatorId,
+        "TASK_CREATED",
+        {
+          taskId: task.id,
+          title: task.title,
+          status: task.status,
+        },
+      );
+
       return task;
     } catch (error) {
       logger.error("Error creating workspace task:", error);
@@ -671,7 +671,11 @@ export class WorkspaceTaskService {
   /**
    * Update a task (status, assignee, etc)
    */
-  static async updateTask(taskId: string, data: Partial<TaskData>) {
+  static async updateTask(
+    taskId: string,
+    userId: string,
+    data: Partial<TaskData>,
+  ) {
     try {
       let newlyAssignedUserIds: string[] = [];
 
@@ -731,18 +735,33 @@ export class WorkspaceTaskService {
 
       // Notify newly assigned users
       if (newlyAssignedUserIds.length > 0) {
-        for (const userId of newlyAssignedUserIds) {
-          await createNotification(
-            userId,
-            "task_assigned",
-            "Added to Task",
-            `You have been added to task "${updatedTask.title}" in workspace "${(updatedTask as any).workspace.name}".`,
-            {
-              taskId: updatedTask.id,
-              workspaceId: updatedTask.workspace_id,
-            },
-          );
-        }
+        const {
+          broadcastWorkspaceNotification,
+        } = require("./notificationService");
+        await broadcastWorkspaceNotification(
+          updatedTask.workspace_id,
+          userId,
+          "task_assigned",
+          {
+            actor: (actorName: string) => ({
+              title: "Task Assignment Changed",
+              message: `You added ${newlyAssignedUserIds.length > 1 ? `${newlyAssignedUserIds.length} members` : "someone"} to task "${updatedTask.title}".`,
+            }),
+            recipient: (actorName: string) => ({
+              title: "Added to Task",
+              message: `${actorName} added you to task "${updatedTask.title}".`,
+            }),
+            others: (actorName: string, recipientName?: string) => ({
+              title: "Task Assignment Changed",
+              message: `${actorName} added ${newlyAssignedUserIds.length > 1 ? `${newlyAssignedUserIds.length} members` : recipientName} to task "${updatedTask.title}".`,
+            }),
+          },
+          {
+            taskId: updatedTask.id,
+            workspaceId: updatedTask.workspace_id,
+          },
+          newlyAssignedUserIds,
+        );
       }
 
       // Broadcast real-time event
@@ -756,6 +775,19 @@ export class WorkspaceTaskService {
         logger.error("Failed to broadcast TASK_UPDATED event:", err);
       }
 
+      // Log workspace activity
+      await WorkspaceActivityService.logActivity(
+        updatedTask.workspace_id,
+        userId,
+        "TASK_UPDATED",
+        {
+          taskId: updatedTask.id,
+          title: updatedTask.title,
+          status: updatedTask.status,
+          priority: updatedTask.priority,
+        },
+      );
+
       return updatedTask;
     } catch (error) {
       logger.error("Error updating workspace task:", error);
@@ -766,13 +798,26 @@ export class WorkspaceTaskService {
   /**
    * Delete a task
    */
-  static async deleteTask(taskId: string) {
+  static async deleteTask(taskId: string, userId?: string) {
     try {
       // Get task info before deletion to know the workspace ID
       const task = await prisma.workspaceTask.findUnique({
         where: { id: taskId },
-        select: { workspace_id: true },
+        select: { workspace_id: true, title: true },
       });
+
+      if (task && userId) {
+        // Log workspace activity before deletion
+        await WorkspaceActivityService.logActivity(
+          task.workspace_id,
+          userId,
+          "TASK_DELETED",
+          {
+            taskId,
+            title: task.title,
+          },
+        );
+      }
 
       await prisma.workspaceTask.delete({
         where: { id: taskId },
@@ -803,6 +848,7 @@ export class WorkspaceTaskService {
    */
   static async bulkUpdateTasks(
     workspaceId: string,
+    userId: string,
     taskIds: string[],
     data: Partial<TaskData>,
   ) {
@@ -813,7 +859,7 @@ export class WorkspaceTaskService {
       // This is simpler and ensures all side effects (notifications, broadcasting) are triggered
       for (const taskId of taskIds) {
         try {
-          const updatedTask = await this.updateTask(taskId, data);
+          const updatedTask = await this.updateTask(taskId, userId, data);
           results.push(updatedTask);
         } catch (err) {
           logger.error(
@@ -833,11 +879,15 @@ export class WorkspaceTaskService {
   /**
    * Bulk delete tasks
    */
-  static async bulkDeleteTasks(workspaceId: string, taskIds: string[]) {
+  static async bulkDeleteTasks(
+    workspaceId: string,
+    taskIds: string[],
+    userId?: string,
+  ) {
     try {
       for (const taskId of taskIds) {
         try {
-          await this.deleteTask(taskId);
+          await this.deleteTask(taskId, userId);
         } catch (err) {
           logger.error(
             `Failed to delete task ${taskId} in bulk operation:`,

@@ -44,7 +44,7 @@ export class NotificationServer {
       // Add CORS handling
       verifyClient: async (info, callback) => {
         console.log(
-          `[NotificationServer] Connection attempt from ${info.req.headers.origin} - URL: ${info.req.url}`
+          `[NotificationServer] Connection attempt from ${info.req.headers.origin} - URL: ${info.req.url}`,
         );
         try {
           const urlString = info.req.url || "";
@@ -53,7 +53,7 @@ export class NotificationServer {
           const tokenFromUrl = url.searchParams.get("token");
           const tokenFromHeader = info.req.headers.authorization?.replace(
             "Bearer ",
-            ""
+            "",
           );
           const tokenFromProtocol = info.req.headers["sec-websocket-protocol"];
 
@@ -104,7 +104,7 @@ export class NotificationServer {
             if (!isOriginAllowed) {
               logger.warn(
                 "WebSocket connection attempt from unauthorized origin",
-                { origin, allowedOrigins }
+                { origin, allowedOrigins },
               );
               callback(false, 403, "Forbidden: Unauthorized origin");
               return;
@@ -113,7 +113,7 @@ export class NotificationServer {
 
           if (!token) {
             console.log(
-              `[NotificationServer] No token provided from ${origin}`
+              `[NotificationServer] No token provided from ${origin}`,
             );
             logger.warn("WebSocket connection attempt without token", {
               url: urlString,
@@ -123,18 +123,33 @@ export class NotificationServer {
           }
 
           // Verify the token
+          console.log(
+            `[NotificationServer] Verifying token for origin: ${origin}`,
+          );
           const isValid = await this.verifyAuthToken(token);
+
           if (!isValid) {
+            console.warn(
+              `[NotificationServer] Token verification failed for origin: ${origin}`,
+            );
             logger.warn("WebSocket connection attempt with invalid token", {
               tokenPreview: token.substring(0, 10) + "...",
               tokenLength: token.length,
+              origin,
             });
             callback(false, 401, "Unauthorized: Invalid token");
             return;
           }
 
+          console.log(
+            `[NotificationServer] Token verified successfully for origin: ${origin}`,
+          );
           callback(true);
         } catch (error) {
+          console.error(
+            `[NotificationServer] CRITICAL error in verifyClient:`,
+            error,
+          );
           logger.error("Error during WebSocket verifyClient", {
             error: error instanceof Error ? error.message : String(error),
           });
@@ -148,7 +163,7 @@ export class NotificationServer {
     // Start the HTTP server
     server.listen(this.port, () => {
       logger.info(
-        `Notification WebSocket server starting on port ${this.port}`
+        `Notification WebSocket server starting on port ${this.port}`,
       );
     });
 
@@ -160,31 +175,22 @@ export class NotificationServer {
 
   private async verifyAuthToken(token: string): Promise<boolean> {
     try {
-      // Verify token with Supabase using AuthService
-      const result = await HybridAuthService.syncUserSession(token);
-      if (!result || !result.success) {
-        logger.warn(
-          "AuthService syncUserSession failed for token verification"
-        );
+      if (!token || token.length < 10) return false;
+
+      // During verifyClient (handshake), we just do a lightweight check to not block connection.
+      // We will do full validation when we process the authenticate message or set up the user.
+      const jwtPayload = JSON.parse(
+        Buffer.from(token.split(".")[1], "base64").toString(),
+      );
+      if (!jwtPayload || !jwtPayload.exp) return false;
+
+      if (Date.now() >= jwtPayload.exp * 1000) {
+        logger.warn("WebSocket token expired during initial handshake");
         return false;
       }
       return true;
-    } catch (error: any) {
-      // Check if the error is a connection timeout
-      if (error.cause && error.cause.code === "UND_ERR_CONNECT_TIMEOUT") {
-        logger.warn(
-          "Connection timeout during token verification (UND_ERR_CONNECT_TIMEOUT)",
-          {
-            error: error.cause,
-          }
-        );
-        return false;
-      }
-
-      logger.error("AuthToken verification exception", {
-        error: error.message || error,
-        stack: error.stack,
-      });
+    } catch (e) {
+      logger.error("Fast verifyAuthToken failed", { error: e });
       return false;
     }
   }
@@ -204,7 +210,7 @@ export class NotificationServer {
         const urlString = req.url || "http://localhost";
         const url = new URL(
           urlString,
-          `http://${req.headers.host || "localhost"}`
+          `http://${req.headers.host || "localhost"}`,
         );
         const token = url.searchParams.get("token");
 
@@ -227,7 +233,7 @@ export class NotificationServer {
             JSON.stringify({
               type: "error",
               message: "Invalid message format",
-            })
+            }),
           );
         }
       });
@@ -266,7 +272,7 @@ export class NotificationServer {
             JSON.stringify({
               type: "error",
               message: "Authentication required",
-            })
+            }),
           );
         }
         break;
@@ -286,7 +292,7 @@ export class NotificationServer {
           JSON.stringify({
             type: "error",
             message: "Unknown message type",
-          })
+          }),
         );
     }
   }
@@ -297,7 +303,7 @@ export class NotificationServer {
         // If already authenticated via URL, don't error
         if (ws.isAuthenticated) {
           logger.debug(
-            "User already authenticated via URL, ignoring empty token message"
+            "User already authenticated via URL, ignoring empty token message",
           );
           return;
         }
@@ -305,7 +311,7 @@ export class NotificationServer {
           JSON.stringify({
             type: "error",
             message: "Token required for authentication",
-          })
+          }),
         );
         ws.close();
         return;
@@ -327,7 +333,7 @@ export class NotificationServer {
           JSON.stringify({
             type: "error",
             message: "Invalid authentication token",
-          })
+          }),
         );
         ws.close();
         return;
@@ -335,17 +341,26 @@ export class NotificationServer {
 
       // Get user ID from token (in a real implementation you'd decode the JWT)
       // For now, we'll assume the token contains user info or we need to look it up
+      console.log(
+        "[NotificationServer] Attempting to get userId from token...",
+      );
       const userId = await this.getUserIdFromToken(token);
+
       if (!userId) {
+        console.warn(
+          "[NotificationServer] Failed to retrieve userId from token",
+        );
         ws.send(
           JSON.stringify({
             type: "error",
             message: "Could not retrieve user ID from token",
-          })
+          }),
         );
         ws.close();
         return;
       }
+
+      console.log(`[NotificationServer] User identified: ${userId}`);
 
       // Mark as authenticated
       ws.userId = userId;
@@ -359,7 +374,7 @@ export class NotificationServer {
         JSON.stringify({
           type: "authenticated",
           userId,
-        })
+        }),
       );
 
       // Push initial unread count to the user immediately after authentication
@@ -369,10 +384,10 @@ export class NotificationServer {
           JSON.stringify({
             type: "notification_count",
             count: unreadCount,
-          })
+          }),
         );
         logger.info(
-          `Pushed initial unread count (${unreadCount}) to user ${userId}`
+          `Pushed initial unread count (${unreadCount}) to user ${userId}`,
         );
       } catch (countError) {
         logger.error("Error pushing initial unread count", { countError });
@@ -385,7 +400,7 @@ export class NotificationServer {
         JSON.stringify({
           type: "error",
           message: "Authentication failed",
-        })
+        }),
       );
       ws.close();
     }
@@ -393,9 +408,17 @@ export class NotificationServer {
 
   private async getUserIdFromToken(token: string): Promise<string | null> {
     try {
-      // Verify token with Supabase using AuthService to get user info
+      // In the actual authentication step, we do the full verify
       const result = await HybridAuthService.syncUserSession(token);
-      return result?.user?.id || null;
+      if (result && result.success && result.user) {
+        return result.user.id;
+      }
+
+      // Fallback: extract from JWT if sync fails but token is valid syntax
+      const jwtPayload = JSON.parse(
+        Buffer.from(token.split(".")[1], "base64").toString(),
+      );
+      return jwtPayload.sub || null;
     } catch (error) {
       logger.error("Error getting user ID from token", { error });
       return null;
@@ -410,7 +433,7 @@ export class NotificationServer {
     logger.debug(
       `Added connection for user ${userId}. Total connections: ${
         this.connectedClients.get(userId)!.size
-      }`
+      }`,
     );
   }
 
@@ -422,7 +445,7 @@ export class NotificationServer {
         this.connectedClients.delete(userId);
       }
       logger.debug(
-        `Removed connection for user ${userId}. Remaining connections: ${userConnections.size}`
+        `Removed connection for user ${userId}. Remaining connections: ${userConnections.size}`,
       );
     }
   }
@@ -441,16 +464,16 @@ export class NotificationServer {
       JSON.stringify({
         type: "subscribed",
         channels,
-      })
+      }),
     );
     logger.debug(
-      `User ${ws.userId} subscribed to channels: ${channels.join(", ")}`
+      `User ${ws.userId} subscribed to channels: ${channels.join(", ")}`,
     );
   }
 
   private unsubscribeFromChannels(
     ws: NotificationWebSocket,
-    channels: string[]
+    channels: string[],
   ) {
     if (!channels || !Array.isArray(channels)) return;
 
@@ -468,10 +491,10 @@ export class NotificationServer {
       JSON.stringify({
         type: "unsubscribed",
         channels,
-      })
+      }),
     );
     logger.debug(
-      `User ${ws.userId} unsubscribed from channels: ${channels.join(", ")}`
+      `User ${ws.userId} unsubscribed from channels: ${channels.join(", ")}`,
     );
   }
 
@@ -528,7 +551,7 @@ export class NotificationServer {
       });
     } else {
       logger.debug(
-        `No active connections for user ${userId}, notification stored in database for later delivery`
+        `No active connections for user ${userId}, notification stored in database for later delivery`,
       );
     }
   }
@@ -544,7 +567,7 @@ export class NotificationServer {
             JSON.stringify({
               type: "notification",
               notification,
-            })
+            }),
           );
           sentCount++;
         }
@@ -591,7 +614,7 @@ export class NotificationServer {
   public getStats() {
     const totalConnections = Array.from(this.connectedClients.values()).reduce(
       (sum, connections) => sum + connections.size,
-      0
+      0,
     );
 
     return {

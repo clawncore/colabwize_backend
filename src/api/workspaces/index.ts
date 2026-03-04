@@ -26,20 +26,24 @@ router.use("/tasks", tasksRouter);
 router.use("/:workspaceId/views", viewsRouter);
 
 // GET /api/workspaces/:id/analytics - Get workspace analytics with project metrics
-router.get("/:id/analytics", checkWorkspaceRole("editor"), async (req: any, res) => {
-  try {
-    const { id } = req.params;
-    const {
-      WorkspaceAnalyticsService,
-    } = require("../../services/WorkspaceAnalyticsService");
-    const analytics =
-      await WorkspaceAnalyticsService.getWorkspaceAnalyticsWithProjects(id);
-    res.json(analytics);
-  } catch (error) {
-    logger.error("Error fetching workspace analytics", error);
-    res.status(500).json({ error: "Failed to fetch analytics" });
-  }
-});
+router.get(
+  "/:id/analytics",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        WorkspaceAnalyticsService,
+      } = require("../../services/WorkspaceAnalyticsService");
+      const analytics =
+        await WorkspaceAnalyticsService.getWorkspaceAnalyticsWithProjects(id);
+      res.json(analytics);
+    } catch (error) {
+      logger.error("Error fetching workspace analytics", error);
+      res.status(500).json({ error: "Failed to fetch analytics" });
+    }
+  },
+);
 
 // GET /api/workspaces/:id/members - Get only members for selection
 router.get("/:id/members", async (req: any, res) => {
@@ -97,7 +101,9 @@ router.get("/:id/overview", async (req: any, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const { WorkspaceActivityService } = require("../../services/workspaceActivityService");
+    const {
+      WorkspaceActivityService,
+    } = require("../../services/workspaceActivityService");
 
     // Fetch all data in parallel
     const [
@@ -107,23 +113,23 @@ router.get("/:id/overview", async (req: any, res) => {
       myTasks,
       recentActivity,
       membersCount,
-      recentProjects
+      recentProjects,
     ] = await Promise.all([
       // 1. Projects Counts
       prisma.project.count({
-        where: { workspace_id: id, status: "active" }
+        where: { workspace_id: id, status: "active" },
       }),
       prisma.project.count({
-        where: { workspace_id: id, status: "completed" }
+        where: { workspace_id: id, status: "completed" },
       }),
 
       // 2. Tasks Counts (Grouped by status)
       prisma.workspaceTask.groupBy({
-        by: ['status'],
+        by: ["status"],
         where: { workspace_id: id },
         _count: {
-          status: true
-        }
+          status: true,
+        },
       }),
 
       // 3. My Tasks (Due soon)
@@ -131,16 +137,18 @@ router.get("/:id/overview", async (req: any, res) => {
         where: {
           workspace_id: id,
           assignees: { some: { user_id: userId } },
-          status: { not: "done" }
+          status: { not: "done" },
         },
         orderBy: { due_date: "asc" },
         take: 5,
         include: {
           project: { select: { title: true } },
           assignees: {
-            include: { user: { select: { id: true, full_name: true, avatar_url: true } } }
-          }
-        }
+            include: {
+              user: { select: { id: true, full_name: true, avatar_url: true } },
+            },
+          },
+        },
       }),
 
       // 4. Recent Activity
@@ -148,28 +156,28 @@ router.get("/:id/overview", async (req: any, res) => {
 
       // 5. Members Count
       prisma.workspaceMember.count({
-        where: { workspace_id: id }
+        where: { workspace_id: id },
       }),
 
       // 6. Recent Projects
       prisma.project.findMany({
         where: { workspace_id: id },
-        orderBy: { updated_at: 'desc' },
+        orderBy: { updated_at: "desc" },
         take: 4,
         include: {
           _count: {
-            select: { tasks: true }
+            select: { tasks: true },
           },
           collaborators: {
             take: 3,
             include: {
               user: {
-                select: { id: true, full_name: true, avatar_url: true }
-              }
-            }
-          }
-        }
-      })
+                select: { id: true, full_name: true, avatar_url: true },
+              },
+            },
+          },
+        },
+      }),
     ]);
 
     // Process tasks counts into a cleaner format
@@ -177,13 +185,14 @@ router.get("/:id/overview", async (req: any, res) => {
       todo: 0,
       in_progress: 0,
       done: 0,
-      total: 0
+      total: 0,
     };
 
     tasksCounts.forEach((group: any) => {
       taskStats.total += group._count.status;
       if (group.status === "todo") taskStats.todo = group._count.status;
-      else if (group.status === "in-progress") taskStats.in_progress = group._count.status;
+      else if (group.status === "in-progress")
+        taskStats.in_progress = group._count.status;
       else if (group.status === "done") taskStats.done = group._count.status;
     });
 
@@ -192,16 +201,15 @@ router.get("/:id/overview", async (req: any, res) => {
         projects: {
           active: activeProjectsCount,
           completed: completedProjectsCount,
-          total: activeProjectsCount + completedProjectsCount
+          total: activeProjectsCount + completedProjectsCount,
         },
         tasks: taskStats,
-        members: membersCount
+        members: membersCount,
       },
       myTasks,
       recentProjects,
-      recentActivity: recentActivity.items || []
+      recentActivity: recentActivity.items || [],
     });
-
   } catch (error) {
     logger.error("Error fetching workspace overview", error);
     res.status(500).json({ error: "Failed to fetch workspace overview" });
@@ -291,7 +299,7 @@ router.post("/", async (req: any, res) => {
     // 2. If templateId is provided, apply template settings
     if (templateId) {
       const template = await prisma.workspaceTemplate.findUnique({
-        where: { id: templateId }
+        where: { id: templateId },
       });
 
       if (template) {
@@ -301,8 +309,8 @@ router.post("/", async (req: any, res) => {
             data: template.labels.map((lc: any) => ({
               workspace_id: workspace.id,
               name: lc.name,
-              color: lc.color || "#94a3b8"
-            }))
+              color: lc.color || "#94a3b8",
+            })),
           });
         }
 
@@ -314,8 +322,8 @@ router.post("/", async (req: any, res) => {
                 workspace_id: workspace.id,
                 name: field.name,
                 type: field.type || "text",
-                options: field.options || null
-              }
+                options: field.options || null,
+              },
             });
           }
         }
@@ -328,8 +336,8 @@ router.post("/", async (req: any, res) => {
               creator_id: userId,
               title: task.title,
               description: task.description || null,
-              status: task.status || "todo"
-            }))
+              status: task.status || "todo",
+            })),
           });
         }
       }
@@ -341,9 +349,9 @@ router.post("/", async (req: any, res) => {
       "WORKSPACE_CREATED",
       {
         name: workspace.name,
-        template: templateId ? true : false
+        template: templateId ? true : false,
       },
-      req.ip
+      req.ip,
     );
 
     res.json(workspace);
@@ -417,7 +425,7 @@ router.put("/:id", checkWorkspaceRole("admin"), async (req: any, res) => {
       userId,
       "SETTINGS_UPDATED",
       { changes: req.body },
-      req.ip
+      req.ip,
     );
 
     res.json(updated);
@@ -439,7 +447,9 @@ router.delete("/:id", checkWorkspaceRole("admin"), async (req: any, res) => {
     });
 
     if (!workspace) {
-      return res.status(403).json({ error: "Only the workspace owner can delete it" });
+      return res
+        .status(403)
+        .json({ error: "Only the workspace owner can delete it" });
     }
 
     // Cascade delete will handle members, tasks, etc. (configured in schema)
@@ -453,234 +463,311 @@ router.delete("/:id", checkWorkspaceRole("admin"), async (req: any, res) => {
 });
 
 // POST /api/workspaces/:id/invite - Invite a member by email
-router.post("/:id/invite", checkWorkspaceRole("admin"), async (req: any, res) => {
-  try {
-    const userId = req.user.id;
-    const { id } = req.params;
-    const { email, role = "viewer" } = req.body;
-
-    const workspace = await prisma.workspace.findUnique({
-      where: { id },
-      include: { owner: { select: { full_name: true, email: true } } },
-    });
-
-    if (!workspace) {
-      return res.status(404).json({ error: "Workspace not found" });
-    }
-
-    // Check if user exists
-    const userToInvite = await prisma.user.findUnique({ where: { email } });
-    if (!userToInvite) {
-      return res.status(404).json({ error: "User not found with that email" });
-    }
-
-    // Check if already a member
-    const existingMember = await prisma.workspaceMember.findUnique({
-      where: {
-        workspace_id_user_id: { workspace_id: id, user_id: userToInvite.id },
-      },
-    });
-    if (existingMember) {
-      return res.status(400).json({ error: "User is already a member" });
-    }
-
-    // Check for existing pending invitation
-    const existingInvite = await prisma.workspaceInvitation.findUnique({
-      where: { workspace_id_email: { workspace_id: id, email } },
-    });
-
-    if (existingInvite && existingInvite.status === "pending") {
-      return res.status(400).json({ error: "Invitation already sent" });
-    }
-
-    // Create invitation (7 days expiry)
-    const invitation = await prisma.workspaceInvitation.create({
-      data: {
-        workspace_id: id,
-        email,
-        role,
-        invited_by: userId,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      },
-    });
-
-    await WorkspaceActivityService.logActivity(
-      id,
-      userId,
-      "INVITATION_SENT",
-      { email, role },
-      req.ip
-    );
-
-    // Send email notification
+router.post(
+  "/:id/invite",
+  checkWorkspaceRole("admin"),
+  async (req: any, res) => {
     try {
-      const EmailService = require("../../services/emailService").EmailService;
-      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-      await EmailService.sendWorkspaceInvitation({
-        to: email,
-        workspaceName: workspace.name,
-        inviterName: req.user.full_name || req.user.email,
-        role,
-        acceptUrl: `${frontendUrl}/workspaces/accept/${invitation.token}`,
-        expiresAt: invitation.expires_at,
-      });
-    } catch (emailError) {
-      logger.error("Failed to send invitation email:", emailError);
-      // Continue even if email fails - user can still see invitation in dashboard
-    }
+      const userId = req.user.id;
+      const { id } = req.params;
+      const { email, role = "viewer" } = req.body;
 
-    res.json({
-      message: "Invitation sent successfully",
-      invitation: {
-        id: invitation.id,
-        email: invitation.email,
-        role: invitation.role,
-        expires_at: invitation.expires_at,
-      },
-    });
-  } catch (error) {
-    logger.error("Error inviting member", error);
-    res.status(500).json({ error: "Failed to send invitation" });
-  }
-});
+      const workspace = await prisma.workspace.findUnique({
+        where: { id },
+        include: { owner: { select: { full_name: true, email: true } } },
+      });
+
+      if (!workspace) {
+        return res.status(404).json({ error: "Workspace not found" });
+      }
+
+      // Check if user exists
+      const userToInvite = await prisma.user.findUnique({ where: { email } });
+      if (!userToInvite) {
+        return res
+          .status(404)
+          .json({ error: "User not found with that email" });
+      }
+
+      // Check if already a member
+      const existingMember = await prisma.workspaceMember.findUnique({
+        where: {
+          workspace_id_user_id: { workspace_id: id, user_id: userToInvite.id },
+        },
+      });
+      if (existingMember) {
+        return res.status(400).json({ error: "User is already a member" });
+      }
+
+      // Check for existing pending invitation
+      const existingInvite = await prisma.workspaceInvitation.findUnique({
+        where: { workspace_id_email: { workspace_id: id, email } },
+      });
+
+      if (existingInvite && existingInvite.status === "pending") {
+        return res.status(400).json({ error: "Invitation already sent" });
+      }
+
+      // Create invitation (7 days expiry)
+      const invitation = await prisma.workspaceInvitation.create({
+        data: {
+          workspace_id: id,
+          email,
+          role,
+          invited_by: userId,
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      await WorkspaceActivityService.logActivity(
+        id,
+        userId,
+        "INVITATION_SENT",
+        { email, role },
+        req.ip,
+      );
+
+      // Notify invited user if they already exist in the system
+      if (userToInvite) {
+        try {
+          const {
+            createNotification,
+          } = require("../../services/notificationService");
+          await createNotification(
+            userToInvite.id,
+            "collaboration_invite",
+            "New Workspace Invitation",
+            `You have been invited to join the workspace "${workspace.name}" as a ${role}.`,
+            { workspaceId: id, invitationId: invitation.id },
+          );
+        } catch (notifError) {
+          logger.error("Failed to send invitation notification:", notifError);
+        }
+      }
+
+      // Send email notification
+      try {
+        const EmailService =
+          require("../../services/emailService").EmailService;
+        const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+        await EmailService.sendWorkspaceInvitation({
+          to: email,
+          workspaceName: workspace.name,
+          inviterName: req.user.full_name || req.user.email,
+          role,
+          acceptUrl: `${frontendUrl}/workspaces/accept/${invitation.token}`,
+          expiresAt: invitation.expires_at,
+        });
+      } catch (emailError) {
+        logger.error("Failed to send invitation email:", emailError);
+        // Continue even if email fails - user can still see invitation in dashboard
+      }
+
+      res.json({
+        message: "Invitation sent successfully",
+        invitation: {
+          id: invitation.id,
+          email: invitation.email,
+          role: invitation.role,
+          expires_at: invitation.expires_at,
+        },
+      });
+    } catch (error) {
+      logger.error("Error inviting member", error);
+      res.status(500).json({ error: "Failed to send invitation" });
+    }
+  },
+);
 
 // PUT /api/workspaces/:id/members/:memberId - Update member role
-router.put("/:id/members/:memberId", checkWorkspaceRole("admin"), async (req: any, res) => {
-  try {
-    const userId = req.user.id;
-    const { id, memberId } = req.params;
-    const { role } = req.body;
+router.put(
+  "/:id/members/:memberId",
+  checkWorkspaceRole("admin"),
+  async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { id, memberId } = req.params;
+      const { role } = req.body;
 
-    if (!["admin", "editor", "viewer"].includes(role)) {
-      return res.status(400).json({ error: "Invalid role. Must be admin, editor, or viewer" });
-    }
+      if (!["admin", "editor", "viewer"].includes(role)) {
+        return res
+          .status(400)
+          .json({ error: "Invalid role. Must be admin, editor, or viewer" });
+      }
 
-    // Previous manual checks removed as middleware handles base permission
-    const workspace = await prisma.workspace.findUnique({
-      where: { id }
-    });
+      // Previous manual checks removed as middleware handles base permission
+      const workspace = await prisma.workspace.findUnique({
+        where: { id },
+      });
 
-    if (!workspace) {
-      return res.status(404).json({ error: "Workspace not found" });
-    }
+      if (!workspace) {
+        return res.status(404).json({ error: "Workspace not found" });
+      }
 
-    // Prevent changing the owner's role
-    const targetMember = await prisma.workspaceMember.findUnique({
-      where: { id: memberId },
-    });
+      // Prevent changing the owner's role
+      const targetMember = await prisma.workspaceMember.findUnique({
+        where: { id: memberId },
+      });
 
-    if (!targetMember || targetMember.workspace_id !== id) {
-      return res.status(404).json({ error: "Member not found" });
-    }
+      if (!targetMember || targetMember.workspace_id !== id) {
+        return res.status(404).json({ error: "Member not found" });
+      }
 
-    if (targetMember.user_id === workspace.owner_id) {
-      return res.status(400).json({ error: "Cannot change the workspace owner's role" });
-    }
+      if (targetMember.user_id === workspace.owner_id) {
+        return res
+          .status(400)
+          .json({ error: "Cannot change the workspace owner's role" });
+      }
 
-    const updated = await prisma.workspaceMember.update({
-      where: { id: memberId },
-      data: { role },
-      include: {
-        user: {
-          select: { id: true, full_name: true, email: true },
+      const updated = await prisma.workspaceMember.update({
+        where: { id: memberId },
+        data: { role },
+        include: {
+          user: {
+            select: { id: true, full_name: true, email: true },
+          },
         },
-      },
-    });
+      });
 
-    await WorkspaceActivityService.logActivity(
-      id,
-      userId,
-      "MEMBER_ROLE_UPDATED",
-      { memberId, role, memberEmail: updated.user.email },
-      req.ip
-    );
+      await WorkspaceActivityService.logActivity(
+        id,
+        userId,
+        "MEMBER_ROLE_UPDATED",
+        { memberId, role, memberEmail: updated.user.email },
+        req.ip,
+      );
 
-    res.json(updated);
-  } catch (error) {
-    logger.error("Error updating member role", error);
-    res.status(500).json({ error: "Failed to update member role" });
-  }
-});
+      // Broadcast role change notification to all workspace members
+      try {
+        const {
+          broadcastWorkspaceNotification,
+        } = require("../../services/notificationService");
+        await broadcastWorkspaceNotification(
+          id,
+          userId,
+          "permission_change",
+          {
+            actor: () => ({
+              title: "Role Updated",
+              message: `You changed ${updated.user.full_name || updated.user.email}'s role to ${role} in "${workspace.name}".`,
+            }),
+            recipient: (actorName: string) => ({
+              title: "Your Role Was Updated",
+              message: `${actorName} changed your role to ${role} in "${workspace.name}".`,
+            }),
+            others: (actorName: string, recipientName?: string) => ({
+              title: "Member Role Updated",
+              message: `${actorName} changed ${recipientName}'s role to ${role} in "${workspace.name}".`,
+            }),
+          },
+          { workspaceId: id },
+          [updated.user_id],
+        );
+      } catch (notifError) {
+        logger.error("Failed to send role update notification:", notifError);
+      }
+
+      res.json(updated);
+    } catch (error) {
+      logger.error("Error updating member role", error);
+      res.status(500).json({ error: "Failed to update member role" });
+    }
+  },
+);
 
 // DELETE /api/workspaces/:id/members/:memberId - Remove member from workspace
-router.delete("/:id/members/:memberId", checkWorkspaceRole("admin"), async (req: any, res) => {
-  try {
-    const userId = req.user.id;
-    const { id, memberId } = req.params;
+router.delete(
+  "/:id/members/:memberId",
+  checkWorkspaceRole("admin"),
+  async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { id, memberId } = req.params;
 
-    // Previous manual checks removed as middleware handles base permission
-    const workspace = await prisma.workspace.findUnique({
-      where: { id }
-    });
+      // Previous manual checks removed as middleware handles base permission
+      const workspace = await prisma.workspace.findUnique({
+        where: { id },
+      });
 
-    if (!workspace) {
-      return res.status(404).json({ error: "Workspace not found" });
+      if (!workspace) {
+        return res.status(404).json({ error: "Workspace not found" });
+      }
+
+      const targetMember = await prisma.workspaceMember.findUnique({
+        where: { id: memberId },
+      });
+
+      if (!targetMember || targetMember.workspace_id !== id) {
+        return res.status(404).json({ error: "Member not found" });
+      }
+
+      // Prevent removing the workspace owner
+      if (targetMember.user_id === workspace.owner_id) {
+        return res
+          .status(400)
+          .json({ error: "Cannot remove the workspace owner" });
+      }
+
+      await prisma.workspaceMember.delete({ where: { id: memberId } });
+
+      await WorkspaceActivityService.logActivity(
+        id,
+        userId,
+        "MEMBER_REMOVED",
+        { memberId, memberUserId: targetMember.user_id },
+        req.ip,
+      );
+
+      res.json({ message: "Member removed successfully" });
+    } catch (error) {
+      logger.error("Error removing member", error);
+      res.status(500).json({ error: "Failed to remove member" });
     }
-
-    const targetMember = await prisma.workspaceMember.findUnique({
-      where: { id: memberId },
-    });
-
-    if (!targetMember || targetMember.workspace_id !== id) {
-      return res.status(404).json({ error: "Member not found" });
-    }
-
-    // Prevent removing the workspace owner
-    if (targetMember.user_id === workspace.owner_id) {
-      return res.status(400).json({ error: "Cannot remove the workspace owner" });
-    }
-
-    await prisma.workspaceMember.delete({ where: { id: memberId } });
-
-    await WorkspaceActivityService.logActivity(
-      id,
-      userId,
-      "MEMBER_REMOVED",
-      { memberId, memberUserId: targetMember.user_id },
-      req.ip
-    );
-
-    res.json({ message: "Member removed successfully" });
-  } catch (error) {
-    logger.error("Error removing member", error);
-    res.status(500).json({ error: "Failed to remove member" });
-  }
-});
+  },
+);
 
 // GET /api/workspaces/:id/invitations - Get all invitations for a workspace
-router.get("/:id/invitations", checkWorkspaceRole("admin"), async (req: any, res) => {
-  try {
-    const { id } = req.params;
-    const invitations = await prisma.workspaceInvitation.findMany({
-      where: { workspace_id: id },
-      include: {
-        inviter: {
-          select: { id: true, full_name: true, email: true }
-        }
-      },
-      orderBy: { created_at: "desc" }
-    });
-    res.json(invitations);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+router.get(
+  "/:id/invitations",
+  checkWorkspaceRole("admin"),
+  async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const invitations = await prisma.workspaceInvitation.findMany({
+        where: { workspace_id: id },
+        include: {
+          inviter: {
+            select: { id: true, full_name: true, email: true },
+          },
+        },
+        orderBy: { created_at: "desc" },
+      });
+      res.json(invitations);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+);
 
 // DELETE /api/workspaces/:id/invitations/:invitationId - Revoke an invitation
-router.delete("/:id/invitations/:invitationId", checkWorkspaceRole("admin"), async (req: any, res) => {
-  try {
-    const { id, invitationId } = req.params;
-    await prisma.workspaceInvitation.delete({
-      where: {
-        id: invitationId,
-        workspace_id: id
-      }
-    });
-    res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+router.delete(
+  "/:id/invitations/:invitationId",
+  checkWorkspaceRole("admin"),
+  async (req: any, res) => {
+    try {
+      const { id, invitationId } = req.params;
+      await prisma.workspaceInvitation.delete({
+        where: {
+          id: invitationId,
+          workspace_id: id,
+        },
+      });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+);
 
 // GET /api/workspaces/invitations/pending - Get pending invitations for current user
 router.get("/invitations/pending", async (req: any, res) => {
@@ -765,8 +852,24 @@ router.post("/invitations/:token/accept", async (req: any, res) => {
       userId,
       "MEMBER_JOINED",
       { email: userEmail, role: invitation.role },
-      req.ip
+      req.ip,
     );
+
+    // Notify workspace owner that someone joined
+    try {
+      const {
+        createNotification,
+      } = require("../../services/notificationService");
+      await createNotification(
+        invitation.workspace.owner_id,
+        "new_collaborator",
+        "New Member Joined",
+        `${req.user.full_name || userEmail} has joined the workspace "${invitation.workspace.name}"`,
+        { workspaceId: invitation.workspace_id },
+      );
+    } catch (notifError) {
+      logger.error("Failed to send join notification:", notifError);
+    }
 
     res.json({
       message: "Invitation accepted successfully",

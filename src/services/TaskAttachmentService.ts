@@ -12,7 +12,7 @@ export class TaskAttachmentService {
     userId: string,
     fileBuffer: Buffer,
     fileName: string,
-    mimeType: string
+    mimeType: string,
   ) {
     try {
       // 1. Upload to Supabase Storage
@@ -20,7 +20,7 @@ export class TaskAttachmentService {
         fileBuffer,
         fileName,
         mimeType,
-        userId
+        userId,
       );
 
       // Get file size from the input buffer
@@ -54,7 +54,6 @@ export class TaskAttachmentService {
    */
   static async deleteAttachment(attachmentId: string) {
     try {
-      // 1. Get attachment metadata
       const attachment = await prisma.taskAttachment.findUnique({
         where: { id: attachmentId },
       });
@@ -63,23 +62,23 @@ export class TaskAttachmentService {
         throw new Error("Attachment not found");
       }
 
-      // 2. Extract relative path from URL to delete from storage
-      // Supabase public URLs are usually: .../storage/v1/object/public/uploads/path/to/file
-      // SupabaseStorageService uses the uniqueFileName as path
-      // We need to parse back the unique path from the URL if we didn't store the path
-      // Actually SupabaseStorageService returns 'filePath' which we should have stored
-      // But my schema only has file_url. Let's fix that or parse it.
+      let filePath: string;
 
-      const url = new URL(attachment.file_url);
-      const urlParts = url.pathname.split("/");
-      // The path usually starts after 'uploads/' in the public URL
-      const uploadsIndex = urlParts.indexOf("uploads");
-      const filePath = urlParts.slice(uploadsIndex + 1).join("/");
+      if (
+        attachment.file_url.startsWith("http://") ||
+        attachment.file_url.startsWith("https://")
+      ) {
+        const url = new URL(attachment.file_url);
+        const urlParts = url.pathname.split("/");
+        const uploadsIndex = urlParts.indexOf("uploads");
+        filePath = urlParts.slice(uploadsIndex + 1).join("/");
+      } else {
+        // Relative path stored directly
+        filePath = attachment.file_url;
+      }
 
-      // 3. Delete from Supabase Storage
       await SupabaseStorageService.deleteFile(filePath);
 
-      // 4. Delete from database
       await prisma.taskAttachment.delete({
         where: { id: attachmentId },
       });
@@ -114,10 +113,21 @@ export class TaskAttachmentService {
       const attachment = await this.getAttachmentById(attachmentId);
       if (!attachment) throw new Error("Attachment not found");
 
-      const url = new URL(attachment.file_url);
-      const urlParts = url.pathname.split("/");
-      const uploadsIndex = urlParts.indexOf("uploads");
-      const filePath = urlParts.slice(uploadsIndex + 1).join("/");
+      let filePath: string;
+
+      if (
+        attachment.file_url.startsWith("http://") ||
+        attachment.file_url.startsWith("https://")
+      ) {
+        // Full URL — extract relative storage path
+        const url = new URL(attachment.file_url);
+        const urlParts = url.pathname.split("/");
+        const uploadsIndex = urlParts.indexOf("uploads");
+        filePath = urlParts.slice(uploadsIndex + 1).join("/");
+      } else {
+        // Relative path stored directly (e.g. "userId/timestamp_filename.pdf")
+        filePath = attachment.file_url;
+      }
 
       const client = await getSupabaseAdminClient();
       if (!client) throw new Error("Storage client not available");

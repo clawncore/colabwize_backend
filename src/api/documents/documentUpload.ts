@@ -76,8 +76,8 @@ const upload = multer({
 
     cb(
       new Error(
-        "Error: Invalid file type! Only PDF, DOCX, TXT, RTF, and ODT files are allowed."
-      )
+        "Error: Invalid file type! Only PDF, DOCX, TXT, RTF, and ODT files are allowed.",
+      ),
     );
   },
 });
@@ -107,7 +107,7 @@ router.post(
         title,
         description || "",
         req.file!,
-        workspaceId || workspace_id
+        workspaceId || workspace_id,
       );
 
       return res.status(201).json({
@@ -126,7 +126,7 @@ router.post(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
 );
 
 // Get user's projects
@@ -137,7 +137,9 @@ router.get(
     try {
       const userId = req.user!.id;
 
-      const projects = await DocumentUploadService.getUserProjects(userId);
+      const projects = await DocumentUploadService.getUserProjects(userId, {
+        personalOnly: true,
+      });
 
       return res.status(200).json({
         success: true,
@@ -156,7 +158,7 @@ router.get(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
 );
 
 // Get a specific project
@@ -175,13 +177,14 @@ router.get(
 
       const project = await DocumentUploadService.getProjectById(
         projectId as string,
-        userId
+        userId,
       );
 
       if (!project) {
         // DEBUG: Check if project exists at all
-        const projectCheck =
-          await DocumentUploadService.checkProjectExists(projectId as string);
+        const projectCheck = await DocumentUploadService.checkProjectExists(
+          projectId as string,
+        );
 
         if (projectCheck) {
           logger.warn(
@@ -190,7 +193,7 @@ router.get(
               projectId,
               ownerId: projectCheck.user_id,
               requestingUserId: userId,
-            }
+            },
           );
 
           return res.status(404).json({
@@ -231,7 +234,7 @@ router.get(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
 );
 
 // Update a specific project
@@ -241,7 +244,15 @@ router.put(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { projectId } = req.params;
-      const { title, description, content, word_count, citation_style } = req.body as any;
+      const {
+        title,
+        description,
+        content,
+        word_count,
+        citation_style,
+        status,
+        outline,
+      } = req.body as any;
       const userId = req.user!.id;
 
       // Validate required fields
@@ -257,7 +268,9 @@ router.put(
         description || "",
         content,
         word_count || 0,
-        citation_style
+        citation_style,
+        outline,
+        status ? { status } : undefined,
       );
 
       if (!updatedProject) {
@@ -284,7 +297,7 @@ router.put(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
 );
 
 // Create a new project without document upload
@@ -297,8 +310,8 @@ router.post(
       const userId = req.user!.id;
 
       logger.info(
-        `[DEBUG] POST /api/documents/create - User: ${userId}, Title: ${title}, Workspace: ${workspace_id || 'personal'}`,
-        { userId, title, workspace_id }
+        `[DEBUG] POST /api/documents/create - User: ${userId}, Title: ${title}, Workspace: ${workspace_id || "personal"}`,
+        { userId, title, workspace_id },
       );
 
       // Validate required fields
@@ -313,7 +326,7 @@ router.post(
         description || "",
         content || null,
         null, // outline
-        workspace_id || undefined
+        workspace_id || undefined,
       );
 
       return res.status(201).json({
@@ -332,7 +345,7 @@ router.post(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
 );
 
 export default router;

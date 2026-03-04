@@ -7,7 +7,6 @@ import { ChatOpenAI } from "@langchain/openai";
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
 // @ts-ignore
 import { Document } from "langchain/document";
-
 import { v4 as uuidv4 } from "uuid";
 import { SecretsService } from "../../services/secrets-service";
 import { prisma } from "../../lib/prisma";
@@ -39,22 +38,9 @@ export async function UPLOAD_PDF(req: Request, res: Response) {
     let userId = (req as any).user?.id;
 
     if (!userId) {
-      console.log(
-        "User ID missing from request, fetching a valid user for testing...",
-      );
-      // Fetch the first user from the database using Prisma
-      const fallbackUser = await prisma.user.findFirst({
-        select: { id: true },
-      });
-      if (fallbackUser) {
-        userId = fallbackUser.id;
-        console.log("Using fallback user ID:", userId);
-      } else {
-        console.error("No users found in database to use as fallback");
-        return res
-          .status(500)
-          .json({ error: "No valid user found for upload" });
-      }
+      return res
+        .status(401)
+        .json({ error: "Unauthorized: no user found in request" });
     }
     console.log("2. Final User ID:", userId);
 
@@ -144,19 +130,19 @@ export async function CHAT_PDF(req: Request, res: Response) {
       return res.status(400).json({ error: "Missing documentId or message" });
     }
 
-    // 1. Retrieve context
+    // 1. Retrieve relevant chunks from the vector store
     const docs = await VectorStoreService.search(message, { documentId });
 
+    // Strict RAG: return early if no relevant context found in the document
     if (docs.length === 0) {
-      // Create a response using just the model knowledge if no context found,
-      // OR explicit "I don't know".
-      // Let's try to answer generally but warn? Or just say no info.
-      // Better: "I couldn't find relevant information in the uploaded document."
-      // But let's let the LLM decide if we pass empty context?
-      // No, let's keep it strict RAG for now.
+      return res.json({
+        answer:
+          "I checked the document but couldn't find any relevant information to answer your question. Try rephrasing or asking about a different part of the document.",
+        sources: [],
+      });
     }
 
-    // 2. Generate Answer
+    // 2. Generate answer using retrieved context
     const apiKey = await SecretsService.getOpenAiApiKey();
     if (!apiKey) {
       throw new Error("OPENAI_API_KEY not configured");
@@ -168,38 +154,21 @@ export async function CHAT_PDF(req: Request, res: Response) {
       openAIApiKey: apiKey,
     });
 
-    // Manual RAG: Join content and prompt
-    const context =
-      docs.length > 0 ? docs.map((d) => d.pageContent).join("\n\n") : "";
+    const context = docs.map((d) => d.pageContent).join("\n\n");
 
-    let systemPrompt;
-    if (context) {
-      systemPrompt = `You are a helpful AI research assistant. Use the following context from an uploaded PDF to answer the user's question. 
-If the answer is not in the context, say so, but you may offer general knowledge if explicitly asked.
+    const systemPrompt = `You are a helpful AI research assistant. Use the following context from an uploaded PDF to answer the user's question.
+If the answer is not in the context, say so clearly, but you may offer general knowledge if explicitly asked.
 Cite the context where possible.
 
 Context:
 ${context}`;
-    } else {
-      // Fallback if no context found but we still want to chat?
-      // Or just fail. Let's return the "no info" message from before if strict.
-      // Actually, the previous code returned JSON immediately. Let's stick to that for now if strict.
-      if (docs.length === 0) {
-        return res.json({
-          answer:
-            "I checked the document but couldn't find any relevant information to answer your question.",
-          sources: [],
-        });
-      }
-    }
 
     // @ts-ignore
     const response = await model.invoke([
-      new SystemMessage(systemPrompt || ""),
+      new SystemMessage(systemPrompt),
       new HumanMessage(message),
     ]);
 
-    // content field in response
     const answer =
       typeof response.content === "string"
         ? response.content

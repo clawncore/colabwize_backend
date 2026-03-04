@@ -113,23 +113,23 @@ const notificationTypeToSubscriptionFeature: Record<
   NotificationType,
   string | null
 > = {
-  // Collaboration notifications - require collaboration features
-  comment: "collaboration_comments_resolved",
-  mention: "collaboration_real_time",
-  document_change: "collaboration_real_time",
-  document_shared: "collaboration_new_collaborator",
-  new_collaborator: "collaboration_new_collaborator",
-  permission_change: "collaboration_permission_changes",
-  comment_resolved: "collaboration_comments_resolved",
-  real_time_edit: "collaboration_real_time",
-  collaboration_invite: "collaboration_new_collaborator",
-  collaboration_invite_accepted: "collaboration_new_collaborator",
-  collaboration_invite_declined: "collaboration_new_collaborator",
-  collaboration_removed: "collaboration_new_collaborator",
-  collaboration_session_started: "collaboration_real_time",
-  collaboration_session_ended: "collaboration_real_time",
-  editor_activity: "collaboration_real_time",
-  comment_added: "collaboration_comments_resolved",
+  // Collaboration notifications - available to all workspace members (core workspace feature)
+  comment: null,
+  mention: null,
+  document_change: null,
+  document_shared: null,
+  new_collaborator: null,
+  permission_change: null,
+  comment_resolved: null,
+  real_time_edit: null,
+  collaboration_invite: null,
+  collaboration_invite_accepted: null,
+  collaboration_invite_declined: null,
+  collaboration_removed: null,
+  collaboration_session_started: null,
+  collaboration_session_ended: null,
+  editor_activity: null,
+  comment_added: null,
 
   // AI notifications - require AI features
   plagiarism_complete: "ai_features_plagiarism_complete",
@@ -200,17 +200,17 @@ const notificationTypeToSubscriptionFeature: Record<
   template_preview_updated: null,
   template_preview_deleted: null,
 
-  // Other notifications
-  collaborator_request: "collaboration_request_collaborator_request",
-  task_assigned: "task_assigned_task_assigned",
-  task_overdue: "task_overdue_task_overdue",
-  task_due_soon: "task_due_soon_task_due_soon",
+  // Other notifications - available to all workspace members (core workspace feature)
+  collaborator_request: null,
+  task_assigned: null,
+  task_overdue: null,
+  task_due_soon: null,
 };
 
 // Helper function to check if user can receive a notification based on their subscription
 async function canUserReceiveNotification(
   userId: string,
-  type: NotificationType
+  type: NotificationType,
 ): Promise<boolean> {
   try {
     // Get the required feature for this notification type
@@ -359,7 +359,7 @@ async function sendAINotification(
   type: NotificationType,
   title: string,
   message: string,
-  data?: NotificationData
+  data?: NotificationData,
 ) {
   try {
     // AI notifications can be handled through in-app notifications or email
@@ -408,14 +408,14 @@ export async function createNotification(
   type: NotificationType,
   title: string,
   message: string,
-  data?: NotificationData
+  data?: NotificationData,
 ) {
   try {
     // Check if user can receive this notification based on their subscription
     const canReceive = await canUserReceiveNotification(userId, type);
     if (!canReceive) {
       console.log(
-        `User ${userId} cannot receive ${type} notification due to subscription limitations`
+        `User ${userId} cannot receive ${type} notification due to subscription limitations`,
       );
       return null;
     }
@@ -448,7 +448,7 @@ export async function createNotification(
         isTimeInRange(
           currentTime,
           settings.quiet_hours_start_time,
-          settings.quiet_hours_end_time
+          settings.quiet_hours_end_time,
         )
       ) {
         // Quiet hours - don't send notification now
@@ -459,6 +459,7 @@ export async function createNotification(
     // Create the notification in database
     const notification = await prisma.notification.create({
       data: {
+        user_id: userId,
         type,
         title,
         message,
@@ -466,8 +467,8 @@ export async function createNotification(
       },
     });
 
-    // Send email notification if enabled
-    if (settings.in_app_notifications_enabled !== false) {
+    // Send email notification if enabled (UI maps Email to sms_notifications_enabled)
+    if (settings.sms_notifications_enabled !== false) {
       await sendEmailNotification(userId, type, title, message, data);
     }
 
@@ -476,22 +477,21 @@ export async function createNotification(
       await sendPushNotification(userId, type, title, message, data);
     }
 
-    // Send SMS notification if enabled and user has a phone number
-    if (settings.sms_notifications_enabled !== false) {
-      await sendSMSNotification(userId, type, title, message, data);
-    }
+    // Send SMS notification - NOT sending SMS. Leaving original toggle mapped to Email above.
 
     // Send real-time notification if user is connected
     try {
-      const notificationServer = getNotificationServer();
-      await notificationServer.sendNotificationToUser(userId, {
-        id: notification.id,
-        type,
-        title,
-        message,
-        data,
-        created_at: new Date().toISOString(),
-      });
+      if (settings.in_app_notifications_enabled !== false) {
+        const notificationServer = getNotificationServer();
+        await notificationServer.sendNotificationToUser(userId, {
+          id: notification.id,
+          type,
+          title,
+          message,
+          data,
+          created_at: new Date().toISOString(),
+        });
+      }
     } catch (error) {
       console.error("Error sending real-time notification:", error);
     }
@@ -508,6 +508,75 @@ export async function createNotification(
   }
 }
 
+export interface BroadcastMessageGenerator {
+  actor: (actorName: string) => { title: string; message: string };
+  recipient?: (actorName: string) => { title: string; message: string };
+  others: (
+    actorName: string,
+    recipientName?: string,
+  ) => { title: string; message: string };
+}
+
+// Broadcast a notification to all workspace members
+export async function broadcastWorkspaceNotification(
+  workspaceId: string,
+  actorId: string,
+  type: NotificationType,
+  messageGenerator: BroadcastMessageGenerator,
+  data?: NotificationData,
+  recipientIds: string[] = [],
+) {
+  try {
+    // 1. Get workspace members
+    const members = await prisma.workspaceMember.findMany({
+      where: { workspace_id: workspaceId },
+      include: { user: { select: { id: true, full_name: true } } },
+    });
+
+    if (members.length === 0) return;
+
+    // 2. Find actor name
+    const actor = members.find((m: any) => m.user_id === actorId);
+    const actorName = actor?.user.full_name || "A user";
+
+    // 3. Find recipients names (use the first one for formatting if needed)
+    let primaryRecipientName = "someone";
+    if (recipientIds.length > 0) {
+      const recipient = members.find((m: any) => m.user_id === recipientIds[0]);
+      if (recipient)
+        primaryRecipientName = recipient.user.full_name || "someone";
+    }
+
+    // 4. Send notifications
+    for (const member of members) {
+      const userId = member.user_id;
+
+      let notificationContent;
+      if (userId === actorId) {
+        notificationContent = messageGenerator.actor(actorName);
+      } else if (recipientIds.includes(userId) && messageGenerator.recipient) {
+        notificationContent = messageGenerator.recipient(actorName);
+      } else {
+        notificationContent = messageGenerator.others(
+          actorName,
+          primaryRecipientName,
+        );
+      }
+
+      await createNotification(
+        userId,
+        type,
+        notificationContent.title,
+        notificationContent.message,
+        data,
+      );
+    }
+  } catch (error) {
+    console.error("Error broadcasting workspace notification:", error);
+    // Don't throw, just log. We don't want a notification failure to crash the main operation.
+  }
+}
+
 // Get notifications for a user
 export async function getUserNotifications(
   userId: string,
@@ -518,7 +587,7 @@ export async function getUserNotifications(
     priority?: "high" | "medium" | "low";
     search?: string;
     read?: boolean;
-  }
+  },
 ) {
   try {
     // Build where clause based on filters
@@ -544,64 +613,94 @@ export async function getUserNotifications(
 
     // Apply priority filter
     if (filters?.priority) {
-      // Map priority to notification types
-      const priorityTypes = {
-        high: [
-          "comment",
-          "mention",
-          "document_change",
-          "document_shared",
-          "new_collaborator",
-          "permission_change",
-          "comment_resolved",
-          "real_time_edit",
-          "plagiarism_complete",
-          "ai_limit",
-          "payment_failed",
-          "subscription_expiring",
-          "security_alert",
-          "document_deadline",
-          "ai_suggestion",
-          "citation_reminder",
-          "collaborator_request",
-          "collaboration_invite",
-          "collaboration_invite_accepted",
-          "collaboration_invite_declined",
-          "collaboration_removed",
-          "comment_added",
-          "document_exported",
-          "subscription_cancelled",
-          "subscription_expired",
-        ],
-        medium: [
-          "new_feature",
-          "weekly_summary",
-          "payment_success",
-          "subscription_renewed",
-          "new_feature_announcement",
-          "product_tip",
-          "research_update",
-          "template_update",
-          "collaboration_session_started",
-          "collaboration_session_ended",
-          "subscription_created",
-          "subscription_updated",
-          "subscription_resumed",
-          "payment_refunded",
-        ],
-        low: [
-          "newsletter",
-          "special_offer",
-          "writing_streak",
-          "goal_achieved",
-          "invoice_available",
-        ],
-      };
+      // Map priority to notification types matching frontend NotificationBell.tsx
+      const highPriorityTypes = [
+        "security_alert",
+        "payment_failed",
+        "subscription_expiring",
+        "subscription_expired",
+        "subscription_cancelled",
+      ];
 
-      where.type = {
-        in: priorityTypes[filters.priority],
-      };
+      const mediumPriorityTypes = [
+        "comment",
+        "mention",
+        "document_change",
+        "document_shared",
+        "new_collaborator",
+        "permission_change",
+        "collaborator_request",
+        "collaboration_invite",
+        "collaboration_invite_accepted",
+        "collaboration_invite_declined",
+        "collaboration_removed",
+        "comment_resolved",
+        "comment_added",
+        "real_time_edit",
+        "editor_activity",
+        "plagiarism_complete",
+        "ai_suggestion",
+        "ai_limit",
+        "document_deadline",
+        "document_exported",
+        "new_feature",
+        "weekly_summary",
+        "payment_success",
+        "subscription_renewed",
+        "citation_reminder",
+        "new_feature_announcement",
+        "product_tip",
+        "research_update",
+        "template_update",
+        "collaboration_session_started",
+        "collaboration_session_ended",
+        "subscription_created",
+        "subscription_updated",
+        "subscription_resumed",
+        "payment_refunded",
+        "backup_available",
+        "document_version",
+        "template_created",
+        "template_updated",
+        "template_deleted",
+        "template_used",
+        "template_shared",
+        "template_downloaded",
+        "template_reviewed",
+        "template_review_updated",
+        "template_review_deleted",
+        "template_shared_with_you",
+        "template_share_updated",
+        "template_share_removed",
+        "template_share_removed_for_you",
+        "template_versioned",
+        "template_restored",
+        "template_version_deleted",
+        "template_featured",
+        "template_categorized",
+        "template_uncategorized",
+        "template_exported",
+        "template_imported",
+        "template_batch_exported",
+        "template_batch_imported",
+        "template_preview_generated",
+        "template_preview_updated",
+        "template_preview_deleted",
+      ];
+
+      if (filters.priority === "high") {
+        where.type = { in: highPriorityTypes };
+      } else if (filters.priority === "medium") {
+        where.type = { in: mediumPriorityTypes };
+      } else if (filters.priority === "low") {
+        where.type = { notIn: [...highPriorityTypes, ...mediumPriorityTypes] };
+      }
     }
+
+    console.log(
+      "Fetching notifications with where clause:",
+      JSON.stringify(where, null, 2),
+    );
 
     const notifications = await prisma.notification.findMany({
       where,
@@ -679,7 +778,7 @@ export async function dismissNotification(notificationId: string) {
 // Snooze notification
 export async function snoozeNotification(
   notificationId: string,
-  snoozeUntil: Date
+  snoozeUntil: Date,
 ) {
   try {
     const notification = await prisma.notification.update({
@@ -711,7 +810,7 @@ export async function getUnreadNotificationCount(userId: string) {
 // Helper function to determine if notification should be sent based on settings
 function shouldSendNotification(
   settings: any,
-  type: NotificationType
+  type: NotificationType,
 ): boolean {
   // Map notification types to settings fields
   const typeToSettingMap: Record<string, string> = {
@@ -799,7 +898,30 @@ function shouldSendNotification(
     return true;
   }
 
-  // Return the setting value, defaulting to true if not found
+  // Check parent category first
+  const categoryMap: Record<string, string> = {
+    project_activity: "project_activity_enabled",
+    collaboration: "collaboration_enabled",
+    ai_features: "ai_features_enabled",
+    account_billing: "account_billing_enabled",
+    product_updates: "product_updates_enabled",
+    writing_progress: "writing_progress_enabled",
+    research_updates: "research_updates_enabled",
+    document_management: "document_management_enabled",
+    collaboration_request: "collaboration_request_enabled",
+  };
+
+  const categoryPrefix = Object.keys(categoryMap).find((prefix) =>
+    settingField.startsWith(prefix),
+  );
+  if (categoryPrefix) {
+    const categoryField = categoryMap[categoryPrefix];
+    if (settings[categoryField] === false) {
+      return false; // The entire category is disabled
+    }
+  }
+
+  // Return the specific setting value, defaulting to true if not found
   return settings[settingField] !== false;
 }
 
@@ -807,7 +929,7 @@ function shouldSendNotification(
 function isTimeInRange(
   currentTime: string,
   startTime: string,
-  endTime: string
+  endTime: string,
 ): boolean {
   // Convert times to minutes since midnight
   const currentMinutes = timeToMinutes(currentTime);
@@ -835,7 +957,7 @@ async function sendEmailNotification(
   type: NotificationType,
   title: string,
   message: string,
-  data?: NotificationData
+  data?: NotificationData,
 ) {
   try {
     // Get user email
@@ -862,10 +984,10 @@ async function sendEmailNotification(
       user.full_name || "",
       title,
       message,
-      type
+      type,
     );
     console.log(
-      `Email notification sent to user ${userId}: ${title} - ${message}`
+      `Email notification sent to user ${userId}: ${title} - ${message}`,
     );
   } catch (error) {
     console.error("Error sending email notification:", error);
@@ -879,7 +1001,7 @@ async function sendSMSNotification(
   type: NotificationType,
   title: string,
   message: string,
-  data?: NotificationData
+  data?: NotificationData,
 ) {
   try {
     // Get user phone number
@@ -911,7 +1033,7 @@ async function sendPushNotification(
   type: NotificationType,
   title: string,
   message: string,
-  data?: NotificationData
+  data?: NotificationData,
 ) {
   try {
     // Convert all data values to strings for the push notification
@@ -931,7 +1053,7 @@ async function sendPushNotification(
       userId,
       title,
       message,
-      stringData
+      stringData,
     );
   } catch (error) {
     console.error("Error sending push notification:", error);
@@ -947,11 +1069,11 @@ export async function getUserNotificationSettings(userId: string) {
 // Update user notification settings
 export async function updateUserNotificationSettings(
   userId: string,
-  settingsData: any
+  settingsData: any,
 ) {
   return await NotificationSettingsService.updateUserNotificationSettings(
     userId,
-    settingsData
+    settingsData,
   );
 }
 
@@ -961,7 +1083,7 @@ export async function createBillingNotification(
   type: NotificationType,
   title: string,
   message: string,
-  data?: NotificationData
+  data?: NotificationData,
 ) {
   try {
     // Create the notification using the main notification function
@@ -970,7 +1092,7 @@ export async function createBillingNotification(
       type,
       title,
       message,
-      data
+      data,
     );
 
     // If notification was created successfully, return it
@@ -991,7 +1113,7 @@ export async function sendSubscriptionCreatedNotification(
   userId: string,
   planName: string,
   amount: number,
-  billingPeriod: string
+  billingPeriod: string,
 ) {
   const title = "Subscription Created";
   const message = `Your ${planName} subscription has been successfully created. You will be charged $${amount.toFixed(2)} ${billingPeriod === "year" ? "annually" : "monthly"}.`;
@@ -1001,7 +1123,7 @@ export async function sendSubscriptionCreatedNotification(
     "subscription_created",
     title,
     message,
-    { planName, amount, billingPeriod }
+    { planName, amount, billingPeriod },
   );
 }
 
@@ -1010,7 +1132,7 @@ export async function sendSubscriptionUpdatedNotification(
   userId: string,
   oldPlanName: string,
   newPlanName: string,
-  amount: number
+  amount: number,
 ) {
   const title = "Subscription Updated";
   const message = `Your subscription has been updated from ${oldPlanName} to ${newPlanName}. You will be charged $${amount.toFixed(2)} for the remainder of your billing cycle.`;
@@ -1020,7 +1142,7 @@ export async function sendSubscriptionUpdatedNotification(
     "subscription_updated",
     title,
     message,
-    { oldPlanName, newPlanName, amount }
+    { oldPlanName, newPlanName, amount },
   );
 }
 
@@ -1028,7 +1150,7 @@ export async function sendSubscriptionUpdatedNotification(
 export async function sendSubscriptionCancelledNotification(
   userId: string,
   planName: string,
-  endDate: string
+  endDate: string,
 ) {
   const title = "Subscription Cancelled";
   const message = `Your ${planName} subscription has been cancelled. You will retain access until ${new Date(endDate).toLocaleDateString()}.`;
@@ -1038,7 +1160,7 @@ export async function sendSubscriptionCancelledNotification(
     "subscription_cancelled",
     title,
     message,
-    { planName, endDate }
+    { planName, endDate },
   );
 }
 
@@ -1047,7 +1169,7 @@ export async function sendSubscriptionRenewedNotification(
   userId: string,
   planName: string,
   amount: number,
-  nextBillingDate: string
+  nextBillingDate: string,
 ) {
   const title = "Subscription Renewed";
   const message = `Your ${planName} subscription has been successfully renewed. You have been charged $${amount.toFixed(2)}. Your next billing date is ${new Date(nextBillingDate).toLocaleDateString()}.`;
@@ -1057,7 +1179,7 @@ export async function sendSubscriptionRenewedNotification(
     "subscription_renewed",
     title,
     message,
-    { planName, amount, nextBillingDate }
+    { planName, amount, nextBillingDate },
   );
 }
 
@@ -1066,7 +1188,7 @@ export async function sendSubscriptionExpiringNotification(
   userId: string,
   planName: string,
   expirationDate: string,
-  amount: number
+  amount: number,
 ) {
   const title = "Subscription Expiring Soon";
   const message = `Your ${planName} subscription is expiring on ${new Date(expirationDate).toLocaleDateString()}. You will be charged $${amount.toFixed(2)} to renew your subscription.`;
@@ -1076,7 +1198,7 @@ export async function sendSubscriptionExpiringNotification(
     "subscription_expiring",
     title,
     message,
-    { planName, expirationDate, amount }
+    { planName, expirationDate, amount },
   );
 }
 
@@ -1085,7 +1207,7 @@ export async function sendPaymentSuccessNotification(
   userId: string,
   amount: number,
   planName: string,
-  transactionId: string
+  transactionId: string,
 ) {
   const title = "Payment Successful";
   const message = `Your payment of $${amount.toFixed(2)} for ${planName} has been processed successfully. Transaction ID: ${transactionId}`;
@@ -1095,7 +1217,7 @@ export async function sendPaymentSuccessNotification(
     "payment_success",
     title,
     message,
-    { amount, planName, transactionId }
+    { amount, planName, transactionId },
   );
 }
 
@@ -1104,7 +1226,7 @@ export async function sendPaymentFailedNotification(
   userId: string,
   amount: number,
   planName: string,
-  errorMessage: string
+  errorMessage: string,
 ) {
   const title = "Payment Failed";
   const message = `Your payment of $${amount.toFixed(2)} for ${planName} has failed. Error: ${errorMessage}. Please update your payment method.`;
@@ -1114,7 +1236,7 @@ export async function sendPaymentFailedNotification(
     "payment_failed",
     title,
     message,
-    { amount, planName, errorMessage }
+    { amount, planName, errorMessage },
   );
 }
 
@@ -1123,7 +1245,7 @@ export async function sendPaymentRefundedNotification(
   userId: string,
   amount: number,
   planName: string,
-  transactionId: string
+  transactionId: string,
 ) {
   const title = "Payment Refunded";
   const message = `Your payment of $${amount.toFixed(2)} for ${planName} has been refunded. Transaction ID: ${transactionId}. The refund should appear in your account within 5-10 business days.`;
@@ -1133,7 +1255,7 @@ export async function sendPaymentRefundedNotification(
     "payment_refunded",
     title,
     message,
-    { amount, planName, transactionId }
+    { amount, planName, transactionId },
   );
 }
 
@@ -1143,7 +1265,7 @@ export async function sendInvoiceAvailableNotification(
   invoiceId: string,
   amount: number,
   dueDate: string,
-  downloadUrl: string
+  downloadUrl: string,
 ) {
   const title = "Invoice Available";
   const message = `Your invoice #${invoiceId} for $${amount.toFixed(2)} is now available. Due date: ${new Date(dueDate).toLocaleDateString()}.`;
@@ -1153,6 +1275,6 @@ export async function sendInvoiceAvailableNotification(
     "invoice_available",
     title,
     message,
-    { invoiceId, amount, dueDate, downloadUrl }
+    { invoiceId, amount, dueDate, downloadUrl },
   );
 }

@@ -15,25 +15,25 @@ import {
   AlignmentType,
   BorderStyle,
   TableOfContents,
-  StyleLevel,
   CommentRangeStart,
   CommentRangeEnd,
   CommentReference,
   BookmarkStart,
   BookmarkEnd,
   InternalHyperlink,
-  TextRun, // Added TextRun
+  TextRun,
 } from "docx";
 import { PublicationService } from "./publicationService";
+import { DocumentUploadService } from "./documentUploadService";
 import AdmZip from "adm-zip";
 
 // --- NUCLEAR OPTION: DEBUG FLAGS ---
 // Granular control to isolate the crash source.
 const DEBUG_FLAGS = {
-  SKIP_IMAGES: false,   // ✅ Re-enable Images
-  SKIP_TABLES: false,  // ✅ Keep Tables enabled
+  SKIP_IMAGES: false, // ✅ Re-enable Images
+  SKIP_TABLES: false, // ✅ Keep Tables enabled
   SKIP_COMMENTS: true, // ⚠️ Keep comments DISABLED
-  SKIP_COLUMNS: true,  // ⚠️ Keep columns DISABLED
+  SKIP_COLUMNS: true, // ⚠️ Keep columns DISABLED
   USE_PLACEHOLDER_IMAGES: false, // ✅ Disable placeholder, test REAL images
 };
 
@@ -85,7 +85,7 @@ export class PublicationExportService {
   static async exportPublicationReady(
     projectId: string,
     userId: string,
-    options: PublicationExportOptions
+    options: PublicationExportOptions,
   ): Promise<PublicationResult> {
     try {
       logger.info("Starting publication-ready export", {
@@ -95,16 +95,11 @@ export class PublicationExportService {
         includeTOC: options.includeTOC,
       });
 
-      // 1. Fetch project data
-      const project = await prisma.project.findFirst({
-        where: {
-          id: projectId,
-          user_id: userId,
-        },
-        include: {
-          citations: true,
-        },
-      });
+      // 1. Fetch project data using DocumentUploadService
+      const project = await DocumentUploadService.getProjectById(
+        projectId,
+        userId,
+      );
 
       if (!project) {
         throw new Error("Project not found or access denied");
@@ -117,7 +112,7 @@ export class PublicationExportService {
           project.content,
           project.title,
           project.word_count,
-          options.minWordCount || 0
+          options.minWordCount || 0,
         );
 
         if (!auditResults.isValid) {
@@ -190,7 +185,6 @@ export class PublicationExportService {
       }
       */
 
-
       // 5. Native TOC Generation (DISABLED IN WORD-SAFE MODE)
       let tocParagraphs: (Paragraph | TableOfContents)[] | undefined;
       if (options.includeTOC && !options.wordSafeMode) {
@@ -214,7 +208,9 @@ export class PublicationExportService {
           // REMOVED explicit page break paragraph here, rely on mergeDocumentComponents separator
         ];
       } else if (options.includeTOC && options.wordSafeMode) {
-        logger.info("TOC disabled in Word-safe mode to prevent section break issues");
+        logger.info(
+          "TOC disabled in Word-safe mode to prevent section break issues",
+        );
       }
 
       // 6. Convert body content to paragraphs (Collect comments here)
@@ -226,10 +222,10 @@ export class PublicationExportService {
         options.citationStyle || "apa",
         {
           ...options.citationPolicy,
-          wordSafeMode: options.wordSafeMode // Pass through for image/column processing
+          wordSafeMode: options.wordSafeMode, // Pass through for image/column processing
         },
         comments,
-        usedCitationIds
+        usedCitationIds,
       );
 
       // --- FIX: Filter empty paragraphs logic ---
@@ -240,8 +236,8 @@ export class PublicationExportService {
 
       const contentHeadings = new Set<string>();
       const extractHeadings = (node: any) => {
-        if (node.type === 'heading') {
-          const text = node.content?.map((c: any) => c.text).join('') || '';
+        if (node.type === "heading") {
+          const text = node.content?.map((c: any) => c.text).join("") || "";
           contentHeadings.add(text.toLowerCase().trim());
         }
         if (node.content) node.content.forEach(extractHeadings);
@@ -249,14 +245,19 @@ export class PublicationExportService {
       if (project.content) extractHeadings(project.content);
 
       const hasAbstract = contentHeadings.has("abstract");
-      const hasReferences = contentHeadings.has("references") || contentHeadings.has("bibliography") || contentHeadings.has("works cited");
+      const hasReferences =
+        contentHeadings.has("references") ||
+        contentHeadings.has("bibliography") ||
+        contentHeadings.has("works cited");
 
       // 4b. Re-Evaluate Abstract Page (since we moved logic down to check content)
-      // Note: We defined abstractParagraphs earlier (lines 149-170). 
+      // Note: We defined abstractParagraphs earlier (lines 149-170).
       // We should overwrite it if hasAbstract is true.
       if (hasAbstract && abstractParagraphs) {
         abstractParagraphs = undefined; // Suppress auto-generated abstract
-        logger.info("Suppressing auto-abstract because document already has Abstract heading");
+        logger.info(
+          "Suppressing auto-abstract because document already has Abstract heading",
+        );
       }
 
       // 7b. Generate Authorship Certificate
@@ -264,32 +265,44 @@ export class PublicationExportService {
       if (options.includeAuthorshipCertificate) {
         try {
           // Dynamic imports to avoid excessive boilerplate in this method if not needed
-          const { AuthorshipCertificateGenerator } = require("./authorshipCertificateGenerator");
-          const { AuthorshipReportService } = require("./authorshipReportService");
+          const {
+            AuthorshipCertificateGenerator,
+          } = require("./authorshipCertificateGenerator");
+          const {
+            AuthorshipReportService,
+          } = require("./authorshipReportService");
           const { config } = require("../config/env");
 
           const userMetadata = await PublicationService.getUserMetadata(userId);
-          const userName = options.metadata?.author || userMetadata.author || "Author";
+          const userName =
+            options.metadata?.author || userMetadata.author || "Author";
 
-          const stats = await AuthorshipReportService.getAuthorshipMetrics(project.id);
-          const verificationUrl = `${config.appUrl}/verify/${project.id}`;
-          const qrCodeDataUrl = await AuthorshipCertificateGenerator.generateQRCodeDataURL(verificationUrl);
-
-          const certHtml = await AuthorshipCertificateGenerator.generateCertificateHTML(
-            {
-              projectId: project.id,
-              userId: userId,
-              userName: userName,
-              projectTitle: project.title,
-              certificateType: "authorship",
-              includeQRCode: true,
-              verificationUrl: verificationUrl
-            },
-            stats,
-            qrCodeDataUrl
+          const stats = await AuthorshipReportService.getAuthorshipMetrics(
+            project.id,
           );
+          const verificationUrl = `${config.appUrl}/verify/${project.id}`;
+          const qrCodeDataUrl =
+            await AuthorshipCertificateGenerator.generateQRCodeDataURL(
+              verificationUrl,
+            );
 
-          const imageBuffer = await AuthorshipCertificateGenerator.generatePreviewImage(certHtml);
+          const certHtml =
+            await AuthorshipCertificateGenerator.generateCertificateHTML(
+              {
+                projectId: project.id,
+                userId: userId,
+                userName: userName,
+                projectTitle: project.title,
+                certificateType: "authorship",
+                includeQRCode: true,
+                verificationUrl: verificationUrl,
+              },
+              stats,
+              qrCodeDataUrl,
+            );
+
+          const imageBuffer =
+            await AuthorshipCertificateGenerator.generatePreviewImage(certHtml);
 
           certificateParagraphs.push(
             new Paragraph({
@@ -300,15 +313,17 @@ export class PublicationExportService {
                     width: 600,
                     height: 450,
                   },
-                  type: "png"
+                  type: "png",
                 }),
               ],
               pageBreakBefore: true,
-            })
+            }),
           );
-
         } catch (error) {
-          logger.error("Failed to append authorship certificate to DOCX", error);
+          logger.error(
+            "Failed to append authorship certificate to DOCX",
+            error,
+          );
         }
       }
 
@@ -317,8 +332,13 @@ export class PublicationExportService {
 
       let citationsToUse = project.citations || [];
       // Filter orphan references
-      if (options.citationPolicy?.excludeOrphanReferences && usedCitationIds.size > 0) {
-        citationsToUse = citationsToUse.filter((c: any) => usedCitationIds.has(c.id));
+      if (
+        options.citationPolicy?.excludeOrphanReferences &&
+        usedCitationIds.size > 0
+      ) {
+        citationsToUse = citationsToUse.filter((c: any) =>
+          usedCitationIds.has(c.id),
+        );
       }
 
       // Only generate References if not already in document
@@ -329,22 +349,29 @@ export class PublicationExportService {
             heading: HeadingLevel.HEADING_2,
             spacing: { before: 400, after: 200 },
             pageBreakBefore: true,
-          })
+          }),
         );
         citationsToUse.forEach((citation: any, index: number) => {
           referencesParagraphs.push(
             new Paragraph({
               children: [
-                new BookmarkStart((index + 2000) as any, `ref_${citation.id}` as any),
-                new TextRun(`${index + 1}. ${this.formatCitation(citation, options.citationStyle || "apa")}`),
-                new BookmarkEnd((index + 2000) as any)
+                new BookmarkStart(
+                  (index + 2000) as any,
+                  `ref_${citation.id}` as any,
+                ),
+                new TextRun(
+                  `${index + 1}. ${this.formatCitation(citation, options.citationStyle || "apa")}`,
+                ),
+                new BookmarkEnd((index + 2000) as any),
               ],
               spacing: { after: 100 },
-            })
+            }),
           );
         });
       } else if (hasReferences) {
-        logger.info("Suppressing auto-references because document already has References heading");
+        logger.info(
+          "Suppressing auto-references because document already has References heading",
+        );
       }
 
       // Append certificate (Certificate usually goes last)
@@ -368,9 +395,17 @@ export class PublicationExportService {
 
       const allParagraphs = PublicationService.mergeDocumentComponents({
         coverPage: coverPageParagraphs,
-        toc: tocParagraphs ? (abstractParagraphs ? [...abstractParagraphs, ...tocParagraphs] : tocParagraphs) : undefined,
-        body: (!options.includeTOC && abstractParagraphs) ? [...abstractParagraphs, ...bodyParagraphs] : bodyParagraphs,
-        references: referencesParagraphs.length > 0 ? referencesParagraphs : undefined,
+        toc: tocParagraphs
+          ? abstractParagraphs
+            ? [...abstractParagraphs, ...tocParagraphs]
+            : tocParagraphs
+          : undefined,
+        body:
+          !options.includeTOC && abstractParagraphs
+            ? [...abstractParagraphs, ...bodyParagraphs]
+            : bodyParagraphs,
+        references:
+          referencesParagraphs.length > 0 ? referencesParagraphs : undefined,
       });
 
       // 9. Create DOCX document with Template-Aware Styles
@@ -453,9 +488,12 @@ export class PublicationExportService {
           updateFields: true, // Forces TOC update on open
         },
         // Only include comments if they exist AND NOT STRICT MODE
-        comments: (comments.length > 0 && !DEBUG_FLAGS.SKIP_COMMENTS) ? {
-          children: comments,
-        } : undefined,
+        comments:
+          comments.length > 0 && !DEBUG_FLAGS.SKIP_COMMENTS
+            ? {
+                children: comments,
+              }
+            : undefined,
         sections: [
           {
             properties: {},
@@ -472,19 +510,25 @@ export class PublicationExportService {
       const validation = this.validateDOCXPackage(buffer);
 
       if (!validation.isValid) {
-        logger.error("❌ DOCX package validation FAILED - Word will reject this file!", {
-          errors: validation.errors,
-          warnings: validation.warnings
-        });
+        logger.error(
+          "❌ DOCX package validation FAILED - Word will reject this file!",
+          {
+            errors: validation.errors,
+            warnings: validation.warnings,
+          },
+        );
 
         // Log each error for debugging
         validation.errors.forEach((error, i) => {
           logger.error(`Validation Error ${i + 1}:`, { error });
         });
       } else {
-        logger.info("✅ DOCX package validation PASSED - file should open in Word", {
-          warningCount: validation.warnings.length
-        });
+        logger.info(
+          "✅ DOCX package validation PASSED - file should open in Word",
+          {
+            warningCount: validation.warnings.length,
+          },
+        );
       }
 
       logger.info("Publication-ready export complete", {
@@ -504,10 +548,10 @@ export class PublicationExportService {
         fileSize: buffer.length,
         auditResults: auditResults
           ? {
-            isValid: auditResults.isValid,
-            issues: auditResults.issues,
-            warnings: auditResults.warnings,
-          }
+              isValid: auditResults.isValid,
+              issues: auditResults.issues,
+              warnings: auditResults.warnings,
+            }
           : undefined,
       };
     } catch (error: any) {
@@ -517,7 +561,7 @@ export class PublicationExportService {
         error: error.message,
       });
       throw new Error(
-        `Failed to export publication-ready document: ${error.message}`
+        `Failed to export publication-ready document: ${error.message}`,
       );
     }
   }
@@ -535,26 +579,31 @@ export class PublicationExportService {
    * Validate and fetch image - CRITICAL for Word compatibility
    * This method validates images BEFORE creating ImageRun to prevent dangling relationships
    */
-  private static async validateAndFetchImage(src: string, attrs?: any): Promise<{
+  private static async validateAndFetchImage(
+    src: string,
+    attrs?: any,
+  ): Promise<{
     buffer: Buffer;
     format: "png" | "jpg" | "gif" | "bmp";
     dimensions: { width: number; height: number };
   } | null> {
-
     // --- DEBUG: USE PLACEHOLDER IMAGE ---
     if (DEBUG_FLAGS.USE_PLACEHOLDER_IMAGES) {
       // 1x1 JPEG (Safer than PNG for Word/DOCX compat)
-      const base64 = "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAQAAAAAAAAAAAAAAAAAAAAH/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwB/gA==";
+      const base64 =
+        "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAQAAAAAAAAAAAAAAAAAAAAH/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwB/gA==";
       return {
         buffer: Buffer.from(base64, "base64"),
         format: "jpeg" as any, // 🛑 CRITICAL FIX: Word demands "jpeg"
-        dimensions: { width: 100, height: 100 }
+        dimensions: { width: 100, height: 100 },
       };
     }
 
     // Skip unsupported sources FIRST
     if (src.startsWith("blob:")) {
-      logger.warn("Skipping blob URL in export - cannot resolve server-side", { src });
+      logger.warn("Skipping blob URL in export - cannot resolve server-side", {
+        src,
+      });
       return null;
     }
 
@@ -574,14 +623,17 @@ export class PublicationExportService {
       // HTTP URL - fetch
       try {
         const response = await fetch(src, {
-          headers: { 'User-Agent': 'ColabWize-Export-Service' }
+          headers: { "User-Agent": "ColabWize-Export-Service" },
         });
 
         if (response.ok) {
           const arrayBuffer = await response.arrayBuffer();
           data = Buffer.from(arrayBuffer);
         } else {
-          logger.warn("Failed to fetch image", { status: response.status, src });
+          logger.warn("Failed to fetch image", {
+            status: response.status,
+            src,
+          });
           return null;
         }
       } catch (e) {
@@ -605,7 +657,10 @@ export class PublicationExportService {
           return null;
         }
       } catch (err) {
-        logger.warn("Error fetching relative image URL", { error: err, fullUrl });
+        logger.warn("Error fetching relative image URL", {
+          error: err,
+          fullUrl,
+        });
         return null;
       }
     }
@@ -620,34 +675,51 @@ export class PublicationExportService {
     let detectedType: "png" | "jpg" | "gif" | "bmp" | null = null;
 
     // Check for PNG: 89 50 4E 47
-    if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47) {
+    if (
+      data[0] === 0x89 &&
+      data[1] === 0x50 &&
+      data[2] === 0x4e &&
+      data[3] === 0x47
+    ) {
       detectedType = "png";
     }
     // Check for JPEG: FF D8 FF
-    else if (data[0] === 0xFF && data[1] === 0xD8 && data[2] === 0xFF) {
+    else if (data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
       detectedType = "jpg";
     }
     // Check for GIF: 47 49 46 38
-    else if (data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x38) {
+    else if (
+      data[0] === 0x47 &&
+      data[1] === 0x49 &&
+      data[2] === 0x46 &&
+      data[3] === 0x38
+    ) {
       detectedType = "gif";
     }
     // Check for BMP: 42 4D
-    else if (data[0] === 0x42 && data[1] === 0x4D) {
+    else if (data[0] === 0x42 && data[1] === 0x4d) {
       detectedType = "bmp";
     }
 
     if (!detectedType) {
       logger.warn("Invalid or unsupported image format detected", {
-        firstBytes: data.subarray(0, 8).toString('hex'),
-        src
+        firstBytes: data.subarray(0, 8).toString("hex"),
+        src,
       });
       return null;
     }
 
     // --- HTML/TEXT CHECK (Prevent 404 pages from being embedded) ---
-    const snippet = data.subarray(0, 100).toString('utf8').toLowerCase();
-    if (snippet.includes("<!doctype") || snippet.includes("<html") || snippet.includes("<body")) {
-      logger.warn("Image buffer contains HTML/text, likely a 404 page. Skipping to prevent DOCX corruption.", { src });
+    const snippet = data.subarray(0, 100).toString("utf8").toLowerCase();
+    if (
+      snippet.includes("<!doctype") ||
+      snippet.includes("<html") ||
+      snippet.includes("<body")
+    ) {
+      logger.warn(
+        "Image buffer contains HTML/text, likely a 404 page. Skipping to prevent DOCX corruption.",
+        { src },
+      );
       return null;
     }
 
@@ -664,7 +736,7 @@ export class PublicationExportService {
     logger.debug("Image validated successfully", {
       format: detectedType,
       size: data.length,
-      dimensions: { width: userWidth || 400, height: userHeight || 300 }
+      dimensions: { width: userWidth || 400, height: userHeight || 300 },
     });
 
     return {
@@ -672,8 +744,8 @@ export class PublicationExportService {
       format: detectedType,
       dimensions: {
         width: userWidth || 400,
-        height: userHeight || 300
-      }
+        height: userHeight || 300,
+      },
     };
   }
 
@@ -694,14 +766,14 @@ export class PublicationExportService {
       const entries = zip.getEntries();
 
       logger.debug("Validating DOCX package structure", {
-        totalEntries: entries.length
+        totalEntries: entries.length,
       });
 
       // 1. Check for required files
       const requiredFiles = [
-        'word/document.xml',
-        '[Content_Types].xml',
-        '_rels/.rels'
+        "word/document.xml",
+        "[Content_Types].xml",
+        "_rels/.rels",
       ];
 
       for (const file of requiredFiles) {
@@ -712,9 +784,9 @@ export class PublicationExportService {
       }
 
       // 2. Check for dangling relationships
-      const relsEntry = zip.getEntry('word/_rels/document.xml.rels');
+      const relsEntry = zip.getEntry("word/_rels/document.xml.rels");
       if (relsEntry) {
-        const relsXml = relsEntry.getData().toString('utf8');
+        const relsXml = relsEntry.getData().toString("utf8");
 
         // Extract all Target attributes from relationships
         const relationshipMatches = relsXml.matchAll(/Target="([^"]+)"/g);
@@ -723,24 +795,32 @@ export class PublicationExportService {
           const target = match[1];
 
           // Skip external  relationships (http://, mailto:, etc.)
-          if (target.startsWith('http://') || target.startsWith('https://') || target.startsWith('mailto:')) {
+          if (
+            target.startsWith("http://") ||
+            target.startsWith("https://") ||
+            target.startsWith("mailto:")
+          ) {
             continue;
           }
 
           // Build the full path to check
-          const targetPath = target.startsWith('/') ? target.substring(1) : `word/${target}`;
+          const targetPath = target.startsWith("/")
+            ? target.substring(1)
+            : `word/${target}`;
 
           // Check if target file exists in ZIP
           const targetEntry = zip.getEntry(targetPath);
           if (!targetEntry) {
-            errors.push(`Dangling relationship: ${target} → ${targetPath} does not exist in package`);
+            errors.push(
+              `Dangling relationship: ${target} → ${targetPath} does not exist in package`,
+            );
           }
         }
       }
 
       // 3. Check media files are non-zero (skip directory entries)
-      const mediaEntries = entries.filter((e: any) =>
-        e.entryName.startsWith('word/media/') && !e.isDirectory
+      const mediaEntries = entries.filter(
+        (e: any) => e.entryName.startsWith("word/media/") && !e.isDirectory,
       );
       for (const entry of mediaEntries) {
         if (entry.header.size === 0) {
@@ -749,15 +829,17 @@ export class PublicationExportService {
       }
 
       // 4. Check Content_Types.xml
-      const contentTypesEntry = zip.getEntry('[Content_Types].xml');
+      const contentTypesEntry = zip.getEntry("[Content_Types].xml");
       if (contentTypesEntry) {
-        const contentTypesXml = contentTypesEntry.getData().toString('utf8');
+        const contentTypesXml = contentTypesEntry.getData().toString("utf8");
 
         // Check that all media files have content type entries
         for (const mediaEntry of mediaEntries) {
-          const ext = mediaEntry.entryName.split('.').pop()?.toLowerCase();
+          const ext = mediaEntry.entryName.split(".").pop()?.toLowerCase();
           if (ext && !contentTypesXml.includes(`Extension="${ext}"`)) {
-            warnings.push(`Media file ${mediaEntry.entryName} may not have content type registered`);
+            warnings.push(
+              `Media file ${mediaEntry.entryName} may not have content type registered`,
+            );
           }
         }
       }
@@ -765,9 +847,8 @@ export class PublicationExportService {
       logger.info("DOCX package validation complete", {
         isValid: errors.length === 0,
         errorCount: errors.length,
-        warningCount: warnings.length
+        warningCount: warnings.length,
       });
-
     } catch (error: any) {
       errors.push(`Failed to parse DOCX package: ${error.message}`);
     }
@@ -775,7 +856,7 @@ export class PublicationExportService {
     return {
       isValid: errors.length === 0,
       errors,
-      warnings
+      warnings,
     };
   }
 
@@ -788,7 +869,7 @@ export class PublicationExportService {
     style: string = "apa",
     citationPolicy?: any,
     commentsRef: any[] = [],
-    usedCitationIds?: Set<string>
+    usedCitationIds?: Set<string>,
   ): Promise<(Paragraph | Table)[]> {
     const paragraphs: (Paragraph | Table)[] = [];
 
@@ -813,15 +894,17 @@ export class PublicationExportService {
     for (const node of content.content) {
       // FIX: Strip empty paragraphs to prevent blank pages
       if (node.type === "paragraph") {
-        const hasContent = node.content && node.content.some((c: any) => {
-          // Keep if text exists
-          if (c.text && c.text.trim().length > 0) return true;
-          // Keep if it contains non-text nodes like images, mentions, or hardBreaks
-          // Note: hardBreak might be considered "whitespace" but it's explicit formatting.
-          // We'll be conservative and keep anything that isn't just empty text.
-          if (c.type !== 'text') return true;
-          return false;
-        });
+        const hasContent =
+          node.content &&
+          node.content.some((c: any) => {
+            // Keep if text exists
+            if (c.text && c.text.trim().length > 0) return true;
+            // Keep if it contains non-text nodes like images, mentions, or hardBreaks
+            // Note: hardBreak might be considered "whitespace" but it's explicit formatting.
+            // We'll be conservative and keep anything that isn't just empty text.
+            if (c.type !== "text") return true;
+            return false;
+          });
 
         // If content array is empty or all elements are empty text nodes, skip.
         if (!hasContent) {
@@ -830,15 +913,29 @@ export class PublicationExportService {
       }
 
       if (node.type === "paragraph") {
-        const children = this.extractTextRunsFromNode(node, citations, style, citationPolicy, commentsRef, usedCitationIds);
+        const children = this.extractTextRunsFromNode(
+          node,
+          citations,
+          style,
+          citationPolicy,
+          commentsRef,
+          usedCitationIds,
+        );
         paragraphs.push(
           new Paragraph({
             children: children,
             spacing: { line: 360, after: 140 }, // 1.5 line spacing + 7pt after
-          })
+          }),
         );
       } else if (node.type === "heading") {
-        const children = this.extractTextRunsFromNode(node, citations, style, citationPolicy, commentsRef, usedCitationIds);
+        const children = this.extractTextRunsFromNode(
+          node,
+          citations,
+          style,
+          citationPolicy,
+          commentsRef,
+          usedCitationIds,
+        );
         const level = node.attrs?.level || 1;
         // Map number to HeadingLevel enum
         const headingLevels: Record<number, any> = {
@@ -854,7 +951,7 @@ export class PublicationExportService {
             children: children,
             heading: headingLevels[level] || HeadingLevel.HEADING_1,
             spacing: { before: 240, after: 200 }, // Add spacing before/after headings
-          })
+          }),
         );
       } else if (node.type === "bulletList" || node.type === "orderedList") {
         if (node.content) {
@@ -863,29 +960,44 @@ export class PublicationExportService {
               for (const childNode of listItem.content) {
                 // Simplification: Assume list items contain paragraphs
                 if (childNode.type === "paragraph") {
-                  const children = this.extractTextRunsFromNode(childNode, citations, style, citationPolicy, commentsRef, usedCitationIds);
+                  const children = this.extractTextRunsFromNode(
+                    childNode,
+                    citations,
+                    style,
+                    citationPolicy,
+                    commentsRef,
+                    usedCitationIds,
+                  );
                   paragraphs.push(
                     new Paragraph({
                       children: children,
                       bullet: { level: 0 }, // Simple bullet level
                       spacing: { line: 360 },
-                    })
+                    }),
                   );
                 }
               }
             }
           }
         }
-      } else if ((node.type === "image" || node.type === "imageExtension") && node.attrs?.src) {
+      } else if (
+        (node.type === "image" || node.type === "imageExtension") &&
+        node.attrs?.src
+      ) {
         // STRICT MODE: SKIP ALL IMAGES
         if (DEBUG_FLAGS.SKIP_IMAGES) {
           logger.debug("DEBUG MODE: Skipping image node");
-          paragraphs.push(new Paragraph({ text: "[IMAGE REMOVED IN DEBUG MODE]" }));
+          paragraphs.push(
+            new Paragraph({ text: "[IMAGE REMOVED IN DEBUG MODE]" }),
+          );
           continue;
         }
 
         // CRITICAL: Validate image BEFORE creating ImageRun to prevent dangling relationships
-        const validatedImage = await this.validateAndFetchImage(node.attrs.src, node.attrs);
+        const validatedImage = await this.validateAndFetchImage(
+          node.attrs.src,
+          node.attrs,
+        );
 
         if (validatedImage === null) {
           // Image validation failed - don't create paragraph or ImageRun at all
@@ -901,19 +1013,26 @@ export class PublicationExportService {
               new ImageRun({
                 data: validatedImage.buffer,
                 transformation: validatedImage.dimensions,
-                type: validatedImage.format === "jpg" ? "jpeg" as any : validatedImage.format as any, // 🛑 CRITICAL FIX
+                type:
+                  validatedImage.format === "jpg"
+                    ? ("jpeg" as any)
+                    : (validatedImage.format as any), // 🛑 CRITICAL FIX
                 // altText: node.attrs.alt || "Image", // REMOVED for safety
               }),
             ],
             spacing: { before: 240, after: 240 },
-            alignment: node.attrs.align === "center"
-              ? AlignmentType.CENTER
-              : node.attrs.align === "right"
-                ? AlignmentType.RIGHT
-                : AlignmentType.LEFT,
-          })
+            alignment:
+              node.attrs.align === "center"
+                ? AlignmentType.CENTER
+                : node.attrs.align === "right"
+                  ? AlignmentType.RIGHT
+                  : AlignmentType.LEFT,
+          }),
         );
-      } else if ((node.type === "columns" || node.type === "columnLayout") && !citationPolicy?.wordSafeMode) {
+      } else if (
+        (node.type === "columns" || node.type === "columnLayout") &&
+        !citationPolicy?.wordSafeMode
+      ) {
         // STRICT MODE: SKIP COLUMNS
         if (DEBUG_FLAGS.SKIP_COLUMNS) {
           // SAFETY FALLBACK: Even if columns are disabled, output their CONTENT linearly
@@ -925,11 +1044,25 @@ export class PublicationExportService {
             for (const child of node.content) {
               if (child.type === "column") {
                 // If nested column structure, unwrap content
-                const columnContent = await this.convertTipTapToDOCXParagraphs(child, citations, style, citationPolicy, commentsRef, usedCitationIds);
+                const columnContent = await this.convertTipTapToDOCXParagraphs(
+                  child,
+                  citations,
+                  style,
+                  citationPolicy,
+                  commentsRef,
+                  usedCitationIds,
+                );
                 paragraphs.push(...columnContent);
               } else {
                 // If flat content, just process it
-                const itemContent = await this.convertTipTapToDOCXParagraphs({ content: [child] }, citations, style, citationPolicy, commentsRef, usedCitationIds);
+                const itemContent = await this.convertTipTapToDOCXParagraphs(
+                  { content: [child] },
+                  citations,
+                  style,
+                  citationPolicy,
+                  commentsRef,
+                  usedCitationIds,
+                );
                 paragraphs.push(...itemContent);
               }
             }
@@ -942,21 +1075,41 @@ export class PublicationExportService {
 
         if (node.content && node.content.length > 0) {
           const tableRows: TableRow[] = [];
-          const isNestedStructure = node.content.some((c: any) => c.type === "column");
+          const isNestedStructure = node.content.some(
+            (c: any) => c.type === "column",
+          );
 
           if (isNestedStructure) {
             // Old nested logic
             const columnCells = [];
             for (const column of node.content) {
               if (column.type === "column") {
-                const columnParagraphs = await this.convertTipTapToDOCXParagraphs(column, citations, style, citationPolicy, commentsRef);
+                const columnParagraphs =
+                  await this.convertTipTapToDOCXParagraphs(
+                    column,
+                    citations,
+                    style,
+                    citationPolicy,
+                    commentsRef,
+                  );
                 columnCells.push(
                   new TableCell({
-                    children: columnParagraphs.length > 0 ? columnParagraphs : [new Paragraph({ text: "" })],
-                    borders: { top: { style: "none" }, bottom: { style: "none" }, left: { style: "none" }, right: { style: "none" } },
-                    width: { size: Math.floor(5000 / numColumns), type: WidthType.PERCENTAGE },
+                    children:
+                      columnParagraphs.length > 0
+                        ? columnParagraphs
+                        : [new Paragraph({ text: "" })],
+                    borders: {
+                      top: { style: "none" },
+                      bottom: { style: "none" },
+                      left: { style: "none" },
+                      right: { style: "none" },
+                    },
+                    width: {
+                      size: Math.floor(5000 / numColumns),
+                      type: WidthType.PERCENTAGE,
+                    },
                     verticalAlign: VerticalAlign.TOP,
-                  })
+                  }),
                 );
               }
             }
@@ -971,15 +1124,29 @@ export class PublicationExportService {
 
             for (let i = 0; i < items.length; i++) {
               const item = items[i];
-              const cellParagraphs = await this.convertTipTapToDOCXParagraphs({ content: [item] }, citations, style, citationPolicy, commentsRef);
+              const cellParagraphs = await this.convertTipTapToDOCXParagraphs(
+                { content: [item] },
+                citations,
+                style,
+                citationPolicy,
+                commentsRef,
+              );
 
               currentRowCells.push(
                 new TableCell({
-                  children: cellParagraphs.length > 0 ? cellParagraphs : [new Paragraph({ text: "" })],
-                  borders: { top: { style: "none" }, bottom: { style: "none" }, left: { style: "none" }, right: { style: "none" } },
+                  children:
+                    cellParagraphs.length > 0
+                      ? cellParagraphs
+                      : [new Paragraph({ text: "" })],
+                  borders: {
+                    top: { style: "none" },
+                    bottom: { style: "none" },
+                    left: { style: "none" },
+                    right: { style: "none" },
+                  },
                   width: { size: colWidth, type: WidthType.PERCENTAGE },
                   verticalAlign: VerticalAlign.TOP,
-                })
+                }),
               );
 
               if (currentRowCells.length === numColumns) {
@@ -993,9 +1160,14 @@ export class PublicationExportService {
                 currentRowCells.push(
                   new TableCell({
                     children: [new Paragraph({ text: "" })],
-                    borders: { top: { style: "none" }, bottom: { style: "none" }, left: { style: "none" }, right: { style: "none" } },
+                    borders: {
+                      top: { style: "none" },
+                      bottom: { style: "none" },
+                      left: { style: "none" },
+                      right: { style: "none" },
+                    },
                     width: { size: colWidth, type: WidthType.PERCENTAGE },
-                  })
+                  }),
                 );
               }
               tableRows.push(new TableRow({ children: currentRowCells }));
@@ -1007,8 +1179,15 @@ export class PublicationExportService {
               new Table({
                 rows: tableRows,
                 width: { size: 5000, type: WidthType.PERCENTAGE },
-                borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE } },
-              })
+                borders: {
+                  top: { style: BorderStyle.NONE },
+                  bottom: { style: BorderStyle.NONE },
+                  left: { style: BorderStyle.NONE },
+                  right: { style: BorderStyle.NONE },
+                  insideHorizontal: { style: BorderStyle.NONE },
+                  insideVertical: { style: BorderStyle.NONE },
+                },
+              }),
             );
           }
         }
@@ -1016,7 +1195,9 @@ export class PublicationExportService {
         // STRICT MODE: SKIP TABLES
         if (DEBUG_FLAGS.SKIP_TABLES) {
           logger.debug("DEBUG MODE: Skipping table node");
-          paragraphs.push(new Paragraph({ text: "[TABLE REMOVED IN DEBUG MODE]" }));
+          paragraphs.push(
+            new Paragraph({ text: "[TABLE REMOVED IN DEBUG MODE]" }),
+          );
           continue;
         }
 
@@ -1035,17 +1216,24 @@ export class PublicationExportService {
                   const isHeader = cell.type === "tableHeader";
                   const cellParagraphs = cell.content
                     ? cell.content.map((p: any) => {
-                      if (p.type === "paragraph") {
-                        const children = this.extractTextRunsFromNode(p, citations, style, citationPolicy, commentsRef, usedCitationIds);
-                        return new Paragraph({
-                          children: children,
-                          alignment: isHeader
-                            ? AlignmentType.CENTER
-                            : AlignmentType.LEFT,
-                        });
-                      }
-                      return new Paragraph({ text: "" });
-                    })
+                        if (p.type === "paragraph") {
+                          const children = this.extractTextRunsFromNode(
+                            p,
+                            citations,
+                            style,
+                            citationPolicy,
+                            commentsRef,
+                            usedCitationIds,
+                          );
+                          return new Paragraph({
+                            children: children,
+                            alignment: isHeader
+                              ? AlignmentType.CENTER
+                              : AlignmentType.LEFT,
+                          });
+                        }
+                        return new Paragraph({ text: "" });
+                      })
                     : [new Paragraph({ text: "" })];
 
                   cells.push(
@@ -1057,9 +1245,9 @@ export class PublicationExportService {
                       },
                       shading: isHeader
                         ? {
-                          fill: "D9D9D9",
-                          color: "auto",
-                        }
+                            fill: "D9D9D9",
+                            color: "auto",
+                          }
                         : undefined,
                       margins: {
                         top: 100,
@@ -1068,7 +1256,7 @@ export class PublicationExportService {
                         right: 100,
                       },
                       verticalAlign: VerticalAlign.CENTER,
-                    })
+                    }),
                   );
                 }
               }
@@ -1087,18 +1275,30 @@ export class PublicationExportService {
                 size: 5000,
                 type: WidthType.PERCENTAGE,
               },
-            })
+            }),
           );
         }
       } else if (node.type === "figure") {
         // Handle figure (container)
-        const figureParagraphs = await this.convertTipTapToDOCXParagraphs(node, citations, style, citationPolicy, commentsRef, usedCitationIds);
+        const figureParagraphs = await this.convertTipTapToDOCXParagraphs(
+          node,
+          citations,
+          style,
+          citationPolicy,
+          commentsRef,
+          usedCitationIds,
+        );
         paragraphs.push(...figureParagraphs);
       } else if (node.type === "figcaption") {
         // Handle figcaption
-        const children = this.extractTextRunsFromNode(node, citations, style, citationPolicy, commentsRef, usedCitationIds);
-
-
+        const children = this.extractTextRunsFromNode(
+          node,
+          citations,
+          style,
+          citationPolicy,
+          commentsRef,
+          usedCitationIds,
+        );
 
         paragraphs.push(
           new Paragraph({
@@ -1106,7 +1306,7 @@ export class PublicationExportService {
             alignment: AlignmentType.CENTER,
             spacing: { before: 100, after: 200 },
             style: "Caption", // Assuming standard Word style or we can set italics manually
-          })
+          }),
         );
       } else {
         // Fallback for unknown node types or debugging
@@ -1128,7 +1328,7 @@ export class PublicationExportService {
     style: string = "apa",
     citationPolicy?: any,
     commentsRef: any[] = [],
-    usedCitationIds?: Set<string>
+    usedCitationIds?: Set<string>,
   ): any[] {
     const { TextRun } = require("docx");
     const runs: any[] = [];
@@ -1137,14 +1337,20 @@ export class PublicationExportService {
     let violationCommentId: number | null = null;
 
     // If citationPolicy.markUnsupportedClaims is true and we have violations:
-    if (citationPolicy?.markUnsupportedClaims && citationPolicy.violations && node.content) {
+    if (
+      citationPolicy?.markUnsupportedClaims &&
+      citationPolicy.violations &&
+      node.content
+    ) {
       // Collect text content of this node for matching
-      const fullText = node.content.map((c: any) => PublicationExportService.sanitizeText(c.text || "")).join("");
+      const fullText = node.content
+        .map((c: any) => PublicationExportService.sanitizeText(c.text || ""))
+        .join("");
 
       // Find if this text contains any violation context
       // Matching logic: simple substring check or fuzzy match on start
-      const violation = citationPolicy.violations.find((v: any) =>
-        v.context && fullText.includes(v.context.substring(0, 50))
+      const violation = citationPolicy.violations.find(
+        (v: any) => v.context && fullText.includes(v.context.substring(0, 50)),
       );
 
       if (violation) {
@@ -1157,7 +1363,9 @@ export class PublicationExportService {
             new Paragraph({
               children: [
                 new TextRun({
-                  text: PublicationExportService.sanitizeText(`[${violation.ruleId}] ${violation.message || "Potential citation issue detected."}`),
+                  text: PublicationExportService.sanitizeText(
+                    `[${violation.ruleId}] ${violation.message || "Potential citation issue detected."}`,
+                  ),
                   bold: true,
                 }),
               ],
@@ -1173,7 +1381,9 @@ export class PublicationExportService {
     if (node.content) {
       node.content.forEach((child: any) => {
         if (child.type === "text") {
-          let textContent = PublicationExportService.sanitizeText(child.text || "");
+          let textContent = PublicationExportService.sanitizeText(
+            child.text || "",
+          );
 
           // Normalize line endings and handle unicode paragraph/line separators
           textContent = textContent
@@ -1213,11 +1423,13 @@ export class PublicationExportService {
         } else if (child.type === "citation") {
           // Handle inline citation node (Semantic)
           const citationId = child.attrs?.citationId;
-          const fallback = PublicationExportService.sanitizeText(child.attrs?.fallback || "[Citation]");
+          const fallback = PublicationExportService.sanitizeText(
+            child.attrs?.fallback || "[Citation]",
+          );
 
           if (citationId && citations.length > 0) {
             if (usedCitationIds) usedCitationIds.add(citationId);
-            const citationData = citations.find(c => c.id === citationId);
+            const citationData = citations.find((c) => c.id === citationId);
             if (citationData) {
               const inText = this.formatInTextCitation(citationData, style);
               // Wrap in InternalHyperlink to make it clickable
@@ -1232,20 +1444,22 @@ export class PublicationExportService {
                       // Standard academic papers shouldn't have blue links usually, but digital ones do.
                       // Let's omit style to keep it looking like text, OR use a custom style.
                       // Actually, for "clickable" to be obvious, it usually needs style.
-                      // But for academic, let's just make it a link without forcing blue if possible, 
+                      // But for academic, let's just make it a link without forcing blue if possible,
                       // actually InternalHyperlink without style might just be a link area.
-                      // Let's try without style first to preserve aesthetics? 
+                      // Let's try without style first to preserve aesthetics?
                       // No, user complained it's "unclickable". Visual feedback is good.
                       // Let's add the standard Hyperlink style but maybe we can customize it later.
                       // For now, let's NOT add 'Hyperlink' style ID to avoid blue-ing everything if they didn't ask for it.
-                      // Just the functionality. 
+                      // Just the functionality.
                       // Wait, if I don't style it, they won't know it's clickable.
                       // I'll stick to NO style ID for now to match print look, but functionality will be there.
                       bold: child.marks?.some((m: any) => m.type === "bold"),
-                      italics: child.marks?.some((m: any) => m.type === "italic")
-                    })
-                  ]
-                })
+                      italics: child.marks?.some(
+                        (m: any) => m.type === "italic",
+                      ),
+                    }),
+                  ],
+                }),
               );
             } else {
               runs.push(new TextRun({ text: fallback, color: "FF0000" })); // Red for missing ref?
@@ -1270,18 +1484,26 @@ export class PublicationExportService {
    * Format in-text citation (e.g., "(Smith, 2023)")
    */
   private static formatInTextCitation(citation: any, style: string): string {
-    const authors = Array.isArray(citation.authors) ? citation.authors : [citation.author || "Unknown"];
+    const authors = Array.isArray(citation.authors)
+      ? citation.authors
+      : [citation.author || "Unknown"];
     const year = citation.year || "n.d.";
 
     // Get last name of first author
     const firstAuthor = authors[0] || "Unknown";
-    let authorText = typeof firstAuthor === 'string' ? firstAuthor : (firstAuthor.lastName || firstAuthor.firstName || "Unknown");
+    let authorText =
+      typeof firstAuthor === "string"
+        ? firstAuthor
+        : firstAuthor.lastName || firstAuthor.firstName || "Unknown";
 
     if (authors.length > 2) {
       authorText += " et al.";
     } else if (authors.length === 2) {
       const secondAuthor = authors[1];
-      const secondAuthorText = typeof secondAuthor === 'string' ? secondAuthor : (secondAuthor.lastName || "Unknown");
+      const secondAuthorText =
+        typeof secondAuthor === "string"
+          ? secondAuthor
+          : secondAuthor.lastName || "Unknown";
       authorText += ` & ${secondAuthorText}`;
     }
 
@@ -1290,7 +1512,7 @@ export class PublicationExportService {
     } else if (style === "mla") {
       return `(${authorText})`;
     } else if (style === "ieee") {
-      // In a real IEEE export, we would need the citation index. 
+      // In a real IEEE export, we would need the citation index.
       // For now, let's use the author/year format as a readable placeholder until we implement ordering.
       return `[${authorText}, ${year}]`;
     }

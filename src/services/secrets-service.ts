@@ -21,7 +21,7 @@ export class SecretsService {
         const prismaClient = await initializePrisma();
         const result = (await prismaClient.$queryRawUnsafe(
           `SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = $1 LIMIT 1`,
-          name
+          name,
         )) as any[];
 
         if (result && result.length > 0 && result[0].decrypted_secret) {
@@ -57,7 +57,7 @@ export class SecretsService {
     const apiKey = await this.getSecret("RESEND_API_KEY");
     if (!apiKey) {
       logger.error(
-        "RESEND_API_KEY not configured - email sending will not work"
+        "RESEND_API_KEY not configured - email sending will not work",
       );
     }
     return apiKey;
@@ -75,7 +75,7 @@ export class SecretsService {
 
     if (!url || !anonKey) {
       logger.error(
-        "Supabase configuration not fully set - database operations will fail"
+        "Supabase configuration not fully set - database operations will fail",
       );
     }
 
@@ -110,7 +110,7 @@ export class SecretsService {
   // Get additional compliance emails
   static async getAdditionalComplianceEmails(): Promise<string[]> {
     const additionalEmailsStr = await this.getSecret(
-      "COMPLIANCE_ADDITIONAL_EMAILS"
+      "COMPLIANCE_ADDITIONAL_EMAILS",
     );
     return additionalEmailsStr ? additionalEmailsStr.split(",") : [];
   }
@@ -164,10 +164,10 @@ export class SecretsService {
   static async getLemonSqueezyConfig(): Promise<{
     storeId: string | null;
     webhookSecret: string | null;
-    studentProMonthlyVariantId: string | null;
-    studentProAnnualVariantId: string | null;
-    researcherMonthlyVariantId: string | null;
-    researcherAnnualVariantId: string | null;
+    plusMonthlyVariantId: string | null;
+    plusAnnualVariantId: string | null;
+    premiumMonthlyVariantId: string | null;
+    premiumAnnualVariantId: string | null;
     onetimeVariantId: string | null;
     institutionalVariantId: string | null;
     credits10VariantId: string | null;
@@ -177,36 +177,36 @@ export class SecretsService {
     const config = {
       storeId: await this.getSecret("LEMONSQUEEZY_STORE_ID"),
       webhookSecret: await this.getSecret("LEMONSQUEEZY_WEBHOOK_SECRET"),
-      studentProMonthlyVariantId: await this.getSecret(
-        "LEMONSQUEEZY_STUDENT_PRO_MONTHLY_VARIANT_ID"
+      plusMonthlyVariantId: await this.getSecret(
+        "LEMONSQUEEZY_PLUS_MONTHLY_VARIANT_ID",
       ),
-      studentProAnnualVariantId: await this.getSecret(
-        "LEMONSQUEEZY_STUDENT_PRO_ANNUAL_VARIANT_ID"
+      plusAnnualVariantId: await this.getSecret(
+        "LEMONSQUEEZY_PLUS_ANNUAL_VARIANT_ID",
       ),
-      researcherMonthlyVariantId: await this.getSecret(
-        "LEMONSQUEEZY_RESEARCHER_MONTHLY_VARIANT_ID"
+      premiumMonthlyVariantId: await this.getSecret(
+        "LEMONSQUEEZY_PREMIUM_MONTHLY_VARIANT_ID",
       ),
-      researcherAnnualVariantId: await this.getSecret(
-        "LEMONSQUEEZY_RESEARCHER_ANNUAL_VARIANT_ID"
+      premiumAnnualVariantId: await this.getSecret(
+        "LEMONSQUEEZY_PREMIUM_ANNUAL_VARIANT_ID",
       ),
       onetimeVariantId: await this.getSecret("LEMONSQUEEZY_ONETIME_VARIANT_ID"),
       institutionalVariantId: await this.getSecret(
-        "LEMONSQUEEZY_INSTITUTIONAL_VARIANT_ID"
+        "LEMONSQUEEZY_INSTITUTIONAL_VARIANT_ID",
       ),
       credits10VariantId: await this.getSecret(
-        "LEMONSQUEEZY_CREDITS_10_VARIANT_ID"
+        "LEMONSQUEEZY_CREDITS_10_VARIANT_ID",
       ),
       credits25VariantId: await this.getSecret(
-        "LEMONSQUEEZY_CREDITS_25_VARIANT_ID"
+        "LEMONSQUEEZY_CREDITS_25_VARIANT_ID",
       ),
       credits50VariantId: await this.getSecret(
-        "LEMONSQUEEZY_CREDITS_50_VARIANT_ID"
+        "LEMONSQUEEZY_CREDITS_50_VARIANT_ID",
       ),
     };
 
     if (!config.storeId || !config.webhookSecret) {
       logger.error(
-        "LemonSqueezy configuration not fully set - billing features will fail"
+        "LemonSqueezy configuration not fully set - billing features will fail",
       );
     }
 
@@ -239,25 +239,41 @@ export class SecretsService {
   // Get Supabase configuration values
   static async getSupabaseUrl(): Promise<string | null> {
     // STRICT ENV ONLY - Bypass DB Vault to avoid circular dependency
-    return process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || null;
+    return (
+      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || null
+    );
   }
 
   static async getPublicSupabaseUrl(): Promise<string | null> {
-    return process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || null;
+    return (
+      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || null
+    );
   }
 
   static async getSupabaseAnonKey(): Promise<string | null> {
     // STRICT ENV ONLY - Bypass DB Vault to avoid circular dependency
-    return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || null;
+    return (
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      null
+    );
   }
 
   static async getPublicSupabaseAnonKey(): Promise<string | null> {
-    return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || null;
+    return (
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      null
+    );
   }
 
   static async getSupabaseServiceRoleKey(): Promise<string | null> {
     // STRICT ENV ONLY - Bypass DB Vault to avoid circular dependency
-    return process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || null;
+    return (
+      process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      null
+    );
   }
 
   // Get database configuration values
@@ -293,6 +309,11 @@ export class SecretsService {
   // Get Semantic Scholar API key
   static async getSemanticScholarApiKey(): Promise<string | null> {
     return this.getSecret("SEMANTIC_SCHOLAR_API_KEY");
+  }
+
+  // Get OpenAlex API key
+  static async getOpenAlexApiKey(): Promise<string | null> {
+    return this.getSecret("OPENALEX_API_KEY");
   }
 
   // Get allowed origins for CORS

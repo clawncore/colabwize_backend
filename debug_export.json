@@ -3,139 +3,31 @@
   "content": [
     {
       "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
       "content": [
         {
-          "text": "Title: Advances in HIV Research: Epidemiology, Treatment Strategies, and Future Directions\r\n\r\nAbstract\r\nHuman Immunodeficiency Virus (HIV) remains a major global public health challenge despite significant scientific advances in prevention and treatment. Over the past three decades, antiretroviral therapy (ART) has transformed HIV infection from a fatal disease into a manageable chronic condition. This paper reviews the epidemiology of HIV, current therapeutic strategies, mechanisms of viral persistence, and emerging research directions aimed at achieving long-term remission or cure. Emphasis is placed on evidence-based findings and their implications for modern healthcare systems.\r\n\r\nKeywords: HIV, antiretroviral therapy, epidemiology, viral latency, public health\r\n\r\nIntroduction\r\nHuman Immunodeficiency Virus continues to affect millions of individuals worldwide, with substantial impacts on healthcare infrastructure and socioeconomic stability. Since its identification in the early 1980s, research has focused on understanding viral replication, immune system interactions, and effective treatment strategies ",
+          "text": "Line 1",
           "type": "text"
-        },
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
         {
-          "type": "citation",
-          "attrs": {
-            "text": "(Deeks et al., 2015)",
-            "status": "unresolved",
-            "citationId": null
-          }
-        },
-        {
-          "text": ". The development of combination antiretroviral therapy has dramatically reduced morbidity and mortality, allowing many individuals living with HIV to achieve near-normal life expectancy ",
+          "text": "Line 2",
           "type": "text"
-        },
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": []
+    },
+    {
+      "type": "paragraph",
+      "content": [
         {
-          "type": "citation",
-          "attrs": {
-            "text": "(Palella et al., 1998)",
-            "status": "unresolved",
-            "citationId": null
-          }
-        },
-        {
-          "text": ". Despite these advances, challenges such as viral latency, drug resistance, and unequal access to treatment persist.\r\n\r\nEpidemiology of HIV\r\nGlobal epidemiological data indicate that HIV prevalence varies significantly across regions, with the highest burden observed in sub-Saharan Africa ",
-          "type": "text"
-        },
-        {
-          "type": "citation",
-          "attrs": {
-            "text": "(UNAIDS, 2023)",
-            "status": "unresolved",
-            "citationId": null
-          }
-        },
-        {
-          "text": ". Transmission patterns differ by population demographics, socioeconomic factors, and healthcare access. Preventive strategies such as pre-exposure prophylaxis (PrEP) and widespread testing programs have contributed to declining incidence rates in several countries ",
-          "type": "text"
-        },
-        {
-          "type": "citation",
-          "attrs": {
-            "text": "(Grant et al., 2010)",
-            "status": "unresolved",
-            "citationId": null
-          }
-        },
-        {
-          "text": ". However, disparities remain, emphasizing the need for targeted interventions that address both biomedical and social determinants of health.\r\n\r\nAntiretroviral Therapy and Clinical Management\r\nCombination antiretroviral therapy targets multiple stages of the HIV life cycle, including reverse transcription, integration, and viral maturation. Early initiation of ART has been shown to improve immune recovery and reduce transmission risk ",
-          "type": "text"
-        },
-        {
-          "type": "citation",
-          "attrs": {
-            "text": "(Cohen et al., 2011)",
-            "status": "unresolved",
-            "citationId": null
-          }
-        },
-        {
-          "text": ". Modern treatment regimens prioritize once-daily dosing and improved tolerability to enhance adherence. Long-acting injectable therapies represent a promising advancement, offering alternatives for individuals who struggle with daily oral medications ",
-          "type": "text"
-        },
-        {
-          "type": "citation",
-          "attrs": {
-            "text": "(Swindells et al., 2020)",
-            "status": "unresolved",
-            "citationId": null
-          }
-        },
-        {
-          "text": ".\r\nDespite these successes, lifelong therapy is required because HIV establishes latent reservoirs that remain invisible to the immune system and resistant to current treatments.\r\n\r\nViral Latency and Cure Research\r\nOne of the primary obstacles to curing HIV is the persistence of latent viral reservoirs within resting CD4+ T cells ",
-          "type": "text"
-        },
-        {
-          "type": "citation",
-          "attrs": {
-            "text": "(Siliciano & Greene, 2011)",
-            "status": "unresolved",
-            "citationId": null
-          }
-        },
-        {
-          "text": ". Strategies under investigation include “shock and kill” approaches, gene-editing technologies, and immune-based therapies designed to eliminate infected cells. While no definitive cure exists, advances in broadly neutralizing antibodies and therapeutic vaccines show potential for achieving sustained viral remission ",
-          "type": "text"
-        },
-        {
-          "type": "citation",
-          "attrs": {
-            "text": "(Barouch, 2018)",
-            "status": "unresolved",
-            "citationId": null
-          }
-        },
-        {
-          "text": ".\r\n\r\nPublic Health Implications\r\nBeyond clinical management, HIV research highlights the importance of integrated public health strategies. Community-based education, stigma reduction, and accessible healthcare services remain critical for effective prevention and treatment outcomes. The success of global initiatives demonstrates that coordinated efforts between governments, researchers, and healthcare providers can significantly reduce transmission rates and improve quality of life for affected populations ",
-          "type": "text"
-        },
-        {
-          "type": "citation",
-          "attrs": {
-            "text": "(UNAIDS, 2023)",
-            "status": "unresolved",
-            "citationId": null
-          }
-        },
-        {
-          "text": ".\r\n\r\nConclusion\r\nHIV research has progressed remarkably, transforming the prognosis for individuals living with the virus. Continued investment in biomedical innovation, equitable healthcare access, and multidisciplinary public health initiatives will be essential for controlling the epidemic and advancing toward a functional cure. Structured research approaches and evidence-based clinical strategies remain central to achieving long-term success.\r\n\r\nReferences\r\n\r\nBarouch, D. H. (2018). Challenges in the development of an HIV-1 vaccine. *Nature*, 455(7213), 613–619. https://doi.org/10.1038/nature07352\r\n\r\nCohen, M. S., Chen, Y. Q., McCauley, M., Gamble, T., Hosseinipour, M., Kumarasamy, N., ... Fleming, T. R. (2011). Prevention of HIV-1 infection with early antiretroviral therapy. *The New England Journal of Medicine*, 365(6), 493–505. https://doi.org/10.1056/NEJMoa1105243\r\n\r\nDeeks, S. G., Lewin, S. R., & Havlir, D. V. (2015). The end of AIDS: HIV infection as a chronic disease. *The Lancet*, 382(9903), 1525–1533. https://doi.org/10.1016/S0140-6736(13)61809-7\r\n\r\nGrant, R. M., Lama, J. R., Anderson, P. L., McMahan, V., Liu, A., Vargas, L., ... Glidden, D. V. (2010). Preexposure chemoprophylaxis for HIV prevention in men who have sex with men. *The New England Journal of Medicine*, 363(27), 2587–2599. https://doi.org/10.1056/NEJMoa1011205\r\n\r\nPalella, F. J., Delaney, K. M., Moorman, A. C., Loveless, M. O., Fuhrer, J., Satten, G. A., ... Holmberg, S. D. (1998). Declining morbidity and mortality among patients with advanced HIV infection. *The New England Journal of Medicine*, 338(13), 853–860. https://doi.org/10.1056/NEJM199803263381301\r\n\r\nSiliciano, R. F., & Greene, W. C. (2011). HIV latency. *Cold Spring Harbor Perspectives in Medicine*, 1(1), a007096. https://doi.org/10.1101/cshperspect.a007096\r\n\r\nSwindells, S., Andrade-Villanueva, J. F., Richmond, G. J., Rizzardini, G., Baumgarten, A., Masiá, M., ... Smith, K. Y. (2020). Long-acting cabotegravir and rilpivirine for maintenance of HIV-1 suppression. *The New England Journal of Medicine*, 382(12), 1112–1123. https://doi.org/10.1056/NEJMoa1904398\r\n\r\nUNAIDS. (2023). *Global HIV & AIDS statistics — Fact sheet*. ",
-          "type": "text"
-        },
-        {
-          "text": "https://www.unaids.org/",
-          "type": "text",
-          "marks": [
-            {
-              "type": "link",
-              "attrs": {
-                "rel": "noopener noreferrer nofollow",
-                "href": "https://www.unaids.org/",
-                "class": null,
-                "target": "_blank"
-              }
-            }
-          ]
-        },
-        {
-          "text": "\r\n",
+          "text": "Line 4",
           "type": "text"
         }
       ]

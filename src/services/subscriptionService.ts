@@ -11,10 +11,10 @@ export type ConsumptionResult = {
   cost?: number;
   message?: string;
   code?:
-  | "PLAN_LIMIT_REACHED"
-  | "INSUFFICIENT_CREDITS"
-  | "FEATURE_NOT_ALLOWED"
-  | "SYSTEM_ERROR";
+    | "PLAN_LIMIT_REACHED"
+    | "INSUFFICIENT_CREDITS"
+    | "FEATURE_NOT_ALLOWED"
+    | "SYSTEM_ERROR";
 };
 
 /**
@@ -67,7 +67,7 @@ export const plans = {
     research_gaps: false,
     insight_map: false,
   },
-  student: {
+  plus: {
     // Scan Limits
     scans_per_month: 25,
     originality_scan: 10, // Request: Increased to 10
@@ -90,7 +90,7 @@ export const plans = {
     research_gaps: false,
     insight_map: false,
   },
-  researcher: {
+  premium: {
     // Scan Limits
     scans_per_month: 100,
     originality_scan: 100, // Premium Feature
@@ -113,7 +113,7 @@ export const plans = {
     research_gaps: true,
     insight_map: true,
   },
-  student_pro: {
+  premium_pro: {
     // Scan Limits
     scans_per_month: 50,
     originality_scan: 25, // Intermediate
@@ -157,7 +157,7 @@ export class SubscriptionService {
    */
   static async getActivePlan(
     userId: string,
-    existingSubscription?: any
+    existingSubscription?: any,
   ): Promise<string> {
     const subscription =
       existingSubscription ?? (await this.getUserSubscription(userId));
@@ -180,7 +180,7 @@ export class SubscriptionService {
     // Allow active, trialing, on_trial, and past_due (grace period)
     if (
       !["active", "trialing", "on_trial", "past_due"].includes(
-        subscription.status
+        subscription.status,
       )
     ) {
       return "free";
@@ -193,12 +193,41 @@ export class SubscriptionService {
    * Get plan limits
    */
   /**
+   * Normalize plan ID for consistency
+   */
+  static normalizePlanId(plan: string): string {
+    if (!plan) return "free";
+    let normalizedPlan = plan.toLowerCase().trim();
+    if (normalizedPlan === "plus" || normalizedPlan === "student")
+      return "plus";
+    if (
+      normalizedPlan === "premium" ||
+      normalizedPlan === "researcher" ||
+      normalizedPlan === "student pro"
+    )
+      return "premium";
+
+    // Log normalization for debugging
+    if (normalizedPlan !== plan.toLowerCase()) {
+      console.log(`[PLAN_NORMALIZATION] "${plan}" -> "${normalizedPlan}"`);
+    }
+
+    return normalizedPlan;
+  }
+
+  /**
    * Get plan limits
    */
   static getPlanLimits(plan: string) {
-    let normalizedPlan = plan.toLowerCase().trim();
-    if (normalizedPlan === "student pro") normalizedPlan = "student_pro";
-    return plans[normalizedPlan as keyof typeof plans] || plans.free;
+    const normalizedPlan = this.normalizePlanId(plan);
+    const resolvedLimits =
+      plans[normalizedPlan as keyof typeof plans] || plans.free;
+
+    console.log(
+      `[LIMITS_RESOLUTION] Plan: "${plan}" (Normalized: "${normalizedPlan}") -> Using limits for key: ${resolvedLimits === plans.free ? "free (fallback)" : normalizedPlan}`,
+    );
+
+    return resolvedLimits;
   }
 
   /**
@@ -207,7 +236,7 @@ export class SubscriptionService {
   static async checkFeatureAccess(
     userId: string,
     feature: string,
-    existingSubscription?: any
+    existingSubscription?: any,
   ): Promise<boolean> {
     const plan = await this.getActivePlan(userId, existingSubscription);
     const limits = this.getPlanLimits(plan);
@@ -232,7 +261,7 @@ export class SubscriptionService {
    */
   static async checkMonthlyUsage(
     userId: string,
-    feature: string
+    feature: string,
   ): Promise<number> {
     const now = new Date();
 
@@ -245,7 +274,7 @@ export class SubscriptionService {
       0,
       23,
       59,
-      59
+      59,
     );
 
     // Try to get subscription billing cycle
@@ -268,7 +297,7 @@ export class SubscriptionService {
       // Fallback to calendar month on error
       logger.warn(
         "Failed to fetch subscription for usage check, defaulting to calendar month",
-        { userId }
+        { userId },
       );
     }
 
@@ -314,11 +343,11 @@ export class SubscriptionService {
   static async checkActionEligibility(
     userId: string,
     feature: string,
-    metadata?: any
+    metadata?: any,
   ): Promise<ConsumptionResult> {
     logger.warn(
       "DEPRECATED: SubscriptionService.checkActionEligibility called. Switch to EntitlementService.",
-      { userId, feature }
+      { userId, feature },
     );
     const plan = await this.getActivePlan(userId);
     const limits = this.getPlanLimits(plan);
@@ -372,7 +401,7 @@ export class SubscriptionService {
     // 4. Entitlements Check (The New Truth)
     const entitlement = await EntitlementService.checkEligibility(
       userId,
-      feature
+      feature,
     );
     if (entitlement.allowed) {
       return {
@@ -382,18 +411,18 @@ export class SubscriptionService {
       };
     }
 
-    // 5. Fallback logic for Student/Payg (already handled by logic above/below or by Entitlement check?)
+    // 5. Fallback logic for Plus/Payg (already handled by logic above/below or by Entitlement check?)
     // In new architecture, Entitlements SHOULD handle the count.
     // If Entitlements says NO, we check CREDITS.
-    // The "Student Plan" Hard Block is an Entitlement Rule (no credits allowed for excess).
+    // The "Plus Plan" Hard Block is an Entitlement Rule (no credits allowed for excess).
 
-    // Student Plan: Hard Block if limit reached (No Pay-As-You-Go fallback)
-    if (normalizedPlan === "student") {
+    // Plus Plan: Hard Block if limit reached (No Pay-As-You-Go fallback)
+    if (normalizedPlan === "plus") {
       return {
         allowed: false,
         source: "BLOCKED",
         code: "PLAN_LIMIT_REACHED",
-        message: "Monthly plan limit reached. Upgrade to Researcher for more.",
+        message: "Monthly plan limit reached. Upgrade to Premium for more.",
       };
     }
 
@@ -443,7 +472,7 @@ export class SubscriptionService {
   static async canPerformAction(
     userId: string,
     feature: string,
-    metadata?: any
+    metadata?: any,
   ): Promise<boolean> {
     const result = await this.checkActionEligibility(userId, feature, metadata);
     return result.allowed;
@@ -480,7 +509,7 @@ export class SubscriptionService {
       0,
       23,
       59,
-      59
+      59,
     );
 
     try {
@@ -546,7 +575,7 @@ export class SubscriptionService {
   static async consumeAction(
     userId: string,
     feature: string,
-    metadata?: any
+    metadata?: any,
   ): Promise<ConsumptionResult> {
     const plan = await this.getActivePlan(userId);
     const limits = this.getPlanLimits(plan);
@@ -637,7 +666,7 @@ export class SubscriptionService {
           userId,
           cost,
           undefined,
-          `Auto-use: ${feature}`
+          `Auto-use: ${feature}`,
         );
         return { allowed: true, source: "CREDIT", cost };
       } else {
@@ -673,7 +702,7 @@ export class SubscriptionService {
       ends_at?: Date;
       cancel_at_period_end?: boolean;
       entitlement_expires_at?: Date | null;
-    }
+    },
   ) {
     const subscription = await prisma.subscription.upsert({
       where: { user_id: userId },
@@ -721,7 +750,7 @@ export class SubscriptionService {
 
     // Cancel in LemonSqueezy
     await LemonSqueezyService.cancelSubscription(
-      subscription.lemonsqueezy_subscription_id
+      subscription.lemonsqueezy_subscription_id,
     );
 
     // Update in database
@@ -786,8 +815,8 @@ export class SubscriptionService {
         limits: plans.free,
       },
       {
-        id: "student",
-        name: "Student",
+        id: "plus",
+        name: "Plus",
         price: 4.99,
         interval: "month",
         features: [
@@ -800,12 +829,12 @@ export class SubscriptionService {
           "Professional certificate (no watermark)",
           "Email support",
         ],
-        limits: plans.student,
+        limits: plans.plus,
         popular: true,
       },
       {
-        id: "researcher",
-        name: "Researcher",
+        id: "premium",
+        name: "Premium",
         price: 12.99,
         interval: "month",
         features: [
@@ -819,7 +848,7 @@ export class SubscriptionService {
           "Export to multiple formats",
           "Priority support",
         ],
-        limits: plans.researcher,
+        limits: plans.premium,
       },
     ];
   }
@@ -847,7 +876,7 @@ export class SubscriptionService {
         email: user.email,
       });
       const existingCustomers = await LemonSqueezyService.getCustomersByEmail(
-        user.email
+        user.email,
       );
 
       let customerId: string;
@@ -866,7 +895,7 @@ export class SubscriptionService {
 
         const newCustomer = await LemonSqueezyService.createCustomer(
           user.email,
-          user.name || "Customer"
+          user.name || "Customer",
         );
         customerId = newCustomer.id;
       }
@@ -911,7 +940,7 @@ export class SubscriptionService {
    */
   static async updateAutoUseCredits(
     userId: string,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<void> {
     await prisma.user.update({
       where: { id: userId },
