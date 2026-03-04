@@ -57,6 +57,37 @@ router.post("/", authenticateExpressRequest, async (req: any, res) => {
   }
 });
 
+// DELETE /api/team-chat/clear - Clear all messages in a workspace or project
+router.delete("/clear", authenticateExpressRequest, async (req: any, res) => {
+  try {
+    const userId = req.user?.id;
+    const { workspaceId, projectId } = req.query;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!workspaceId && !projectId) {
+      return res
+        .status(400)
+        .json({ error: "Workspace or Project ID is required" });
+    }
+
+    const { count } = await TeamChatService.clearChat(
+      {
+        workspaceId: workspaceId as string,
+        projectId: projectId as string,
+      },
+      userId,
+    );
+
+    res.status(200).json({ success: true, count });
+  } catch (error: any) {
+    console.error("Error in Team Chat CLEAR:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
 // DELETE /api/team-chat - Delete a message
 router.delete("/", authenticateExpressRequest, async (req: any, res) => {
   try {

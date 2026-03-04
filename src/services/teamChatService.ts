@@ -1,7 +1,6 @@
 import prisma from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { createNotification } from "./notificationService";
-import { UserService } from "./userService";
 
 export interface TeamChatFilter {
   workspaceId?: string;
@@ -15,18 +14,35 @@ export class TeamChatService {
    */
   static async getMessages(filter: TeamChatFilter, limit = 50, offset = 0) {
     try {
+      const where: any = {
+        workspace_id: filter.workspaceId,
+        project_id: filter.projectId,
+      };
+
+      // Only filter by parent_id if explicitly requested
+      if (filter.parentId !== undefined) {
+        where.parent_id = filter.parentId || null;
+      }
+
       const messages = await prisma.teamChatMessage.findMany({
-        where: {
-          workspace_id: filter.workspaceId,
-          project_id: filter.projectId,
-          parent_id: filter.parentId || null,
-        },
+        where,
         include: {
           user: {
             select: {
               id: true,
               full_name: true,
               email: true,
+            },
+          },
+          parent: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  full_name: true,
+                  email: true,
+                },
+              },
             },
           },
           _count: {
@@ -75,7 +91,14 @@ export class TeamChatService {
         },
       });
 
-      // Handle @mentions
+      logger.info(`[CHAT] Message sent successfully: ${message.id}`, {
+        userId,
+        workspaceId: filter.workspaceId,
+        projectId: filter.projectId,
+        contentLength: content.length,
+      });
+
+      // 1. Handle @mentions (existing logic)
       const mentionRegex = /@\[([^\]]+)\]\(([^)]+)\)/g;
       const mentions = [];
       let match;
@@ -84,12 +107,12 @@ export class TeamChatService {
         mentions.push({ name: match[1], id: match[2] });
       }
 
-      if (mentions.length > 0) {
-        const sender = message.user;
-        const contextName = filter.workspaceId
-          ? "workspace chat"
-          : "project chat";
+      const sender = message.user;
+      const contextName = filter.workspaceId
+        ? "workspace chat"
+        : "project chat";
 
+      if (mentions.length > 0) {
         // Notify each mentioned user
         for (const mention of mentions) {
           if (mention.id === userId) continue; // Don't notify self
@@ -104,9 +127,77 @@ export class TeamChatService {
               projectId: filter.projectId,
               messageId: message.id,
               senderId: userId,
-            }
+              encryptedContent: content,
+            },
           );
         }
+      }
+
+      // 2. Notify other members of the workspace/project who were NOT mentioned
+      // We need to fetch members first
+      try {
+        let memberIds: string[] = [];
+
+        if (filter.workspaceId) {
+          const workspaceMembers = await prisma.workspaceMember.findMany({
+            where: { workspace_id: filter.workspaceId },
+            select: { user_id: true },
+          });
+          memberIds = workspaceMembers.map((m: any) => m.user_id);
+        } else if (filter.projectId) {
+          const projectCollaborators =
+            await prisma.projectCollaborator.findMany({
+              where: { project_id: filter.projectId },
+              select: { user_id: true },
+            });
+          memberIds = projectCollaborators.map((c: any) => c.user_id);
+
+          // Also include project owner
+          const project = await prisma.project.findUnique({
+            where: { id: filter.projectId },
+            select: { user_id: true },
+          });
+          if (project) memberIds.push(project.user_id);
+        }
+
+        const mentionedIds = new Set(mentions.map((m) => m.id));
+        const membersToNotify = memberIds.filter(
+          (id) => id !== userId && !mentionedIds.has(id),
+        );
+
+        for (const targetUserId of membersToNotify) {
+          await createNotification(
+            targetUserId,
+            "comment", // Using comment type for general messages
+            `New message in ${contextName}`,
+            `${sender.full_name || sender.email}: "${content.substring(0, 50)}${content.length > 50 ? "..." : ""}"`,
+            {
+              workspaceId: filter.workspaceId,
+              projectId: filter.projectId,
+              messageId: message.id,
+              senderId: userId,
+              isGeneralChat: true,
+              encryptedContent: content,
+            },
+          );
+        }
+      } catch (notifyError) {
+        logger.error("Error sending general chat notifications:", notifyError);
+        // Don't throw, we don't want to break message sending if notifications fail
+      }
+
+      // Broadcast to custom WebSocket for real-time chat sync
+      try {
+        const { getNotificationServer } =
+          await import("../lib/notificationServer");
+        const channelName = `team-chat-${filter.workspaceId || filter.projectId}`;
+        getNotificationServer().broadcastToChannel(channelName, {
+          type: "NEW_MESSAGE",
+          message: message,
+        });
+        logger.info(`Broadcasted NEW_MESSAGE to channel ${channelName}`);
+      } catch (wsError) {
+        logger.error("Error broadcasting chat message via WebSocket:", wsError);
       }
 
       return message;
@@ -143,6 +234,89 @@ export class TeamChatService {
       return { success: true };
     } catch (error) {
       logger.error("Error deleting chat message:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clear all messages in a workspace or project (admin/owner only)
+   */
+  static async clearChat(filter: TeamChatFilter, userId: string) {
+    try {
+      // 1. Validate permissions
+      if (filter.workspaceId) {
+        const workspace = await prisma.workspace.findUnique({
+          where: { id: filter.workspaceId },
+          include: {
+            members: {
+              where: { user_id: userId },
+            },
+          },
+        });
+
+        if (!workspace) {
+          throw new Error("Workspace not found");
+        }
+
+        const isOwner = workspace.owner_id === userId;
+        const member = workspace.members[0];
+        const isAdmin = member?.role === "admin";
+
+        if (!isOwner && !isAdmin) {
+          throw new Error(
+            "Unauthorized: Only workspace admins or owners can clear the workspace chat",
+          );
+        }
+      }
+
+      if (filter.projectId) {
+        const project = await prisma.project.findUnique({
+          where: { id: filter.projectId },
+          include: {
+            collaborators: {
+              where: { user_id: userId },
+            },
+          },
+        });
+
+        if (!project) {
+          throw new Error("Project not found");
+        }
+
+        const isOwner = project.user_id === userId;
+        const collaborator = project.collaborators[0];
+        const isAdminOrEditor =
+          collaborator?.role === "admin" || collaborator?.role === "editor";
+
+        if (!isOwner && !isAdminOrEditor) {
+          throw new Error(
+            "Unauthorized: Only project owners, admins, or editors can clear the project chat",
+          );
+        }
+      }
+
+      const where: any = {
+        workspace_id: filter.workspaceId,
+        project_id: filter.projectId,
+      };
+
+      if (!where.workspace_id && !where.project_id) {
+        throw new Error("Workspace or Project ID is required to clear chat");
+      }
+
+      const result = await prisma.teamChatMessage.deleteMany({
+        where,
+      });
+
+      logger.info(`[CHAT] Chat cleared by user ${userId}`, {
+        workspaceId: filter.workspaceId,
+        projectId: filter.projectId,
+        deletedCount: result.count,
+      });
+
+      return { success: true, count: result.count };
+    } catch (error) {
+      logger.error("Error clearing chat:", error);
       throw error;
     }
   }

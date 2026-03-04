@@ -39,12 +39,9 @@
     },
     {
       "type": "paragraph",
-      "attrs": {
-        "textAlign": null
-      },
       "content": [
         {
-          "text": "Dolutegravir (DTG) is a second-generation integrase strand transfer inhibitor (INSTI) that has become a cornerstone of antiretroviral therapy (ART) for people living with HIV-1. Its high potency, favorable pharmacokinetic profile, strong genetic barrier to resistance, and once-daily dosing distinguish it from earlier agents. This paper reviews the drug’s mechanism of action, clinical efficacy, safety, resistance patterns, and its role in contemporary HIV management. Evidence from randomized controlled trials and clinical studies supports its widespread adoption in treatment-naïve and treatment-experienced patients.",
+          "text": "Dolutegravir (DTG) is a second-generation integrase strand transfer inhibitor (INSTI) that has become a cornerstone of antiretroviral therapy (ART) for people living with HIV-1. Its high potency, favorable pharmacokinetic profile, strong genetic barrier to resistance, and once-daily dosing distinguish it from earlier agents. This paper reviews the drug's mechanism of action, clinical efficacy, safety, resistance patterns, and its role in contemporary HIV management. Evidence from randomized controlled trials and clinical studies supports its widespread adoption in treatment-naïve and treatment-experienced patients.",
           "type": "text"
         }
       ]
@@ -92,7 +89,16 @@
         {
           "text": ". Integrase strand transfer inhibitors (INSTIs) represent a key class of antiretrovirals that target the HIV integrase enzyme, preventing viral DNA from integrating into the host genome ",
           "type": "text"
-        },
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": []
+    },
+    {
+      "type": "paragraph",
+      "content": [
         {
           "type": "citation",
           "attrs": {
@@ -1232,6 +1238,9 @@
       "content": [
         {
           "text": "(Organization., 2021)",
+=======
+          "text": "Line 4",
+>>>>>>> origin/craig-update
           "type": "text"
         }
       ]

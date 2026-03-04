@@ -4,6 +4,7 @@ import logger from "../monitoring/logger";
 import { SubscriptionService } from "./subscriptionService";
 import { createNotification } from "./notificationService";
 import { processFileContent } from "../utils/fileProcessor";
+import { WorkspaceActivityService } from "./workspaceActivityService";
 
 // Add a simple in-memory cache for version checking
 const versionCheckCache = new Map<
@@ -615,14 +616,14 @@ export class EditorService {
     title?: string,
     wordCount?: number,
     // Add a flag to indicate if this is a system operation (import, etc.) that shouldn't trigger activity tracking
-    isSystemOperation: boolean = false
+    isSystemOperation: boolean = false,
   ) {
     try {
       // Check if user can create more documents based on subscription
       const canCreate = await this.checkDocumentLimit(userId);
       if (!canCreate) {
         throw new Error(
-          "Document limit reached for your subscription plan. Upgrade to create more documents."
+          "Document limit reached for your subscription plan. Upgrade to create more documents.",
         );
       }
       // Only validate content if it's not already a valid Tiptap document
@@ -642,12 +643,12 @@ export class EditorService {
         (typeof validatedContent === "string" && validatedContent.trim() === "")
       ) {
         console.warn(
-          `[EditorService.saveProjectContent] WARNING: About to save empty or null content for projectId=${projectId}, userId=${userId}`
+          `[EditorService.saveProjectContent] WARNING: About to save empty or null content for projectId=${projectId}, userId=${userId}`,
         );
       } else {
         console.log(
           `[EditorService.saveProjectContent] Saving content for projectId=${projectId}, userId=${userId}:`,
-          JSON.stringify(validatedContent).slice(0, 500)
+          JSON.stringify(validatedContent).slice(0, 500),
         );
       }
 
@@ -672,7 +673,7 @@ export class EditorService {
         // Check for substantial content changes (more than 2000 characters difference to reduce false positives)
         // This prevents unnecessary saves for minor formatting changes while still catching real content updates
         const contentLengthDiff = Math.abs(
-          existingContentStr?.length - newContentStr?.length
+          existingContentStr?.length - newContentStr?.length,
         );
         const substantialContentChange = contentLengthDiff > 0; // Changed from 50 to 0 to prevent data loss on small edits
         const titleChanged =
@@ -718,7 +719,7 @@ export class EditorService {
                 projectId,
                 userId,
                 error: updateError,
-              }
+              },
             );
 
             // Fetch the latest version to return current state
@@ -760,7 +761,7 @@ export class EditorService {
                       titleChanged,
                       wordCountChanged,
                     },
-                    tx
+                    tx,
                   );
 
                   // Track editor event for analytics
@@ -773,7 +774,7 @@ export class EditorService {
                       titleChanged,
                       wordCountChanged,
                       wordCount: wordCount || existingProject?.word_count || 0,
-                    }
+                    },
                   );
                 });
               } catch (activityError) {
@@ -815,7 +816,7 @@ export class EditorService {
     projectId: string,
     action: string,
     metadata: Record<string, any>,
-    tx?: any
+    tx?: any,
   ) {
     try {
       const prismaClient = tx || prisma;
@@ -894,7 +895,7 @@ export class EditorService {
     eventType: string,
     metadata: Record<string, any> = {},
     // Add a flag to indicate if this is a system operation (import, etc.) that shouldn't trigger activity tracking
-    isSystemOperation: boolean = false
+    isSystemOperation: boolean = false,
   ) {
     // Only track editor events for genuine user interactions, not system operations
     if (isSystemOperation) {
@@ -938,7 +939,7 @@ export class EditorService {
   static async updateProjectMetadata(
     projectId: string,
     userId: string,
-    metadata: { title?: string; wordCount?: number; citationStyle?: string }
+    metadata: { title?: string; wordCount?: number; citationStyle?: string },
   ) {
     try {
       // First check if the project belongs to the user
@@ -987,7 +988,7 @@ export class EditorService {
     projectId: string,
     userId: string,
     content: string,
-    position?: any
+    position?: any,
   ) {
     try {
       // First check if the project belongs to the user or if user is a collaborator
@@ -1187,18 +1188,18 @@ export class EditorService {
       content: any;
       fileType: string;
       wordCount?: number;
-    }
+    },
   ) {
     try {
       // Check if user can create project
       const canCreate = await SubscriptionService.checkActionEligibility(
         userId,
-        "create_project"
+        "create_project",
       );
 
       if (!canCreate.allowed) {
         throw new Error(
-          canCreate.message || "You cannot create a project at this time."
+          canCreate.message || "You cannot create a project at this time.",
         );
       }
 
@@ -1252,7 +1253,7 @@ export class EditorService {
             project.id,
             userId,
             processedContent,
-            fileData.wordCount || calculatedWordCount || 0
+            fileData.wordCount || calculatedWordCount || 0,
           );
         } catch (versionError) {
           logger.warn("Failed to create initial document version for import", {
@@ -1273,7 +1274,7 @@ export class EditorService {
           fileType: fileData.fileType,
           fileSize: JSON.stringify(fileData.content).length,
         },
-        true
+        true,
       ); // Mark as system operation
 
       return project;
@@ -1291,13 +1292,13 @@ export class EditorService {
   static async trackTypingPattern(
     userId: string,
     projectId: string | null,
-    patternData: Record<string, any>
+    patternData: Record<string, any>,
   ) {
     await this.trackEditorEvent(
       userId,
       projectId,
       "typing_pattern",
-      patternData
+      patternData,
     );
   }
 
@@ -1306,7 +1307,7 @@ export class EditorService {
     userId: string,
     projectId: string | null,
     featureName: string,
-    interactionData: Record<string, any> = {}
+    interactionData: Record<string, any> = {},
   ) {
     await this.trackEditorEvent(userId, projectId, "feature_interaction", {
       featureName,
@@ -1319,7 +1320,7 @@ export class EditorService {
     userId: string,
     projectId: string | null,
     commandName: string,
-    usageData: Record<string, any> = {}
+    usageData: Record<string, any> = {},
   ) {
     await this.trackEditorEvent(userId, projectId, "command_usage", {
       commandName,
@@ -1347,7 +1348,7 @@ export class EditorService {
         await SubscriptionService.getUserSubscription(userId);
       const planId = await SubscriptionService.getActivePlan(
         userId,
-        subscription
+        subscription,
       );
 
       // For free tier users, check document count
@@ -1369,7 +1370,7 @@ export class EditorService {
             userId,
             "ai_limit",
             "You've reached your document limit. Upgrade to create more documents.",
-            "/pricing"
+            "/pricing",
           );
         }
 
@@ -1431,13 +1432,13 @@ export class EditorService {
   static async processUploadedContent(
     projectId: string,
     userId: string,
-    fileData: any
+    fileData: any,
   ) {
     try {
       // Process the file content
       const processedContent = await processFileContent(
         fileData.data,
-        fileData.type
+        fileData.type,
       );
 
       // Validate and prepare the content
@@ -1447,7 +1448,7 @@ export class EditorService {
       const result = await this.saveProjectContent(
         projectId,
         userId,
-        validatedContent
+        validatedContent,
       );
 
       // Track file processing activity
@@ -1507,7 +1508,7 @@ export class EditorService {
       // Calculate total words written
       const totalWords = recentDocuments.reduce(
         (sum: number, doc: any) => sum + (doc.word_count || 0),
-        0
+        0,
       );
 
       // Get typing patterns from editor events
@@ -1527,7 +1528,7 @@ export class EditorService {
 
       // Aggregate typing patterns
       const typingPatterns = typingEvents.map(
-        (event: any) => event.metadata || {}
+        (event: any) => event.metadata || {},
       );
 
       // Get feature usage
@@ -1590,7 +1591,7 @@ export class EditorService {
     projectId: string,
     tx: any,
     wordCount?: number,
-    content?: any
+    content?: any,
   ): Promise<boolean> {
     try {
       const prismaClient = tx || prisma;
@@ -1627,11 +1628,11 @@ export class EditorService {
         if (contentChangedAtAll) {
           const distance = this.calculateLevenshteinDistance(
             previousContentStr,
-            currentContentStr
+            currentContentStr,
           );
           const maxLength = Math.max(
             previousContentStr.length,
-            currentContentStr.length
+            currentContentStr.length,
           );
 
           // If more than 10% of content has changed, consider it significant
@@ -1646,7 +1647,7 @@ export class EditorService {
       let wordCountIncreasedSignificantly = false;
       if (wordCount !== undefined && latestVersion.word_count !== null) {
         const wordCountDifference = Math.abs(
-          wordCount - latestVersion.word_count
+          wordCount - latestVersion.word_count,
         );
         wordCountIncreasedSignificantly = wordCountDifference >= 200;
       }
@@ -1662,7 +1663,7 @@ export class EditorService {
     } catch (error) {
       logger.error(
         "Error determining if new version should be created:",
-        error
+        error,
       );
       // Fail gracefully by allowing version creation
       return true;
@@ -1689,7 +1690,7 @@ export class EditorService {
         matrix[j][i] = Math.min(
           matrix[j][i - 1] + 1, // deletion
           matrix[j - 1][i] + 1, // insertion
-          matrix[j - 1][i - 1] + indicator // substitution
+          matrix[j - 1][i - 1] + indicator, // substitution
         );
       }
     }
@@ -1703,7 +1704,7 @@ export class EditorService {
     userId: string,
     content: any,
     wordCount: number,
-    tx?: any
+    tx?: any,
   ) {
     try {
       const prismaClient = tx || prisma;
@@ -1744,8 +1745,26 @@ export class EditorService {
         {
           versionNumber: nextVersionNumber,
           wordCount: wordCount,
-        }
+        },
       );
+
+      // Log workspace activity if it's part of a workspace
+      if (project.workspace_id) {
+        try {
+          await WorkspaceActivityService.logActivity(
+            project.workspace_id,
+            userId,
+            "VERSION_SAVED",
+            {
+              projectId,
+              projectTitle: project.title,
+              version: nextVersionNumber,
+            },
+          );
+        } catch (logError) {
+          logger.error("Failed to log version creation activity:", logError);
+        }
+      }
 
       return {
         id: documentVersion.id,
@@ -1768,6 +1787,11 @@ export class EditorService {
           OR: [
             { user_id: userId },
             { collaborators: { some: { user_id: userId } } },
+            {
+              workspace: {
+                members: { some: { user_id: userId } },
+              },
+            },
           ],
         },
       });
@@ -1804,9 +1828,9 @@ export class EditorService {
         word_count: version.word_count,
         user: version.user
           ? {
-            full_name: version.user.full_name,
-            email: version.user.email,
-          }
+              full_name: version.user.full_name,
+              email: version.user.email,
+            }
           : null,
       }));
     } catch (error) {
@@ -1819,7 +1843,7 @@ export class EditorService {
   static async restoreDocumentVersion(
     projectId: string,
     versionId: string,
-    userId: string
+    userId: string,
   ) {
     try {
       // Verify user has access to project
@@ -1829,6 +1853,11 @@ export class EditorService {
           OR: [
             { user_id: userId },
             { collaborators: { some: { user_id: userId } } },
+            {
+              workspace: {
+                members: { some: { user_id: userId } },
+              },
+            },
           ],
         },
       });
@@ -1871,15 +1900,32 @@ export class EditorService {
       });
 
       // Create a new version record to track the restoration
+      // Get the latest version number and increment — NOT Date.now() (overflows INT4)
+      const latestVersion = await prisma.documentVersion.findFirst({
+        where: { project_id: projectId },
+        orderBy: { version: "desc" },
+        select: { version: true },
+      });
+      const nextVersionNumber = latestVersion ? latestVersion.version + 1 : 1;
+
       await prisma.documentVersion.create({
         data: {
           project_id: projectId,
-          version: Date.now(), // Use timestamp as version number
+          version: nextVersionNumber,
           content: versionToRestore.content,
           word_count: versionToRestore.word_count,
           user_id: userId,
         },
       });
+
+      logger.info(
+        `[RESTORATION] Successfully restored document ${projectId} to version ${versionId}`,
+        {
+          userId,
+          contentLength: JSON.stringify(versionToRestore.content).length,
+          wordCount: versionToRestore.word_count,
+        },
+      );
 
       return updatedProject;
     } catch (error) {

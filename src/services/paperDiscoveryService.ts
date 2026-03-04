@@ -60,7 +60,7 @@ export class PaperDiscoveryService {
   static async searchPapers(
     query: string,
     offset: number = 0,
-    limit: number = 10
+    limit: number = 10,
   ): Promise<PaperSearchResult[]> {
     try {
       logger.info(`Starting federated search for: ${query}`);
@@ -71,15 +71,15 @@ export class PaperDiscoveryService {
         this.openAlexSearch(query, offset, limitPerSource),
         // Source 2: ArXiv (Preprints)
         import("./arxivService").then((m) =>
-          m.ArxivService.searchPapers(query, limitPerSource)
+          m.ArxivService.searchPapers(query, limitPerSource),
         ),
         // Source 3: Semantic Scholar (Covers ScienceDirect, Wiley, IEEE, etc.)
         import("./semanticScholarService").then((m) =>
-          m.SemanticScholarService.searchPapers(query, limitPerSource)
+          m.SemanticScholarService.searchPapers(query, limitPerSource),
         ),
         // Source 4: PubMed (Medical)
         import("./pubmedService").then((m) =>
-          m.PubmedService.searchPapers(query, limitPerSource)
+          m.PubmedService.searchPapers(query, limitPerSource),
         ),
         // Source 5: Google Scholar (via SerpApi)
         import("./searchService").then((m) =>
@@ -87,12 +87,12 @@ export class PaperDiscoveryService {
             "system_fallback",
             query,
             limitPerSource,
-            offset
-          )
+            offset,
+          ),
         ),
         // Source 6: CrossRef (Validation & Metadata)
         import("./crossRefService").then((m) =>
-          m.CrossRefService.searchPapers(query, limitPerSource)
+          m.CrossRefService.searchPapers(query, limitPerSource),
         ),
       ];
 
@@ -114,9 +114,8 @@ export class PaperDiscoveryService {
             return {
               ...p,
               doi:
-                p.doi || p.externalId.startsWith("10.")
-                  ? p.externalId
-                  : undefined,
+                p.doi ||
+                (p.externalId?.startsWith("10.") ? p.externalId : undefined),
               confidenceScore: score,
             } as PaperSearchResult;
           });
@@ -211,7 +210,7 @@ export class PaperDiscoveryService {
   private static async openAlexSearch(
     query: string,
     offset: number,
-    limit: number
+    limit: number,
   ): Promise<PaperSearchResult[]> {
     try {
       const apiKey = process.env.OPENALEX_API_KEY || ""; // OpenAlex doesn't require a key but you can use one. Since getOpenAlexApiKey isn't on SecretsService we'll just pull env.
@@ -261,7 +260,7 @@ export class PaperDiscoveryService {
    * Get details for a specific paper
    */
   static async getPaperDetails(
-    paperId: string
+    paperId: string,
   ): Promise<PaperSearchResult | null> {
     try {
       const apiKey = process.env.OPENALEX_API_KEY || "";
@@ -296,7 +295,7 @@ export class PaperDiscoveryService {
       // If 403 Forbidden and we used an API key, retry without the key
       if (response.status === 403 && headers["x-api-key"]) {
         logger.warn(
-          "Semantic Scholar API Key rejected (403), retrying without key..."
+          "Semantic Scholar API Key rejected (403), retrying without key...",
         );
         response = await fetch(url);
       }
@@ -353,7 +352,7 @@ export class PaperDiscoveryService {
     // 0 years = 100, 10 years ~ 20 (0.85^10 = 0.19)
     let recencyScore = Math.max(
       0,
-      Math.min(100, Math.round(100 * Math.pow(0.85, age)))
+      Math.min(100, Math.round(100 * Math.pow(0.85, age))),
     );
     if (!paper.year) recencyScore = 0;
 
@@ -364,7 +363,7 @@ export class PaperDiscoveryService {
       // limit log10(cit+1) * 33 to 100
       qualityScore = Math.min(
         100,
-        Math.round(Math.log10(paper.citationCount + 1) * 33)
+        Math.round(Math.log10(paper.citationCount + 1) * 33),
       );
     }
 
@@ -458,7 +457,7 @@ export class PaperDiscoveryService {
       // If 403 Forbidden and we used an API key, retry without the key
       if (response.status === 403 && headers["x-api-key"]) {
         logger.warn(
-          "Semantic Scholar API Key rejected (403), retrying graph fetch without key..."
+          "Semantic Scholar API Key rejected (403), retrying graph fetch without key...",
         );
         response = await fetch(url);
       }

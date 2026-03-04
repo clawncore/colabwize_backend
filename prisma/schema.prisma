@@ -1211,6 +1211,7 @@ model TaskAttachment {
   file_url   String
   file_type  String
   file_size  Int
+  annotations Json?   @default("[]")
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 

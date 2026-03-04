@@ -42,6 +42,9 @@ import MathExtension from "../../extensions/MathExtension";
 import PlaceholderMarkExtension from "../../extensions/PlaceholderMarkExtension";
 import EnhancedFigureNode from "../../extensions/EnhancedFigureNode";
 import ImageExtension from "../../extensions/ImageExtension";
+import AuthorshipExtension from "../../extensions/AuthorshipExtension";
+import BibliographyEntry from "../../extensions/BibliographyNode";
+import ColumnLayoutExtension from "../../extensions/ColumnLayoutExtension";
 
 interface onAuthenticatePayload {
   token: string;
@@ -106,6 +109,9 @@ export class HocuspocusCollaborationServer {
       SectionExtension,
       VisualElementExtension,
       ImageExtension,
+      AuthorshipExtension,
+      BibliographyEntry,
+      ColumnLayoutExtension,
     ];
   }
 
@@ -140,8 +146,9 @@ export class HocuspocusCollaborationServer {
         if (!data.documentName.startsWith("project-")) return null;
 
         const projectId = data.documentName.replace("project-", "");
+        const startTime = Date.now();
         try {
-          logger.info(`Loading document ${projectId}`, {
+          logger.info(`[HP] Loading document ${projectId}`, {
             documentName: data.documentName,
             timestamp: new Date().toISOString(),
           });
@@ -151,20 +158,26 @@ export class HocuspocusCollaborationServer {
             select: { content: true },
           });
 
-          // Define extensions locally for the static context if needed, 
+          // Define extensions locally for the static context if needed,
           // or use instance bound method if Hocuspocus allows it (which it does via constructor closure)
           const extensions = self.getExtensions();
 
           if (project && project.content) {
-            logger.info(`Found project content for ${projectId}, transforming to Ydoc`, {
-              contentSize: JSON.stringify(project.content).length,
-            });
+            const duration = Date.now() - startTime;
+            logger.info(
+              `[HP] Document ${projectId} loaded and transformed in ${duration}ms`,
+              {
+                contentSize: JSON.stringify(project.content).length,
+              },
+            );
             return TiptapTransformer.extensions(extensions as any).toYdoc(
               project.content,
               "default",
             );
           } else if (project) {
-            logger.info(`Project ${projectId} exists but content is empty, returning default structure`);
+            logger.info(
+              `Project ${projectId} exists but content is empty, returning default structure`,
+            );
             // Return empty project structure if project exists but content is null
             return TiptapTransformer.extensions(extensions as any).toYdoc(
               { type: "doc", content: [{ type: "paragraph" }] },
@@ -186,7 +199,9 @@ export class HocuspocusCollaborationServer {
 
           // Use TiptapTransformer to correctly serialize Yjs document to Tiptap JSON
           const extensions = self.getExtensions();
-          const content = TiptapTransformer.extensions(extensions as any).fromYdoc(document, "default");
+          const content = TiptapTransformer.extensions(
+            extensions as any,
+          ).fromYdoc(document, "default");
 
           logger.info(`Attempting to store document ${projectId}`, {
             documentName,
@@ -195,16 +210,20 @@ export class HocuspocusCollaborationServer {
           });
 
           if (!content || (content as any).content?.length === 0) {
-            logger.warn("Attempted to store empty or invalid document, skipping", { projectId });
+            logger.warn(
+              "Attempted to store empty or invalid document, skipping",
+              { projectId },
+            );
             return;
           }
 
           // Manual validation logic removed in favor of TiptapTransformer.fromYdoc
           // which correctly handles the schema and type mappings
 
-          // Create a hash of the content to detect changes
+          // Calculate hash and word count OUTSIDE the transaction to minimize lock time
           const contentHash = JSON.stringify(content);
           const lastHash = lastStoredContentHashes.get(projectId);
+          const wordCount = self.calculateWordCount(content);
 
           // Skip storing if content hasn't changed
           if (contentHash === lastHash && lastHash !== undefined) {
@@ -220,39 +239,45 @@ export class HocuspocusCollaborationServer {
           logger.info(`Starting database transaction for ${projectId}`);
 
           // Use a database transaction to ensure consistency
-          await prisma.$transaction(async (tx: any) => {
-            const current = await tx.project.findUnique({
-              where: { id: projectId },
-              select: { id: true, content: true, updated_at: true },
-            });
+          // Increased timeout to 30s to handle database latency spikes
+          await prisma.$transaction(
+            async (tx: any) => {
+              const current = await tx.project.findUnique({
+                where: { id: projectId },
+                select: { id: true, content: true, updated_at: true },
+              });
 
-            if (!current) {
-              throw new Error(`Project not found: ${projectId}`);
-            }
+              if (!current) {
+                throw new Error(`Project not found: ${projectId}`);
+              }
 
-            const currentContentHash = JSON.stringify(current.content);
+              const currentContentHash = JSON.stringify(current.content);
 
-            // Check if content has changed since we last read it (to detect parallel saves)
-            if (currentContentHash !== lastHash && lastHash !== undefined) {
-              logger.warn(
-                "Parallel save detected in onStoreDocument - Hocuspocus overwriting",
-                {
-                  projectId,
-                  timestamp: new Date().toISOString(),
+              // Check if content has changed since we last read it (to detect parallel saves)
+              if (currentContentHash !== lastHash && lastHash !== undefined) {
+                logger.warn(
+                  "Parallel save detected in onStoreDocument - Hocuspocus overwriting",
+                  {
+                    projectId,
+                    timestamp: new Date().toISOString(),
+                  },
+                );
+              }
+
+              // Update the project with new content and updated word count
+              await tx.project.update({
+                where: { id: projectId },
+                data: {
+                  content: content,
+                  word_count: wordCount,
+                  updated_at: new Date(),
                 },
-              );
-            }
-
-            // Update the project with new content and updated word count
-            await tx.project.update({
-              where: { id: projectId },
-              data: {
-                content: content,
-                word_count: self.calculateWordCount(content),
-                updated_at: new Date(),
-              },
-            });
-          });
+              });
+            },
+            {
+              timeout: 30000, // 30 seconds
+            },
+          );
 
           logger.info("Document stored in database (no version created)", {
             projectId,
@@ -270,9 +295,10 @@ export class HocuspocusCollaborationServer {
       },
       async onAuthenticate(data: onAuthenticatePayload) {
         const { token, documentName, parameters } = data;
+        const authStartTime = Date.now();
 
         // Log the authentication attempt
-        logger.info("WebSocket connection attempt", {
+        logger.info("[HP] WebSocket connection attempt", {
           documentName,
           documentNameType: typeof documentName,
           documentNameLength: documentName?.length,
@@ -664,12 +690,14 @@ export class HocuspocusCollaborationServer {
             }
           }
 
-          logger.info("User authenticated successfully", {
+          const authDuration = Date.now() - authStartTime;
+          logger.info("[HP] User authenticated successfully", {
             documentName,
             userId: userRecord.id,
             userEmail: userRecord.email,
             id: authenticatedId,
             type,
+            duration_ms: authDuration,
             timestamp: new Date().toISOString(),
           });
 

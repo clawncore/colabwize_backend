@@ -22,17 +22,26 @@ router.get(
     try {
       const userId = req.user!.id;
       const workspaceId = req.query.workspaceId as string | undefined;
+      const fetchArchived = req.query.archived === "true";
 
       let projects;
       if (workspaceId === "null") {
         // Personal projects only (no workspace)
-        projects = await DocumentUploadService.getUserProjects(userId, { personalOnly: true });
+        projects = await DocumentUploadService.getUserProjects(userId, {
+          personalOnly: true,
+          fetchArchived,
+        });
       } else if (workspaceId) {
         // Projects in a specific workspace
-        projects = await DocumentUploadService.getUserProjects(userId, { workspaceId });
+        projects = await DocumentUploadService.getUserProjects(userId, {
+          workspaceId,
+          fetchArchived,
+        });
       } else {
         // All projects (default, backward compatible)
-        projects = await DocumentUploadService.getUserProjects(userId);
+        projects = await DocumentUploadService.getUserProjects(userId, {
+          fetchArchived,
+        });
       }
 
       res.status(200).json({
@@ -53,7 +62,79 @@ router.get(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
+);
+
+// Export a project
+router.get(
+  "/export",
+  authenticateExpressRequest,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const {
+        projectId,
+        format,
+        includeCitations,
+        includeComments,
+        citationStyle,
+        template,
+      } = req.query;
+      const userId = req.user!.id;
+
+      if (!projectId) {
+        return res.status(400).json({ error: "Project ID is required" });
+      }
+
+      // We'll import exportService dynamically to avoid circular dependencies if any
+      const { ExportService } = await import("../../services/exportService");
+
+      // Set headers for file download based on format
+
+      if (format === "docx" || format === "word") {
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="export-${projectId}.docx"`,
+        );
+      } else if (format === "pdf") {
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="export-${projectId}.pdf"`,
+        );
+      } else {
+        return res.status(400).json({ error: "Invalid format specified" });
+      }
+
+      // Generate the export buffer
+      const exportResult = await ExportService.exportProject(
+        projectId as string,
+        userId,
+        {
+          format: format as "docx" | "pdf",
+          includeCitations: includeCitations === "true",
+          includeComments: includeComments === "true",
+          citationStyle: citationStyle as "apa" | "mla" | "chicago",
+          journalTemplate: template as string,
+        },
+      );
+
+      // Send the buffer (ExportService returns { buffer, fileSize })
+      return res.send(exportResult.buffer);
+    } catch (error: any) {
+      logger.error("Error exporting project", {
+        error: error.message,
+        stack: error.stack,
+        projectId: req.query.projectId,
+      });
+      return res
+        .status(500)
+        .json({ error: "Failed to export project: " + error.message });
+    }
+  },
 );
 
 // Get a specific project
@@ -67,7 +148,7 @@ router.get(
 
       const project = await DocumentUploadService.getProjectById(
         projectId as string,
-        userId
+        userId,
       );
 
       if (!project) {
@@ -95,7 +176,7 @@ router.get(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
 );
 
 // Update a project
@@ -121,7 +202,7 @@ router.put(
         description || "",
         content,
         content ? JSON.stringify(content).length : 0,
-        citation_style
+        citation_style,
       );
 
       if (!updatedProject) {
@@ -148,7 +229,7 @@ router.put(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
 );
 
 // Delete a project
@@ -163,7 +244,7 @@ router.delete(
       // Delete project
       const deletedProject = await DocumentUploadService.deleteProject(
         projectId as string,
-        userId
+        userId,
       );
 
       return res.status(200).json({
@@ -184,7 +265,7 @@ router.delete(
         message: "Service temporarily unavailable. Please try again later.",
       });
     }
-  }
+  },
 );
 
 export default router;
