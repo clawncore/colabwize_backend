@@ -127,5 +127,8 @@
   "bugs": {
     "url": "https://github.com/clawncore/colabwize_backend/issues"
   },
-  "homepage": "https://github.com/clawncore/colabwize_backend#readme"
+  "homepage": "https://github.com/clawncore/colabwize_backend#readme",
+  "overrides": {
+    "ansi-styles": "^4.3.0"
+  }
 }
