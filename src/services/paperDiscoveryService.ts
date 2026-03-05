@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import SecretsService from "./secrets-service";
-import fetch from "node-fetch";
+// Node.js 20+ has native fetch globally available — no import needed
 
 // Interfaces for internal use
 export interface PaperSearchResult {

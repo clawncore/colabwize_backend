@@ -2,9 +2,7 @@ import logger from "../monitoring/logger";
 import { prisma } from "../lib/prisma";
 import { SubscriptionService } from "./subscriptionService";
 import SecretsService from "./secrets-service";
-
-// Use node-fetch for HTTP requests
-import fetch from "node-fetch";
+// Node.js 20+ has native fetch globally available — no import needed
 
 interface SearchResult {
   title: string;
