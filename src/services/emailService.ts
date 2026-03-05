@@ -10,7 +10,7 @@ const initializeResend = async () => {
 
   console.log(
     "Initializing Resend client with API key:",
-    resendApiKey ? "[REDACTED]" : "MISSING"
+    resendApiKey ? "[REDACTED]" : "MISSING",
   );
 
   if (!resendApiKey) {
@@ -38,7 +38,7 @@ export class EmailService {
   static async sendOTPEmail(
     to: string,
     otp: string,
-    fullName: string = ""
+    fullName: string = "",
   ): Promise<boolean> {
     try {
       // Validate inputs
@@ -122,7 +122,7 @@ export class EmailService {
         // Provide more specific error messages for common issues
         if (error.message && error.message.includes("domain is not verified")) {
           console.error(
-            "DOMAIN VERIFICATION ISSUE: You need to verify your domain (colabwize.com) in your Resend dashboard: https://resend.com/domains"
+            "DOMAIN VERIFICATION ISSUE: You need to verify your domain (colabwize.com) in your Resend dashboard: https://resend.com/domains",
           );
         }
 
@@ -150,7 +150,7 @@ export class EmailService {
   // Send welcome email
   static async sendWelcomeEmail(
     to: string,
-    fullName: string = ""
+    fullName: string = "",
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -241,7 +241,7 @@ export class EmailService {
   static async sendPasswordResetEmail(
     to: string,
     resetLink: string,
-    fullName: string = ""
+    fullName: string = "",
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -310,7 +310,7 @@ export class EmailService {
     fullName: string,
     title: string,
     message: string,
-    type: string
+    type: string,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -373,7 +373,7 @@ export class EmailService {
   static async sendProfileUpdateOTPEmail(
     to: string,
     otp: string,
-    isEmailChange: boolean = false
+    isEmailChange: boolean = false,
   ): Promise<boolean> {
     try {
       const subject = isEmailChange
@@ -439,7 +439,7 @@ export class EmailService {
     } catch (error) {
       console.error(
         "Error sending profile update OTP email via Resend:",
-        error
+        error,
       );
       return false;
     }
@@ -452,7 +452,7 @@ export class EmailService {
     inviterName,
     role,
     acceptUrl,
-    expiresAt
+    expiresAt,
   }: {
     to: string;
     workspaceName: string;
@@ -527,7 +527,75 @@ export class EmailService {
       console.log("Workspace invitation email sent successfully via Resend");
       return true;
     } catch (error) {
-      console.error("Error sending workspace invitation email via Resend:", error);
+      console.error(
+        "Error sending workspace invitation email via Resend:",
+        error,
+      );
+      return false;
+    }
+  }
+
+  // Send workspace removal email
+  static async sendWorkspaceRemovalEmail({
+    to,
+    fullName,
+    workspaceName,
+    removerName,
+  }: {
+    to: string;
+    fullName: string;
+    workspaceName: string;
+    removerName: string;
+  }): Promise<boolean> {
+    try {
+      if (!resend) {
+        console.error("Resend client not initialized");
+        return false;
+      }
+
+      const { data, error } = await resend.emails.send({
+        from: "ColabWize <notifications@email.colabwize.com>",
+        to,
+        subject: `Workspace Update: Removed from ${workspaceName}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; background-color: #f4f4f5; ">
+            <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 20px 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+              <div style="margin-bottom: 30px;">
+                <img src="https://image2url.com/r2/bucket2/images/1767558424944-e48e15a4-5587-40ac-99b0-ee82c5d68042.png" alt="ColabWize Logo"style="width: 100%; height: 120px; max-height: 200px; margin-bottom: 5px;">
+                <h1 style="color: #1e40af; font-size: 24px; margin: 10px 0;">Workspace Access Updated</h1>
+              </div>
+              
+              <p style="color: #666666; font-size: 16px; line-height: 1.6;">
+                Hello ${fullName || "there"},
+              </p>
+              
+              <p style="color: #666666; font-size: 16px; line-height: 1.6;">
+                You have been removed from the <strong>${workspaceName}</strong> workspace by <strong>${removerName}</strong>.
+              </p>
+
+              <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #e2e8f0;">
+                <p style="margin: 0; font-size: 14px; color: #64748b;">
+                  If you believe this was a mistake, please reach out to the workspace administrator or your contact within the organization. You will no longer have access to projects and tasks within this workspace.
+                </p>
+              </div>
+              
+              <p style="color: #999999; font-size: 13px; margin-top: 40px; margin-bottom: 5px;">
+                ColabWize Team - Your Academic Integrity Partner
+              </p>
+            </div>
+          </div>
+        `,
+      });
+
+      if (error) {
+        console.error("Resend workspace removal email error:", error);
+        return false;
+      }
+
+      console.log("Workspace removal email sent successfully via Resend");
+      return true;
+    } catch (error) {
+      console.error("Error sending workspace removal email via Resend:", error);
       return false;
     }
   }
@@ -539,7 +607,7 @@ export class EmailService {
     planName: string,
     amount: number,
     nextBillingDate: string,
-    transactionId: string
+    transactionId: string,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -592,13 +660,13 @@ export class EmailService {
       }
 
       console.log(
-        "Subscription confirmation email sent successfully via Resend"
+        "Subscription confirmation email sent successfully via Resend",
       );
       return true;
     } catch (error) {
       console.error(
         "Error sending subscription confirmation email via Resend:",
-        error
+        error,
       );
       return false;
     }
@@ -610,7 +678,7 @@ export class EmailService {
     fullName: string,
     planName: string,
     amount: number,
-    transactionId: string
+    transactionId: string,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -674,7 +742,7 @@ export class EmailService {
     to: string,
     fullName: string,
     planName: string,
-    amount: number
+    amount: number,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -742,7 +810,7 @@ export class EmailService {
     fullName: string,
     planName: string,
     amount: number,
-    invoiceUrl: string
+    invoiceUrl: string,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -806,7 +874,7 @@ export class EmailService {
     fullName: string,
     title: string,
     message: string,
-    data?: any
+    data?: any,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -833,13 +901,14 @@ export class EmailService {
                 ${message}
               </p>
               
-              ${data
-            ? `<div style="background-color: #f1f5f9; padding: 20px; border-radius: 8px; margin: 30px 0; text-align: left;">
+              ${
+                data
+                  ? `<div style="background-color: #f1f5f9; padding: 20px; border-radius: 8px; margin: 30px 0; text-align: left;">
                   <h2 style="color: #1e40af; margin-top: 0;">Analytics Data</h2>
                   <pre style="white-space: pre-wrap; word-wrap: break-word; background-color: #fff; padding: 10px; border-radius: 4px; font-size: 14px;">${JSON.stringify(data, null, 2)}</pre>
                 </div>`
-            : ""
-          }
+                  : ""
+              }
               
               <p style="color: #666666; font-size: 14px; line-height: 1.6; border-top: 1px solid #eeeeee; padding-top: 20px; margin-top: 20px;">
                 You're receiving this email because you have analytics notifications enabled in your ColabWize settings. Your academic integrity is important to us.
@@ -863,7 +932,7 @@ export class EmailService {
     } catch (error) {
       console.error(
         "Error sending analytics notification email via Resend:",
-        error
+        error,
       );
       return false;
     }
@@ -875,7 +944,7 @@ export class EmailService {
     fullName: string,
     period: "week" | "month" | "year",
     reportPath: string,
-    reportFileName: string
+    reportFileName: string,
   ): Promise<boolean> {
     try {
       // Read the PDF report file
@@ -952,7 +1021,7 @@ export class EmailService {
   // Send 2FA Enabled Email
   static async send2FAEnabledEmail(
     to: string,
-    fullName: string = ""
+    fullName: string = "",
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -1030,7 +1099,7 @@ export class EmailService {
     title: string,
     message: string,
     projectId: string,
-    projectName: string
+    projectName: string,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -1087,13 +1156,13 @@ export class EmailService {
       }
 
       console.log(
-        "Collaboration notification email sent successfully via Resend"
+        "Collaboration notification email sent successfully via Resend",
       );
       return true;
     } catch (error) {
       console.error(
         "Error sending collaboration notification email via Resend:",
-        error
+        error,
       );
       return false;
     }
@@ -1102,7 +1171,7 @@ export class EmailService {
   // Send account deletion confirmation email
   static async sendAccountDeletionEmail(
     to: string,
-    fullName: string = ""
+    fullName: string = "",
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -1218,18 +1287,20 @@ export class EmailService {
                 <p style="color: #666666; font-size: 16px; margin: 10px 0;">
                   <strong>Estimated Users:</strong> ${estimatedUsers}
                 </p>
-                ${department
-            ? `<p style="color: #666666; font-size: 16px; margin: 10px 0;">
+                ${
+                  department
+                    ? `<p style="color: #666666; font-size: 16px; margin: 10px 0;">
                   <strong>Department:</strong> ${department}
                 </p>`
-            : ""
-          }
-                ${message
-            ? `<p style="color: #666666; font-size: 16px; margin: 10px 0;">
+                    : ""
+                }
+                ${
+                  message
+                    ? `<p style="color: #666666; font-size: 16px; margin: 10px 0;">
                   <strong>Message:</strong> ${message}
                 </p>`
-            : ""
-          }
+                    : ""
+                }
               </div>
               
               <p style="color: #666666; font-size: 14px; line-height: 1.6; border-top: 1px solid #eeeeee; padding-top: 20px; margin-top: 20px;">
@@ -1247,7 +1318,7 @@ export class EmailService {
       if (salesError) {
         console.error(
           "Resend institutional plan request email error:",
-          salesError
+          salesError,
         );
         return false;
       }
@@ -1296,19 +1367,19 @@ export class EmailService {
       if (confirmationError) {
         console.error(
           "Resend institutional plan confirmation email error:",
-          confirmationError
+          confirmationError,
         );
         return false;
       }
 
       console.log(
-        "Institutional plan request emails sent successfully via Resend"
+        "Institutional plan request emails sent successfully via Resend",
       );
       return true;
     } catch (error) {
       console.error(
         "Error sending institutional plan request emails via Resend:",
-        error
+        error,
       );
       return false;
     }
@@ -1320,7 +1391,7 @@ export class EmailService {
     subject: string,
     html: string,
     attachmentBuffer: Buffer,
-    attachmentFilename: string
+    attachmentFilename: string,
   ): Promise<boolean> {
     try {
       // For the project share email, we'll keep the html parameter as is since it's passed in
@@ -1361,7 +1432,7 @@ export class EmailService {
     scanType: "originality" | "ai-detection" | "citations",
     projectName: string,
     resultSummary: string,
-    dashboardUrl: string
+    dashboardUrl: string,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -1445,7 +1516,7 @@ export class EmailService {
     fullName: string,
     projectName: string,
     certificateUrl: string,
-    retentionDays: number
+    retentionDays: number,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -1525,7 +1596,7 @@ export class EmailService {
     plan: string,
     scansUsed: number,
     scansLimit: number,
-    upgradeUrl: string
+    upgradeUrl: string,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -1596,7 +1667,7 @@ export class EmailService {
     } catch (error) {
       console.error(
         "Error sending usage limit warning email via Resend:",
-        error
+        error,
       );
       return false;
     }
@@ -1608,7 +1679,7 @@ export class EmailService {
     fullName: string,
     plan: string,
     resetDate: string,
-    upgradeUrl: string
+    upgradeUrl: string,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -1677,7 +1748,7 @@ export class EmailService {
     } catch (error) {
       console.error(
         "Error sending usage limit reached email via Resend:",
-        error
+        error,
       );
       return false;
     }
@@ -1690,7 +1761,7 @@ export class EmailService {
     oldPlan: string,
     newPlan: string,
     effectiveDate: string,
-    newFeatures: string[]
+    newFeatures: string[],
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -1771,7 +1842,7 @@ export class EmailService {
     fullName: string,
     certificateCount: number,
     expirationDate: string,
-    downloadUrl: string
+    downloadUrl: string,
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -1829,19 +1900,19 @@ export class EmailService {
       if (error) {
         console.error(
           "Resend certificate expiration warning email error:",
-          error
+          error,
         );
         return false;
       }
 
       console.log(
-        "Certificate expiration warning email sent successfully via Resend"
+        "Certificate expiration warning email sent successfully via Resend",
       );
       return true;
     } catch (error) {
       console.error(
         "Error sending certificate expiration warning email via Resend:",
-        error
+        error,
       );
       return false;
     }
@@ -1853,7 +1924,7 @@ export class EmailService {
     fullName: string,
     query: string,
     matchCount: number,
-    results: any[]
+    results: any[],
   ): Promise<boolean> {
     try {
       if (!resend) {
@@ -1861,13 +1932,18 @@ export class EmailService {
         return false;
       }
 
-      const resultsHtml = results.slice(0, 5).map(paper => `
+      const resultsHtml = results
+        .slice(0, 5)
+        .map(
+          (paper) => `
         <div style="margin-bottom: 20px; padding: 15px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;">
           <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #1e40af;">${paper.title}</h3>
-          <p style="margin: 0 0 5px 0; font-size: 14px; color: #475569;">${paper.authors ? paper.authors.join(', ') : 'Unknown Authors'}${paper.year ? ` • ${paper.year}` : ''}</p>
-          ${paper.url ? `<a href="${paper.url}" style="font-size: 13px; color: #4f46e5; text-decoration: none;">View Paper →</a>` : ''}
+          <p style="margin: 0 0 5px 0; font-size: 14px; color: #475569;">${paper.authors ? paper.authors.join(", ") : "Unknown Authors"}${paper.year ? ` • ${paper.year}` : ""}</p>
+          ${paper.url ? `<a href="${paper.url}" style="font-size: 13px; color: #4f46e5; text-decoration: none;">View Paper →</a>` : ""}
         </div>
-      `).join('');
+      `,
+        )
+        .join("");
 
       const { data, error } = await resend.emails.send({
         from: "ColabWize Alerts <alerts@email.colabwize.com>",

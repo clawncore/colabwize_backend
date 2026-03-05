@@ -3,111 +3,125 @@
 export type CitationStyle = "APA" | "MLA" | "IEEE" | "Chicago";
 
 export type PatternType =
-    | "NUMERIC_BRACKET"   // [1]
-    | "AUTHOR_YEAR"       // (Smith, 2023)
-    | "AUTHOR_PAGE"       // (Smith 24)
-    | "et_al_no_period"   // et al
-    | "et_al_with_period" // et al.
-    | "AMPERSAND_IN_PAREN" // (Smith & Jones)
-    | "AND_IN_PAREN";      // (Smith and Jones)
+  | "NUMERIC_BRACKET" // [1]
+  | "AUTHOR_YEAR" // (Smith, 2023)
+  | "AUTHOR_PAGE" // (Smith 24)
+  | "et_al_no_period" // et al
+  | "et_al_with_period" // et al.
+  | "AMPERSAND_IN_PAREN" // (Smith & Jones)
+  | "AND_IN_PAREN" // (Smith and Jones)
+  | "MIXED_STYLE"; // Mixture of styles in one document
 
 export interface DocumentMeta {
-    language: string;
-    editor: string;
+  language: string;
+  editor: string;
 }
 
 export type SectionType = "BODY" | "REFERENCE_SECTION";
 
 export interface DocumentSection {
-    title: string;
-    type: SectionType;
-    // We might want to track range here if needed for structural flags
-    range?: { start: number; end: number };
+  title: string;
+  type: SectionType;
+  // We might want to track range here if needed for structural flags
+  range?: { start: number; end: number };
 }
 
 export interface ExtractedPattern {
-    patternType: PatternType;
-    text: string;
-    start: number;
-    end: number;
-    section: SectionType;
-    context?: string;
+  patternType: PatternType;
+  text: string;
+  start: number;
+  end: number;
+  section: SectionType;
+  context?: string;
 }
 
 export interface ReferenceEntry {
-    index: number;
-    rawText: string;
-    start: number; // Anchor for the entry
-    end: number;
+  index: number;
+  rawText: string;
+  start: number; // Anchor for the entry
+  end: number;
 }
 
 export interface ReferenceListExtraction {
-    sectionTitle: string;
-    entries: ReferenceEntry[];
+  sectionTitle: string;
+  entries: ReferenceEntry[];
 }
 
 // Backend Request Payload
 export interface AuditRequest {
-    declaredStyle: CitationStyle;
-    documentMeta: DocumentMeta;
-    sections: DocumentSection[];
-    patterns: ExtractedPattern[];
-    referenceList: ReferenceListExtraction | null; // Null if no ref list found
+  declaredStyle: CitationStyle;
+  documentMeta: DocumentMeta;
+  sections: DocumentSection[];
+  patterns: ExtractedPattern[];
+  referenceList: ReferenceListExtraction | null; // Null if no ref list found
 }
 
 // Backend Response Types
-export type CitationViolationType = "INLINE_STYLE" | "REF_LIST_ENTRY" | "STRUCTURAL" | "VERIFICATION";
+export type CitationViolationType =
+  | "INLINE_STYLE"
+  | "REF_LIST_ENTRY"
+  | "STRUCTURAL"
+  | "VERIFICATION";
 
 export interface CitationFlag {
-    type: CitationViolationType;
-    ruleId: string; // e.g., "MLA.NO_NUMERIC"
-    message: string;
-    anchor?: {
-        start: number;
-        end: number;
-        text: string;
-    };
-    category?: CitationViolationType; // Deprecated by 'type', but keeping for compatibility if needed. Actually 'type' covers it.
-    // Let's use 'type' as the main classifier as per prompt.
-    // Structural details
-    section?: string;
-    expected?: string;
+  type: CitationViolationType;
+  ruleId: string; // e.g., "MLA.NO_NUMERIC"
+  message: string;
+  anchor?: {
+    start: number;
+    end: number;
+    text: string;
+  };
+  category?: CitationViolationType; // Deprecated by 'type', but keeping for compatibility if needed. Actually 'type' covers it.
+  // Let's use 'type' as the main classifier as per prompt.
+  // Structural details
+  section?: string;
+  expected?: string;
 }
 
 // Verification Results (separate from flags)
 export type VerificationStatus =
-    | "VERIFIED"                // Paper found and matches
-    | "VERIFICATION_FAILED"      // Paper not found or low similarity
-    | "UNMATCHED_REFERENCE"      // Inline citation has no matching reference
-    | "INSUFFICIENT_INFO";       // Citation too short to verify
+  | "VERIFIED" // Paper found and matches
+  | "VERIFICATION_FAILED" // Paper not found or low similarity
+  | "UNMATCHED_REFERENCE" // Inline citation has no matching reference
+  | "INSUFFICIENT_INFO"; // Citation too short to verify
 
 export interface VerificationResult {
-    inlineLocation: {
-        start: number;
-        end: number;
-        text: string;
-    };
-    status: VerificationStatus;
-    message: string;
-    similarity?: number;
-    foundPaper?: {
-        title: string;
-        year?: number;
-        url: string;
-        database: string;
-        abstract?: string;
-        isRetracted?: boolean;
-    };
-    semanticSupport?: {
-        status: "SUPPORTED" | "DISPUTED" | "PARTIALLY_SUPPORTED" | "UNRELATED" | "PENDING";
-        reasoning: string;
-    };
+  inlineLocation: {
+    start: number;
+    end: number;
+    text: string;
+  };
+  status: VerificationStatus;
+  message: string;
+  similarity?: number;
+  foundPaper?: {
+    title: string;
+    year?: number;
+    url: string;
+    database: string;
+    abstract?: string;
+    isRetracted?: boolean;
+  };
+  semanticSupport?: {
+    status:
+      | "SUPPORTED"
+      | "DISPUTED"
+      | "PARTIALLY_SUPPORTED"
+      | "UNRELATED"
+      | "PENDING";
+    reasoning: string;
+  };
 }
 
 export interface AuditReport {
-    style: CitationStyle;
-    timestamp: string;
-    flags: CitationFlag[];
-    verificationResults?: VerificationResult[];  // NEW: Separate verification results
-    detectedStyles?: string[]; // Auto-detected style indicators
+  style: CitationStyle;
+  timestamp: string;
+  flags: CitationFlag[];
+  verificationResults?: VerificationResult[]; // NEW: Separate verification results
+  detectedStyles?: string[]; // Auto-detected style indicators
 }
+
+// Legacy types for compatibility
+export type AuditResponse = AuditReport;
+export type AuditTier = "TIER_1_BASIC" | "TIER_2_FORENSIC" | "TIER_3_SEMANTIC";

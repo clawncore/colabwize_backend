@@ -1,7 +1,5 @@
 import { prisma } from "../lib/prisma";
 import { Request } from "express";
-import { Worker } from "worker_threads";
-import path from "path";
 import fs from "fs/promises";
 // @ts-ignore
 import pdfParse from "pdf-parse";
@@ -9,6 +7,7 @@ import mammoth from "mammoth";
 import { RecycleBinService } from "./recycleBinService";
 import logger from "../monitoring/logger";
 import { PdfConversionService } from "./pdfConversionService";
+import { WorkspaceActivityService } from "./workspaceActivityService";
 
 interface ExtendedRequest extends Request {
   user?: {
@@ -26,7 +25,8 @@ export class DocumentUploadService {
     userId: string,
     title: string,
     description: string,
-    file: Express.Multer.File
+    file: Express.Multer.File,
+    workspaceId?: string,
   ) {
     // Extract text/html from the uploaded document
     const { content: extractedContent, format } =
@@ -36,25 +36,23 @@ export class DocumentUploadService {
     const wordCount = this.countWords(extractedContent);
 
     // Prepare content for database
-    // If HTML, store as is (Tiptap finds HTML string acceptable for setContent)
-    // If text, wrap in Tiptap JSON structure
     const projectContent =
       format === "html"
         ? extractedContent
         : {
-          type: "doc",
-          content: [
-            {
-              type: "paragraph",
-              content: [
-                {
-                  type: "text",
-                  text: extractedContent,
-                },
-              ],
-            },
-          ],
-        };
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: [
+                  {
+                    type: "text",
+                    text: extractedContent,
+                  },
+                ],
+              },
+            ],
+          };
 
     // Create project record in the database
     const project = await prisma.project.create({
@@ -66,6 +64,7 @@ export class DocumentUploadService {
         word_count: wordCount,
         file_path: file.path,
         file_type: file.mimetype,
+        workspace_id: workspaceId || null,
       },
       include: {
         originality_scans: true,
@@ -73,17 +72,75 @@ export class DocumentUploadService {
       },
     });
 
-    return project;
+    // Log workspace activity and notify members if applicable
+    if (workspaceId) {
+      await WorkspaceActivityService.logActivity(
+        workspaceId,
+        userId,
+        "PROJECT_CREATED",
+        { title: project.title, projectId: project.id },
+      );
+
+      try {
+        const { createNotification } = require("./notificationService");
+        const workspaceMembers = await prisma.workspaceMember.findMany({
+          where: { workspace_id: workspaceId, user_id: { not: userId } },
+        });
+
+        for (const member of workspaceMembers) {
+          await createNotification(
+            member.user_id,
+            "document_shared",
+            "New Project Created",
+            `A new project "${title}" has been created in your workspace.`,
+            { workspaceId, documentId: project.id },
+          );
+        }
+      } catch (notifError) {
+        logger.error(
+          "Failed to send project creation notification:",
+          notifError,
+        );
+      }
+    }
+
+    return this.mapProjectWithProgress(project);
   }
 
   /**
    * Gets all projects for a user
    */
-  static async getUserProjects(userId: string) {
-    return await prisma.project.findMany({
-      where: {
-        user_id: userId,
-      },
+  static async getUserProjects(
+    userId: string,
+    options?: {
+      personalOnly?: boolean;
+      workspaceId?: string;
+      fetchArchived?: boolean;
+    },
+  ) {
+    const where: any = {};
+
+    if (options?.personalOnly) {
+      where.user_id = userId;
+      where.workspace_id = null;
+    } else if (options?.workspaceId) {
+      where.workspace_id = options.workspaceId;
+    } else {
+      where.user_id = userId;
+    }
+
+    if (options && "fetchArchived" in options) {
+      if (options.fetchArchived) {
+        where.status = "archived";
+      } else {
+        where.status = { not: "archived" };
+      }
+    } else {
+      where.status = { not: "archived" };
+    }
+
+    const projects = await prisma.project.findMany({
+      where,
       orderBy: {
         created_at: "desc",
       },
@@ -104,31 +161,48 @@ export class DocumentUploadService {
           take: 1, // Get most recent scan
         },
         citations: {
-          take: 0 // Don't fetch citations list in dashboard
-        }
+          take: 0, // Don't fetch citations list in dashboard
+        },
       },
     });
+
+    return projects.map((project: any) => this.mapProjectWithProgress(project));
   }
 
   /**
    * Gets a specific project by ID for a user
+   * Allows access if the user owns the project OR is a member of the project's workspace OR is a direct collaborator.
    */
   static async getProjectById(projectId: string, userId: string) {
-    return await prisma.project.findFirst({
+    const project = await prisma.project.findFirst({
       where: {
         id: projectId,
-        user_id: userId,
+        OR: [
+          { user_id: userId },
+          { collaborators: { some: { user_id: userId } } },
+          {
+            workspace: {
+              members: { some: { user_id: userId } },
+            },
+          },
+        ],
       },
       include: {
+        workspace: {
+          include: {
+            members: true,
+          },
+        },
         originality_scans: {
           orderBy: {
             created_at: "desc",
           },
         },
-
         citations: true,
       },
     });
+
+    return this.mapProjectWithProgress(project);
   }
 
   /**
@@ -160,7 +234,8 @@ export class DocumentUploadService {
     content: any,
     wordCount: number,
     citationStyle?: string,
-    outline?: any
+    outline?: any,
+    updates?: any,
   ) {
     // Update project record
     const updatedProject = await (prisma.project as any).update({
@@ -174,8 +249,9 @@ export class DocumentUploadService {
         content,
         outline,
         word_count: wordCount,
-        citation_style: citationStyle, // Pass directly (Prisma handles undefined gracefully often, or use conditional spread)
+        citation_style: citationStyle,
         updated_at: new Date(),
+        ...updates,
       },
       include: {
         originality_scans: true,
@@ -183,7 +259,7 @@ export class DocumentUploadService {
       },
     });
 
-    return updatedProject;
+    return this.mapProjectWithProgress(updatedProject);
   }
 
   /**
@@ -200,10 +276,10 @@ export class DocumentUploadService {
     // Delete access denied check
     if (project.user_id !== userId) {
       logger.warn(
-        `[DEBUG] Delete access denied. Owner: ${project.user_id}, Requestor: ${userId}`
+        `[DEBUG] Delete access denied. Owner: ${project.user_id}, Requestor: ${userId}`,
       );
       throw new Error(
-        `Access denied: Project owned by ${project.user_id}, not ${userId}`
+        `Access denied: Project owned by ${project.user_id}, not ${userId}`,
       );
     }
 
@@ -243,7 +319,8 @@ export class DocumentUploadService {
     title: string,
     description: string,
     content: any,
-    outline: any = null
+    outline: any = null,
+    workspaceId?: string,
   ) {
     // Create project record in the database
     const project = await (prisma.project as any).create({
@@ -260,7 +337,7 @@ export class DocumentUploadService {
           ],
         },
         outline: outline,
-        word_count: content ? this.countWords(JSON.stringify(content)) : 0,
+        workspace_id: workspaceId || null,
       },
       include: {
         originality_scans: true,
@@ -268,7 +345,39 @@ export class DocumentUploadService {
       },
     });
 
-    return project;
+    // Log workspace activity and notify members if applicable
+    if (workspaceId) {
+      await WorkspaceActivityService.logActivity(
+        workspaceId,
+        userId,
+        "PROJECT_CREATED",
+        { title: project.title, projectId: project.id },
+      );
+
+      try {
+        const { createNotification } = require("./notificationService");
+        const workspaceMembers = await prisma.workspaceMember.findMany({
+          where: { workspace_id: workspaceId, user_id: { not: userId } },
+        });
+
+        for (const member of workspaceMembers) {
+          await createNotification(
+            member.user_id,
+            "document_shared",
+            "New Project Created",
+            `A new project "${title}" has been created in your workspace.`,
+            { workspaceId, documentId: project.id },
+          );
+        }
+      } catch (notifError) {
+        logger.error(
+          "Failed to send project creation notification:",
+          notifError,
+        );
+      }
+    }
+
+    return this.mapProjectWithProgress(project);
   }
 
   /**
@@ -276,7 +385,7 @@ export class DocumentUploadService {
    * Returns an object with content and format type
    */
   public static async extractTextFromDocument(
-    file: Express.Multer.File
+    file: Express.Multer.File,
   ): Promise<{ content: string; format: "text" | "html" }> {
     if (!file) {
       throw new Error("File is required for text extraction");
@@ -290,65 +399,67 @@ export class DocumentUploadService {
     }
 
     try {
-
       switch (fileExtension) {
         case "pdf":
-          // 0. Enterprise-Grade Parsing (Mathpix)
-          // Check if Mathpix credentials are available
           if (process.env.MATHPIX_APP_ID && process.env.MATHPIX_APP_KEY) {
             try {
               const { MathpixService } = require("./mathpixService");
-              logger.info("[PDF-CONVERSION] Attempting Mathpix conversion", { filePath });
+              logger.info("[PDF-CONVERSION] Attempting Mathpix conversion", {
+                filePath,
+              });
 
               const html = await MathpixService.convertPdfToHtml(filePath);
               logger.info("[PDF-CONVERSION] Mathpix conversion successful");
 
               return { content: html, format: "html" };
             } catch (mathpixError: any) {
-              logger.warn("[PDF-CONVERSION] Mathpix conversion failed, falling back to local tools", {
-                error: mathpixError.message
-              });
-              // Fall through to next method
+              logger.warn(
+                "[PDF-CONVERSION] Mathpix conversion failed, falling back to local tools",
+                {
+                  error: mathpixError.message,
+                },
+              );
             }
           }
 
-          // 1. First fallback: Convert PDF to DOCX (LibreOffice) to preserve formatting
           try {
-            logger.info('[PDF-CONVERSION] Attempting PDF to DOCX conversion', { filePath });
-            const docxPath = await PdfConversionService.convertPdfToDocx(filePath);
-
-            // If conversion succeeds, extract content from the converted DOCX
-            logger.info('[PDF-CONVERSION] PDF to DOCX conversion successful, extracting content', { docxPath });
+            logger.info("[PDF-CONVERSION] Attempting PDF to DOCX conversion", {
+              filePath,
+            });
+            const docxPath =
+              await PdfConversionService.convertPdfToDocx(filePath);
+            logger.info(
+              "[PDF-CONVERSION] PDF to DOCX conversion successful, extracting content",
+              { docxPath },
+            );
             const html = await this.extractHtmlFromDOCX(docxPath);
-
-            // Clean up the temporary DOCX file
             try {
               await fs.unlink(docxPath);
-              logger.info('[PDF-CONVERSION] Temporary DOCX file cleaned up', { docxPath });
-            } catch (cleanupError: any) {
-              logger.warn('[PDF-CONVERSION] Failed to clean up temporary DOCX file', {
+              logger.info("[PDF-CONVERSION] Temporary DOCX file cleaned up", {
                 docxPath,
-                error: cleanupError.message
               });
+            } catch (cleanupError: any) {
+              logger.warn(
+                "[PDF-CONVERSION] Failed to clean up temporary DOCX file",
+                {
+                  docxPath,
+                  error: cleanupError.message,
+                },
+              );
             }
-
             return { content: html, format: "html" };
           } catch (conversionError: any) {
-            logger.warn('[PDF-CONVERSION] PDF to DOCX conversion failed, falling back to text extraction', {
-              error: conversionError.message,
-              filePath
-            });
-
-            // If conversion fails, fall back to the original text extraction
+            logger.warn(
+              "[PDF-CONVERSION] PDF to DOCX conversion failed, falling back to text extraction",
+              {
+                error: conversionError.message,
+                filePath,
+              },
+            );
             const pdfText = await this.extractTextFromPDF(filePath);
-            // Clean PDF text: remove hard wraps within paragraphs
-            // 1. Replace single newlines that are likely hard wraps with spaces
-            //    Look for: non-punctuation followed by newline followed by non-newline
             const cleanedText = pdfText
               .replace(/([^\n.!?])\n([^\n])/g, "$1 $2")
-              // 2. Reduce multiple newlines to max 2 (paragraph break)
               .replace(/\n{3,}/g, "\n\n");
-
             return { content: cleanedText, format: "text" };
           }
 
@@ -359,7 +470,6 @@ export class DocumentUploadService {
         case "txt":
         case "rtf":
         case "odt":
-          // For text-based formats, read the file directly
           const content = await fs.readFile(filePath, "utf8");
           return { content, format: "text" };
 
@@ -375,27 +485,15 @@ export class DocumentUploadService {
         stack: error.stack,
         fileName: file?.originalname,
         fileExtension,
-        filePath: file?.path
+        filePath: file?.path,
       });
-
-      // Return more user-friendly error message
-      let userMessage = "Unable to extract content from document";
-      if (error.message.includes("parse PDF")) {
-        userMessage = "Unable to extract text from PDF. The PDF may be scanned, password-protected, or corrupted.";
-      } else if (error.message.includes("extractable text content")) {
-        userMessage = "PDF appears to contain no extractable text. It may be a scanned document or image-based PDF.";
-      }
-
       return {
-        content: `${userMessage} (File: ${file?.originalname})`,
+        content: `Error extracting text: ${error.message} (File: ${file?.originalname})`,
         format: "text",
       };
     }
   }
 
-  /**
-   * Extracts text from PDF files using a Worker Thread to prevent event-loop blocking
-   */
   /**
    * Extracts text from PDF files directly
    */
@@ -403,49 +501,26 @@ export class DocumentUploadService {
     const startTime = Date.now();
     try {
       logger.info(`[PDF] Starting PDF parsing`, { filePath });
-
       const buffer = await fs.readFile(filePath);
-      logger.info(`[PDF] File read successfully`, {
-        filePath,
-        fileSize: buffer.length,
-        duration: Date.now() - startTime
-      });
-
       const data = await pdfParse(buffer);
-
       const duration = Date.now() - startTime;
       logger.info(`[PERF] PDF Parsing Complete`, {
         duration,
         filePath,
         textLength: data.text.length,
-        numPages: data.numpages
+        numPages: data.numpages,
       });
-
-      // Validate that we actually got content
       if (!data.text || data.text.trim().length === 0) {
-        logger.warn(`[PDF] PDF parsed but returned empty content`, {
-          filePath,
-          numPages: data.numpages
-        });
-        throw new Error("PDF parsed successfully but contains no extractable text content");
+        throw new Error("PDF contains no extractable text content");
       }
-
       return data.text;
     } catch (error: any) {
-      const duration = Date.now() - startTime;
-      logger.error(`[PDF] PDF Parsing Failed`, {
-        duration,
-        error: error.message,
-        stack: error.stack,
-        filePath
-      });
       throw new Error(`Failed to parse PDF: ${error.message}`);
     }
   }
 
   /**
    * Extracts HTML from DOCX files using mammoth
-   * This preserves formatting like bold, italic, and structure
    */
   private static async extractHtmlFromDOCX(filePath: string): Promise<string> {
     try {
@@ -462,8 +537,40 @@ export class DocumentUploadService {
    */
   private static countWords(text: string): number {
     if (!text) return 0;
-    // Strip HTML tags for word count
     const plainText = text.replace(/<[^>]*>/g, " ");
     return plainText.trim() === "" ? 0 : plainText.trim().split(/\s+/).length;
+  }
+
+  /**
+   * Calculates progress percentage based on project status
+   */
+  private static calculateProjectProgress(status: string): number {
+    switch (status) {
+      case "completed":
+        return 100;
+      case "in-progress":
+        return 40;
+      case "planning":
+        return 20;
+      case "draft":
+        return 10;
+      case "active":
+        return 30;
+      case "archived":
+        return 0;
+      default:
+        return 0;
+    }
+  }
+
+  /**
+   * Maps a project object to include the progress field
+   */
+  private static mapProjectWithProgress(project: any) {
+    if (!project) return null;
+    return {
+      ...project,
+      progress: this.calculateProjectProgress(project.status || "active"),
+    };
   }
 }
