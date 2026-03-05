@@ -19,7 +19,7 @@ router.post("/start", (req, res) => {
         }
 
         const auditId = startAudit(documentId, projectId, docState);
-        return res.status(202).json({ auditId, message: "Audit background job queued." });
+        return res.status(202).json({ success: true, data: { auditId }, message: "Audit background job queued." });
 
     } catch (error: any) {
         console.error("[AuditEngine] Failed to start task:", error);

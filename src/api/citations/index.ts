@@ -10,6 +10,7 @@ import gapsRouter from "./gaps";
 import intentRouter from "./intent";
 import credibilityRouter from "./credibility";
 import consensusRouter from "./consensus";
+import listRouter from "./list";
 
 const router = express.Router();
 
@@ -17,11 +18,13 @@ import contentScanRouter from "./content-scan";
 
 import analyzeRouter from "./analyze";
 import batchAnalyzeRouter from "./batch-analyze";
+import forensicAuditRouter from "./forensic-audit";
 
 // Mount sub-routers
 router.use("/", contentScanRouter); // Must come before /:projectId
 router.use("/", analyzeRouter); // Specific path /:p/:c/analyze, safe to put early
 router.use("/", batchAnalyzeRouter);
+router.use("/", forensicAuditRouter);
 router.use("/", missingLinkRouter);
 router.use("/", auditRouter);
 router.use("/", confidenceRouter);
@@ -33,5 +36,6 @@ router.use("/", gapsRouter); // Mounts as /:projectId/gaps
 router.use("/", intentRouter); // Mounts as /:citationId/classify-intent and /batch-classify-intents
 router.use("/", credibilityRouter); // Mounts as /credibility-score and /batch-credibility
 router.use("/", consensusRouter); // Mounts as /:projectId/consensus
+router.use("/", listRouter); // Mounts as /:projectId
 
 export default router;

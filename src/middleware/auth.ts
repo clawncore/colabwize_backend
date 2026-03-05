@@ -53,16 +53,21 @@ export async function authenticateExpressRequest(
 ): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
+    let token = "";
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.substring(7);
+    } else if (req.query.token) {
+      token = req.query.token as string;
+    }
+
+    if (!token) {
       res.status(401).json({
         success: false,
-        message: "Missing or invalid authorization header"
+        message: "Missing or invalid authorization"
       });
       return;
     }
-
-    const token = authHeader.substring(7);
 
     const supabase = await getSupabaseAdminClient();
     if (!supabase) {

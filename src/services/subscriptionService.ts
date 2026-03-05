@@ -11,10 +11,10 @@ export type ConsumptionResult = {
   cost?: number;
   message?: string;
   code?:
-    | "PLAN_LIMIT_REACHED"
-    | "INSUFFICIENT_CREDITS"
-    | "FEATURE_NOT_ALLOWED"
-    | "SYSTEM_ERROR";
+  | "PLAN_LIMIT_REACHED"
+  | "INSUFFICIENT_CREDITS"
+  | "FEATURE_NOT_ALLOWED"
+  | "SYSTEM_ERROR";
 };
 
 /**
@@ -353,6 +353,11 @@ export class SubscriptionService {
     const limits = this.getPlanLimits(plan);
     const normalizedPlan = plan.toLowerCase();
 
+    // Development Bypass
+    if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") {
+      return { allowed: true, source: "PLAN" };
+    }
+
     // Map feature to limit key
     let limitKey = feature;
     if (feature === "scan") limitKey = "scans_per_month";
@@ -579,6 +584,11 @@ export class SubscriptionService {
   ): Promise<ConsumptionResult> {
     const plan = await this.getActivePlan(userId);
     const limits = this.getPlanLimits(plan);
+
+    // Development Bypass
+    if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") {
+      return { allowed: true, source: "PLAN" };
+    }
 
     // 1. Determine Plan Limit
     // Map feature to limit key (e.g., 'scan' -> 'scans_per_month')
