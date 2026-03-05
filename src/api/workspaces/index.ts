@@ -258,7 +258,7 @@ router.get("/:id/metrics", async (req: any, res) => {
 
     const [recentTasks, recentProjects] = await Promise.all([
       WorkspaceTaskService.getRecentActivity(id, 10),
-      ProjectService.getRecentProjects(req.user.id, 5), // Currently limiting to user's projects, could be workspace projects
+      ProjectService.getRecentProjects(req.user.id, 10, id), // Fetch workspace projects, up to 10
     ]);
 
     res.json({
@@ -695,6 +695,7 @@ router.delete(
 
       const targetMember = await prisma.workspaceMember.findUnique({
         where: { id: memberId },
+        include: { user: true },
       });
 
       if (!targetMember || targetMember.workspace_id !== id) {
@@ -717,6 +718,30 @@ router.delete(
         { memberId, memberUserId: targetMember.user_id },
         req.ip,
       );
+
+      // Send email notification to removed member
+      try {
+        const { EmailService } = require("../../services/emailService");
+
+        let removerName = "an administrator";
+        if (req.user) {
+          removerName =
+            req.user.user_metadata?.full_name ||
+            req.user.email ||
+            "an administrator";
+        }
+
+        if (targetMember.user?.email) {
+          await EmailService.sendWorkspaceRemovalEmail({
+            to: targetMember.user.email,
+            fullName: targetMember.user.full_name || "",
+            workspaceName: workspace.name,
+            removerName,
+          });
+        }
+      } catch (emailError) {
+        logger.error("Failed to send workspace removal email", emailError);
+      }
 
       res.json({ message: "Member removed successfully" });
     } catch (error) {

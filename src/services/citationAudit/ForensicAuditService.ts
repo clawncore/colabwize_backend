@@ -1,109 +1,131 @@
 import { ExternalVerificationService } from "./externalVerification";
-export interface SimpleCitationPair {
-    inline: { text: string; start: number; end: number; context?: string };
-    reference?: {
-        rawText: string;
-        extractedAuthor?: string;
-        extractedTitle?: string;
-        extractedYear?: number;
-        extractedDOI?: string;
-    };
-}
-import { VerificationResult, AuditResponse, CitationFlag, AuditTier } from "../../types/citationAudit";
+import {
+  VerificationResult,
+  AuditReport,
+  CitationFlag,
+  AuditTier,
+  AuditResponse,
+} from "../../types/citationAudit";
 import { SemanticClaimService } from "./semanticClaimService";
 import logger from "../../monitoring/logger";
 
+export interface SimpleCitationPair {
+  inline: {
+    text: string;
+    start: number;
+    end: number;
+    patternType: string;
+    context?: string;
+  };
+  reference?: {
+    rawText: string;
+    index: number;
+    extractedAuthor?: string;
+    extractedTitle?: string;
+    extractedYear?: number;
+    extractedDOI?: string;
+  } | null;
+}
+
 export interface ForensicResult {
-    pair: SimpleCitationPair;
-    status: "VERIFIED" | "SUSPICIOUS" | "HALLUCINATION" | "UNSUPPORTED" | "MISMATCH";
-    confidence: number;
-    issues: string[];
-    evidence?: any;
-    alternatives?: any[];
+  pair: SimpleCitationPair;
+  status:
+    | "VERIFIED"
+    | "SUSPICIOUS"
+    | "HALLUCINATION"
+    | "UNSUPPORTED"
+    | "MISMATCH";
+  confidence: number;
+  issues: string[];
+  evidence?: any;
+  alternatives?: any[];
 }
 
 export class ForensicAuditService {
+  /**
+   * Run a full forensic audit on a list of citation pairs
+   */
+  static async auditCitations(
+    pairs: SimpleCitationPair[],
+  ): Promise<ForensicResult[]> {
+    const results: ForensicResult[] = [];
 
-    /**
-     * Run a full forensic audit on a list of citation pairs
-     */
-    static async auditCitations(pairs: SimpleCitationPair[]): Promise<ForensicResult[]> {
-        const results: ForensicResult[] = [];
+    // 1. Verify Existence and Basic Metadata
+    // Utilize existing logic but interpret strictness higher
+    const verificationResults =
+      await ExternalVerificationService.verifyCitationPairs(pairs as any);
 
-        // 1. Verify Existence and Basic Metadata
-        // Utilize existing logic but interpret strictness higher
-        const verificationResults = await ExternalVerificationService.verifyCitationPairs(pairs);
+    for (let i = 0; i < pairs.length; i++) {
+      const pair = pairs[i];
+      const ver = verificationResults.find(
+        (v: VerificationResult) => v.inlineLocation?.text === pair.inline.text,
+      );
 
-        for (let i = 0; i < pairs.length; i++) {
-            const pair = pairs[i];
-            const ver = verificationResults.find((v: VerificationResult) => v.inlineLocation?.text === pair.inline.text); // naive match or use index
+      if (!ver) {
+        results.push({
+          pair,
+          status: "SUSPICIOUS",
+          confidence: 0,
+          issues: ["Internal Verification Error"],
+        });
+        continue;
+      }
 
-            if (!ver) {
-                results.push({
-                    pair,
-                    status: "SUSPICIOUS",
-                    confidence: 0,
-                    issues: ["Internal Verification Error"]
-                });
-                continue;
-            }
+      const issues: string[] = [];
+      let status: ForensicResult["status"] = "VERIFIED";
+      let confidence = 1.0;
 
-            const issues: string[] = [];
-            let status: ForensicResult["status"] = "VERIFIED";
-            let confidence = 1.0;
+      // CHECK 1: Existence (Hallucination Check)
+      if (ver.status === "VERIFICATION_FAILED") {
+        status = "HALLUCINATION";
+        issues.push(
+          ver.message || "Paper does not exist in academic databases.",
+        );
+        confidence = 0.0;
+      } else if (ver.status === "INSUFFICIENT_INFO") {
+        status = "SUSPICIOUS";
+        issues.push(ver.message || "Citation info too sparse to verify.");
+        confidence = 0.5;
+      }
 
-            // CHECK 1: Existence (Hallucination Check)
-            if (ver.existenceStatus === "NOT_FOUND") {
-                status = "HALLUCINATION";
-                issues.push("Paper does not exist in academic databases (CrossRef/Semantic Scholar).");
-                confidence = 0.0;
-            } else if (ver.existenceStatus === "PENDING") {
-                status = "SUSPICIOUS";
-                issues.push("Citation info too sparse to verify.");
-                confidence = 0.5;
-            }
-
-            // CHECK 2: Authorship Mismatch (Forensic)
-            // If we found a paper, does the author match interpretation?
-            if (ver.foundPaper && pair.reference?.extractedAuthor) {
-                const authors = ver.foundPaper.authors || [];
-                const realAuthors = authors.map((a: string) => a.toLowerCase()).join(" ");
-                const citedAuthor = pair.reference.extractedAuthor.toLowerCase();
-
-                // Simple inclusion check
-                // Check if cited identifier (e.g. "Smith") is in the real author list
-                const keywords = citedAuthor.split(/[\s,]+/);
-                const match = keywords.some((k: string) => realAuthors.includes(k) && k.length > 2);
-
-                if (!match) {
-                    status = "MISMATCH";
-                    issues.push(`Author mismatch. Cited: "${pair.reference.extractedAuthor}", Real: "${authors.slice(0, 3).join(", ")}..."`);
-                    confidence = 0.8; // We are confident it IS a mismatch
-                }
-            }
-
-            // CHECK 3: Semantic Support
-            if (status === "VERIFIED" && ver.supportStatus === "CONTRADICTORY") {
-                status = "UNSUPPORTED";
-                issues.push("The cited paper appears to contradict your claim.");
-                confidence = ver.semanticAnalysis?.confidence || 0.8;
-            } else if (status === "VERIFIED" && ver.supportStatus === "UNRELATED") {
-                // Determine if this is a "claim" citation or just a general ref?
-                // Logic already inside verifyCitationPairs
-                status = "UNSUPPORTED";
-                issues.push("The cited paper is unrelated to the claim made.");
-            }
-
-            results.push({
-                pair,
-                status,
-                confidence,
-                issues,
-                evidence: ver,
-                alternatives: [] // Could populate from search
-            });
+      // CHECK 2: Authorship Mismatch (Forensic)
+      if (ver.foundPaper && pair.reference?.extractedAuthor) {
+        // Heuristic: If similarity is low and authors mismatch
+        if (ver.similarity && ver.similarity < 0.7) {
+          status = "MISMATCH";
+          issues.push(`Possible author mismatch or low confidence match.`);
+          confidence = 0.8;
         }
+      }
 
-        return results;
+      // CHECK 3: Semantic Support
+      if (status === "VERIFIED" && ver.semanticSupport) {
+        if (ver.semanticSupport.status === "DISPUTED") {
+          status = "UNSUPPORTED";
+          issues.push(
+            ver.semanticSupport.reasoning ||
+              "The cited paper appears to contradict your claim.",
+          );
+          confidence = 0.8;
+        } else if (ver.semanticSupport.status === "UNRELATED") {
+          status = "UNSUPPORTED";
+          issues.push(
+            ver.semanticSupport.reasoning ||
+              "The cited paper is unrelated to the claim made.",
+          );
+        }
+      }
+
+      results.push({
+        pair,
+        status,
+        confidence,
+        issues,
+        evidence: ver,
+        alternatives: [],
+      });
     }
+
+    return results;
+  }
 }
