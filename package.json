@@ -18,9 +18,9 @@
     "@google/generative-ai": "^0.24.1",
     "@hocuspocus/server": "^3.4.4",
     "@hocuspocus/transformer": "^3.4.4",
-    "@langchain/core": "^1.1.26",
-    "@langchain/openai": "^1.2.7",
-    "@langchain/textsplitters": "^1.0.1",
+    "@langchain/core": "^0.3.40",
+    "@langchain/openai": "^0.3.17",
+    "@langchain/textsplitters": "^0.1.0",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^6.0.0",
     "@supabase/supabase-js": "^2.39.0",
@@ -127,8 +127,5 @@
   "bugs": {
     "url": "https://github.com/clawncore/colabwize_backend/issues"
   },
-  "homepage": "https://github.com/clawncore/colabwize_backend#readme",
-  "overrides": {
-    "ansi-styles": "^4.3.0"
-  }
+  "homepage": "https://github.com/clawncore/colabwize_backend#readme"
 }
