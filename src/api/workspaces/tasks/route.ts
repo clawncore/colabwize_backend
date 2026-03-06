@@ -385,6 +385,67 @@ router.post(
         return res.status(400).json({ error: "No file uploaded" });
       }
 
+      // --- Subscription Limits Check ---
+      const userSubscription = await prisma.subscription.findUnique({
+        where: { user_id: userId },
+      });
+
+      const plan = userSubscription?.plan?.toLowerCase() || "free";
+
+      // Get workspaceId for this task to count total attachments in workspace
+      const task = await prisma.workspaceTask.findUnique({
+        where: { id: taskId },
+        select: { workspace_id: true },
+      });
+
+      if (!task) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+
+      const workspaceId = task.workspace_id;
+
+      // Check document count limit (Total in workspace)
+      const attachmentCount = await prisma.taskAttachment.count({
+        where: {
+          task: {
+            workspace_id: workspaceId,
+          },
+        },
+      });
+
+      let countLimit = Infinity;
+      let sizeLimitMB = 100;
+
+      if (plan === "free") {
+        countLimit = 5;
+        sizeLimitMB = 5;
+      } else if (plan === "plus") {
+        countLimit = 50;
+        sizeLimitMB = 50;
+      } else if (plan === "premium") {
+        countLimit = Infinity;
+        sizeLimitMB = 100;
+      }
+
+      const sizeLimitBytes = sizeLimitMB * 1024 * 1024;
+
+      if (attachmentCount >= countLimit) {
+        return res.status(403).json({
+          error: "ATTACHMENT_LIMIT_REACHED",
+          message: `You have reached the limit of ${countLimit} attachments for your ${plan} plan.`,
+          limit: countLimit,
+        });
+      }
+
+      if (file.size > sizeLimitBytes) {
+        return res.status(403).json({
+          error: "FILE_SIZE_EXCEEDED",
+          message: `File size exceeds the ${sizeLimitMB}MB limit for your ${plan} plan.`,
+          limit: sizeLimitMB,
+        });
+      }
+      // --- End Subscription Limits Check ---
+
       const attachment = await TaskAttachmentService.uploadAttachment(
         taskId,
         userId,

@@ -20,7 +20,57 @@ export async function UPLOAD_PDF(req: Request, res: Response) {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
+    let userId = (req as any).user?.id;
+    if (!userId) {
+      return res
+        .status(401)
+        .json({ error: "Unauthorized: no user found in request" });
+    }
+    console.log("2. Final User ID:", userId);
+
+    // --- Subscription Limits Check ---
+    const userSubscription = await prisma.subscription.findUnique({
+      where: { user_id: userId },
+    });
+
+    const plan = userSubscription?.plan?.toLowerCase() || "free";
+
+    // 1. Check if user can access PDF chat at all
+    if (plan === "free") {
+      return res.status(403).json({
+        error: "PDF_CHAT_LOCKED",
+        message: "PDF Chat is only available on Plus and Premium plans.",
+      });
+    }
+
+    // 2. Check document count limit
+    const pdfCount = await prisma.pdfDocument.count({
+      where: { user_id: userId },
+    });
+
+    const countLimit = plan === "premium" ? 30 : 10;
+    if (pdfCount >= countLimit) {
+      return res.status(403).json({
+        error: "PDF_LIMIT_REACHED",
+        message: `You have reached the limit of ${countLimit} PDFs for your ${plan} plan.`,
+        limit: countLimit,
+      });
+    }
+
+    // 3. Check file size limit
+    const sizeLimitMB = plan === "premium" ? 100 : 50;
+    const sizeLimitBytes = sizeLimitMB * 1024 * 1024;
+    if (file.size > sizeLimitBytes) {
+      return res.status(403).json({
+        error: "FILE_SIZE_EXCEEDED",
+        message: `File size exceeds the ${sizeLimitMB}MB limit for your ${plan} plan.`,
+        limit: sizeLimitMB,
+      });
+    }
+    // --- End Subscription Limits Check ---
+
     const { originalname, buffer } = file;
+
     console.log("1. Extracting text from PDF...");
     const text = await PdfService.extractText(buffer);
 
@@ -34,15 +84,6 @@ export async function UPLOAD_PDF(req: Request, res: Response) {
         .json({ error: "Database admin client not configured" });
     }
     console.log("4. Admin client obtained");
-
-    let userId = (req as any).user?.id;
-
-    if (!userId) {
-      return res
-        .status(401)
-        .json({ error: "Unauthorized: no user found in request" });
-    }
-    console.log("2. Final User ID:", userId);
 
     const docId = uuidv4(); // Generate UUID explicitly
     console.log("5. Uploading file to storage...");

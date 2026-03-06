@@ -279,6 +279,35 @@ router.post("/", async (req: any, res) => {
 
     if (!name) return res.status(400).json({ error: "Name is required" });
 
+    // --- Subscription Limits Check ---
+    const userSubscription = await prisma.subscription.findUnique({
+      where: { user_id: userId },
+    });
+
+    // Default to 'Free' if no subscription is found
+    const plan = userSubscription?.plan?.toLowerCase() || "free";
+
+    // Check current active workspaces count
+    const activeWorkspacesCount = await prisma.workspace.count({
+      where: { owner_id: userId },
+    });
+
+    if (plan === "free" && activeWorkspacesCount >= 1) {
+      return res.status(403).json({
+        error: "WORKSPACE_LIMIT_REACHED",
+        message:
+          "Free plan allows a maximum of 1 workspace. Please upgrade your plan to create more workspaces.",
+      });
+    } else if (plan === "plus" && activeWorkspacesCount >= 5) {
+      return res.status(403).json({
+        error: "WORKSPACE_LIMIT_REACHED",
+        message:
+          "Plus plan allows a maximum of 5 workspaces. Please upgrade your plan to create more workspaces.",
+      });
+    }
+    // Premium plan is unlimited, so no check needed.
+    // --- End Subscription Limits Check ---
+
     // 1. Create the workspace
     const workspace = await prisma.workspace.create({
       data: {
@@ -480,6 +509,47 @@ router.post(
       if (!workspace) {
         return res.status(404).json({ error: "Workspace not found" });
       }
+
+      // --- Subscription Limits Check (Collaborators) ---
+      const ownerId = workspace.owner_id;
+      const ownerSubscription = await prisma.subscription.findUnique({
+        where: { user_id: ownerId },
+      });
+      const plan = ownerSubscription?.plan?.toLowerCase() || "free";
+
+      // Count existing members (excluding owner)
+      const existingMembersCount = await prisma.workspaceMember.count({
+        where: {
+          workspace_id: id,
+          user_id: { not: ownerId },
+        },
+      });
+
+      // Count pending invitations
+      const pendingInvitationsCount = await prisma.workspaceInvitation.count({
+        where: {
+          workspace_id: id,
+          status: "pending",
+        },
+      });
+
+      const totalCollaborators = existingMembersCount + pendingInvitationsCount;
+
+      if (plan === "free" && totalCollaborators >= 2) {
+        return res.status(403).json({
+          error: "COLLABORATOR_LIMIT_REACHED",
+          message:
+            "Free plan allows a maximum of 2 collaborators per workspace. The workspace owner must upgrade to invite more members.",
+        });
+      } else if (plan === "plus" && totalCollaborators >= 10) {
+        return res.status(403).json({
+          error: "COLLABORATOR_LIMIT_REACHED",
+          message:
+            "Plus plan allows a maximum of 10 collaborators per workspace. The workspace owner must upgrade to invite more members.",
+        });
+      }
+      // Premium plan is unlimited
+      // --- End Subscription Limits Check ---
 
       // Check if user exists
       const userToInvite = await prisma.user.findUnique({ where: { email } });
