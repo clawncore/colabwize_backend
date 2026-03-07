@@ -89,8 +89,9 @@ export class ExportService {
           options.citationStyle || "apa"
         );
         await engine.initialize();
-        options.resolvedCitations = await engine.resolveProject(project.content);
-        logger.info(`Resolved ${options.resolvedCitations.occurrenceMap.size} citation occurrences.`);
+        const resolvedCitations = await engine.resolveProject(project.content);
+        options.resolvedCitations = resolvedCitations;
+        logger.info(`Resolved ${resolvedCitations.occurrenceMap.size} citation occurrences.`);
       } catch (err) {
         logger.error("Failed to resolve citations pre-export", err);
       }
