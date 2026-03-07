@@ -12,13 +12,13 @@ const router = express.Router();
  */
 router.post("/start", (req, res) => {
     try {
-        const { documentId, projectId, docState } = req.body;
+        const { documentId, projectId, docState, style } = req.body;
 
         if (!documentId || !projectId || !docState) {
             return res.status(400).json({ error: "Missing documentId, projectId, or docState fields" });
         }
 
-        const auditId = startAudit(documentId, projectId, docState);
+        const auditId = startAudit(documentId, projectId, docState, style || "APA");
         return res.status(202).json({ success: true, data: { auditId }, message: "Audit background job queued." });
 
     } catch (error: any) {

@@ -18,7 +18,7 @@ export const ExtractStage: AuditPipelineStage = {
         let inRefSection = false;
 
         // Headless walk of Prosemirror JSON
-        let currentPos = 1;
+        let currentPos = 0; // Starts at 0
         const walk = (node: any) => {
             const startPos = currentPos;
 
@@ -35,9 +35,12 @@ export const ExtractStage: AuditPipelineStage = {
             }
 
             // 1. Extract Bibliography Entries
-            if (inRefSection && (node.type === "paragraph" || node.type === "listItem" || node.type === "bibliographyEntry")) {
+            const isBibNode = node.type === "bibliographyEntry";
+            const isRefText = inRefSection && (node.type === "paragraph" || node.type === "listItem");
+
+            if (isBibNode || isRefText) {
                 const textContent = node.content ? node.content.filter((c: any) => c.text).map((c: any) => c.text).join("") : "";
-                const text = node.type === "bibliographyEntry" ? (node.attrs?.refText || textContent) : textContent;
+                const text = isBibNode ? (node.attrs?.refText || textContent) : textContent;
 
                 if (text && text.trim().length > 5) {
                     references.push({
@@ -77,10 +80,13 @@ export const ExtractStage: AuditPipelineStage = {
             // Traverse deeper
             if (node.text) {
                 currentPos += node.text.length;
+            } else if (["image", "hardBreak", "citation", "horizontalRule", "bibliographyEntry"].includes(node.type)) {
+                // Leaf nodes only take 1 position
+                currentPos += 1;
             } else {
-                currentPos += 1;
+                currentPos += 1; // start token
                 if (node.content) node.content.forEach(walk);
-                currentPos += 1;
+                currentPos += 1; // end token
             }
         };
 

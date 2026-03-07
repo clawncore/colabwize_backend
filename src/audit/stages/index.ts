@@ -1,5 +1,5 @@
 import { ExtractStage } from "./extract";
-import { MapStage } from "./map";
+import { VerificationStage } from "./verification";
 import { DuplicateCheckStage } from "./duplicateCheck";
 import { UrlCheckStage } from "./urlCheck";
 import { StyleCheckStage } from "./styleCheck";
@@ -7,7 +7,7 @@ import { ScoreStage } from "./score";
 
 export const ALL_STAGES = [
     ExtractStage,
-    MapStage,
+    VerificationStage, // Replaces naive MapStage
     DuplicateCheckStage,
     UrlCheckStage,
     StyleCheckStage,

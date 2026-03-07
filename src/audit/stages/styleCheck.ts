@@ -11,6 +11,7 @@ export const StyleCheckStage: AuditPipelineStage = {
     weight: 15,
     execute: async (job: AuditJob, context: AuditContext) => {
         const { bibliography } = context;
+        const style = job.report?.metadata?.style || "APA";
         let formattingErrors = 0;
 
         for (const ref of bibliography) {
@@ -18,50 +19,83 @@ export const StyleCheckStage: AuditPipelineStage = {
 
             const text = ref.text.trim();
 
-            // APA Rule: Must have a year in parentheses e.g. (2023)
-            const hasYear = /\(\d{4}[a-z]?\)/.test(text);
-            if (!hasYear) {
-                formattingErrors++;
+            if (style === "IEEE") {
+                // IEEE Rule: Often starts with [1] or 1.
+                const hasIeeeMarker = /^\[\d+\]/.test(text) || /^\d+\./.test(text);
+                if (!hasIeeeMarker) {
+                    formattingErrors++;
+                    job.report!.issues.push({
+                        id: uuidv4(),
+                        type: "FORMATTING_IEEE_MARKER",
+                        severity: "MINOR",
+                        referenceId: ref.id,
+                        location: { startPos: ref.start, endPos: ref.end },
+                        message: `Reference missing IEEE-style marker (e.g., [1] or 1.)`,
+                        suggestedFix: "Add a reference number at the beginning of the entry.",
+                        autoFixAvailable: false
+                    });
+                }
+                
+                // IEEE Rule: Should contain a year somewhere (usually at the end or in middle)
+                const hasYear = /\b(19|20)\d{2}\b/.test(text);
+                if (!hasYear) {
+                    formattingErrors++;
+                    job.report!.issues.push({
+                        id: uuidv4(),
+                        type: "FORMATTING_METADATA",
+                        severity: "MAJOR",
+                        referenceId: ref.id,
+                        location: { startPos: ref.start, endPos: ref.end },
+                        message: `Missing publication year in IEEE entry: ${text.substring(0, 40)}...`,
+                        suggestedFix: "Ensure the publication year is included in the reference.",
+                        autoFixAvailable: false
+                    });
+                }
+            } else {
+                // APA Rule: Must have a year in parentheses e.g. (2023)
+                const hasYear = /\(\d{4}[a-z]?\)/.test(text);
+                if (!hasYear) {
+                    formattingErrors++;
 
-                job.report!.issues.push({
-                    id: uuidv4(),
-                    type: "FORMATTING_METADATA",
-                    severity: "MAJOR",
-                    referenceId: ref.id,
-                    location: { startPos: ref.start, endPos: ref.end },
-                    message: `Missing publication year in APA format: ${text.substring(0, 40)}...`,
-                    suggestedFix: "Ensure a valid year (e.g. 2023) is present in the bibliography string.",
-                    autoFixAvailable: false
-                });
+                    job.report!.issues.push({
+                        id: uuidv4(),
+                        type: "FORMATTING_METADATA",
+                        severity: "MAJOR",
+                        referenceId: ref.id,
+                        location: { startPos: ref.start, endPos: ref.end },
+                        message: `Missing publication year in APA format: ${text.substring(0, 40)}...`,
+                        suggestedFix: "Ensure a valid year (e.g. 2023) is present in the bibliography string.",
+                        autoFixAvailable: false
+                    });
+                }
+
+                // APA Rule: Must have authors before the year
+                const hasAuthorsBeforeYear = /^.+?(?=\(\d{4}[a-z]?\))/.test(text);
+                if (!hasAuthorsBeforeYear && hasYear) {
+                    formattingErrors++;
+
+                    job.report!.issues.push({
+                        id: uuidv4(),
+                        type: "FORMATTING_AUTHORS",
+                        severity: "MAJOR",
+                        referenceId: ref.id,
+                        location: { startPos: ref.start, endPos: ref.end },
+                        message: `Missing or incorrectly placed author names before the publication year.`,
+                        suggestedFix: "Follow the 'Author, A.A. (Year).' format.",
+                        autoFixAvailable: false
+                    });
+                }
             }
 
-            // APA Rule: Must have authors before the year
-            const hasAuthorsBeforeYear = /^.+?(?=\(\d{4}[a-z]?\))/.test(text);
-            if (!hasAuthorsBeforeYear && hasYear) {
-                formattingErrors++;
-
-                job.report!.issues.push({
-                    id: uuidv4(),
-                    type: "FORMATTING_AUTHORS",
-                    severity: "MAJOR",
-                    referenceId: ref.id,
-                    location: { startPos: ref.start, endPos: ref.end },
-                    message: `Missing or incorrectly placed author names before the publication year.`,
-                    suggestedFix: "Follow the 'Author, A.A. (Year).' format.",
-                    autoFixAvailable: false
-                });
-            }
-
-            // Check for stray square brackets (commonly left over from sloppy copy-pastes)
-            if (text.includes("[") && text.includes("]") && !text.includes("[Citation]")) {
-                // Technically not always an error, but a warning
+            // Common Warning: Check for stray square brackets (unless in IEEE where they are markers)
+            if (style !== "IEEE" && text.includes("[") && text.includes("]") && !text.includes("[Citation]")) {
                 job.report!.issues.push({
                     id: uuidv4(),
                     type: "FORMATTING_BRACKETS",
                     severity: "INFO",
                     referenceId: ref.id,
                     location: { startPos: ref.start, endPos: ref.end },
-                    message: `Stray square brackets detected in reference.`,
+                    message: `Stray square brackets detected in non-IEEE reference.`,
                     suggestedFix: "Verify if brackets are intentional or artifact from copy-paste.",
                     autoFixAvailable: false
                 });

@@ -140,18 +140,11 @@ export class CitationMatcher {
         // Remove parentheses and brackets
         const cleaned = text.replace(/[()[\]]/g, "").trim();
 
-        // Pattern: "Author, Year" or "Author Year" or "Author et al., Year"
-        const patterns = [
-            /^([A-Z][a-z]+(?:\s+(?:et al\.|et al))?)(?:,|\s)\s*\d{4}/, // Smith, 2020 or Smith et al., 2020
-            /^([A-Z][a-z]+)(?:,|\s)\s*\d+/, // Smith, 45 (for page numbers)
-            /^([A-Z][a-z]+)/, // Just author name
-        ];
-
-        for (const pattern of patterns) {
-            const match = cleaned.match(pattern);
-            if (match) {
-                return match[1].replace(/\s+et al\.?/, "").trim(); // Remove "et al." from author
-            }
+        // Pattern: "Author, Year" or "Author & Author, Year" or "Author et al., Year"
+        // Try to get the first author name specifically
+        const firstAuthorMatch = cleaned.match(/^([A-Z][a-z]+)/);
+        if (firstAuthorMatch) {
+            return firstAuthorMatch[1].trim();
         }
 
         return null;
@@ -161,6 +154,7 @@ export class CitationMatcher {
      * Extract year from inline citation: (Smith, 2020) → 2020
      */
     private static extractYearFromInline(text: string): number | null {
+        // Look for 4 digits that start with 19 or 20
         const yearMatch = text.match(/\b(19|20)\d{2}\b/);
         return yearMatch ? parseInt(yearMatch[0]) : null;
     }
@@ -169,7 +163,7 @@ export class CitationMatcher {
      * Extract title from reference entry
      * Heuristic: Title is usually between first period and second period, or in quotes
      */
-    private static extractTitle(refText: string): string | null {
+    public static extractTitle(refText: string): string | null {
         // CLEANUP: Remove [1], [2], etc. from start
         const cleanText = refText.replace(/^\s*\[\d+\]\s*/, "").replace(/^\s*\d+\.\s*/, "");
 
@@ -216,7 +210,7 @@ export class CitationMatcher {
     /**
      * Extract author from reference entry
      */
-    private static extractAuthor(refText: string): string | null {
+    public static extractAuthor(refText: string): string | null {
         // CLEANUP: Remove [1], [2], etc. from start
         const cleanText = refText.replace(/^\s*\[\d+\]\s*/, "").replace(/^\s*\d+\.\s*/, "");
 
@@ -243,7 +237,7 @@ export class CitationMatcher {
     /**
      * Extract year from reference entry
      */
-    private static extractYear(refText: string): number | null {
+    public static extractYear(refText: string): number | null {
         const yearMatch = refText.match(/\b(19|20)\d{2}\b/);
         return yearMatch ? parseInt(yearMatch[0]) : null;
     }
@@ -251,7 +245,7 @@ export class CitationMatcher {
     /**
      * Extract DOI from reference entry
      */
-    private static extractDOI(refText: string): string | null {
+    public static extractDOI(refText: string): string | null {
         // Broad DOI regex
         const doiRegex = /\b(10\.\d{4,9}\/[-._;()/:A-Z0-9]+)\b/i;
         const match = refText.match(doiRegex);

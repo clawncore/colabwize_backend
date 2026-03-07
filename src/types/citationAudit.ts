@@ -61,7 +61,11 @@ export type CitationViolationType =
   | "INLINE_STYLE"
   | "REF_LIST_ENTRY"
   | "STRUCTURAL"
-  | "VERIFICATION";
+  | "VERIFICATION"
+  | "FORMATTING"
+  | "DUPLICATES"
+  | "BIBLIOGRAPHY"
+  | "MAPPING";
 
 export interface CitationFlag {
   type: CitationViolationType;
@@ -72,9 +76,7 @@ export interface CitationFlag {
     end: number;
     text: string;
   };
-  category?: CitationViolationType; // Deprecated by 'type', but keeping for compatibility if needed. Actually 'type' covers it.
-  // Let's use 'type' as the main classifier as per prompt.
-  // Structural details
+  category?: string;
   section?: string;
   expected?: string;
 }
@@ -93,8 +95,13 @@ export interface VerificationResult {
     text: string;
   };
   status: VerificationStatus;
+  referenceId?: string;
+  referenceIndex?: number;
+  existenceStatus?: "CONFIRMED" | "NOT_FOUND" | "UNMATCHED" | "UNKNOWN";
+  supportStatus?: "SUPPORTED" | "DISPUTED" | "PARTIALLY_SUPPORTED" | "UNRELATED" | "PENDING" | "UNSUPPORTED";
   message: string;
   similarity?: number;
+  issues?: string[];
   foundPaper?: {
     title: string;
     year?: number;
@@ -102,24 +109,53 @@ export interface VerificationResult {
     database: string;
     abstract?: string;
     isRetracted?: boolean;
+    authors?: string[];
   };
+  suggestedMatches?: any[];
   semanticSupport?: {
     status:
-      | "SUPPORTED"
-      | "DISPUTED"
-      | "PARTIALLY_SUPPORTED"
-      | "UNRELATED"
-      | "PENDING";
+    | "SUPPORTED"
+    | "DISPUTED"
+    | "PARTIALLY_SUPPORTED"
+    | "UNRELATED"
+    | "PENDING";
     reasoning: string;
   };
+}
+
+export interface ScoreBreakdownItem {
+  id: string;
+  label: string;
+  count: number;
+  penalty: number;
+  impact: 'CRITICAL' | 'MAJOR' | 'MINOR';
 }
 
 export interface AuditReport {
   style: CitationStyle;
   timestamp: string;
   flags: CitationFlag[];
-  verificationResults?: VerificationResult[]; // NEW: Separate verification results
-  detectedStyles?: string[]; // Auto-detected style indicators
+  issues: any[];
+  verificationResults?: VerificationResult[];
+  detectedStyles?: string[];
+  integrityIndex?: number;
+  scoreBreakdown?: ScoreBreakdownItem[];
+  summary: {
+    totalInTextCitations: number;
+    uniqueBibliographyEntries: number;
+    brokenCitations: number;
+    uncitedReferences: number;
+    duplicatesDetected: number;
+    invalidUrls: number;
+    complianceScore: number;
+    sourceHealth?: {
+      peerReviewed: number;
+      web: number;
+      unknown: number;
+    };
+    auditTime?: string;
+  };
+  tierMetadata?: any;
 }
 
 // Legacy types for compatibility

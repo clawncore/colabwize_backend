@@ -7,9 +7,6 @@ import { OpenAlexService } from "./openAlexService";
 export class AcademicDatabaseService {
     // API keys will be retrieved via SecretsService
 
-    /**
-     * Search academic databases for similar content
-     */
     static async searchAcademicDatabases(text: string): Promise<
         Array<{
             title: string;
@@ -22,56 +19,29 @@ export class AcademicDatabaseService {
             isRetracted?: boolean;
         }>
     > {
-        // Using FREE public APIs only (no API keys needed)
-        const results: Array<{
-            title: string;
-            authors: string[];
-            abstract: string;
-            url: string;
-            similarity: number;
-            database: "crossref" | "semantic_scholar" | "arxiv" | "ieee" | "pubmed" | "openalex";
-            isRetracted?: boolean;
-        }> = [];
+        logger.info("Starting parallel academic database search");
 
-        logger.info("Starting academic database search (free public APIs only)");
+        const TIMEOUT_MS = 10000; // 10s timeout per API
 
-        // Search CrossRef (free polite pool - no key needed)
-        try {
-            const crossrefResults = await this.searchCrossRef(text, null);
-            results.push(...crossrefResults);
-        } catch (error) {
-            logger.warn("CrossRef search failed", {
-                error: (error as Error).message,
-            });
-        }
+        const withTimeout = (promise: Promise<any>, name: string) => {
+            return Promise.race([
+                promise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error(`${name} timeout`)), TIMEOUT_MS))
+            ]);
+        };
 
-        // Search arXiv (completely free - no key needed)
-        try {
-            const arxivResults = await this.searchArXiv(text);
-            results.push(...arxivResults);
-        } catch (error) {
-            logger.warn("arXiv search failed", { error: (error as Error).message });
-        }
+        const searchPromises = [
+            withTimeout(this.searchCrossRef(text, null), "CrossRef").catch(e => (logger.warn("CrossRef check failed", { e }), [])),
+            withTimeout(this.searchArXiv(text), "ArXiv").catch(e => (logger.warn("ArXiv check failed", { e }), [])),
+            withTimeout(this.searchPubMed(text, null), "PubMed").catch(e => (logger.warn("PubMed check failed", { e }), [])),
+            withTimeout(this.searchOpenAlex(text), "OpenAlex").catch(e => (logger.warn("OpenAlex check failed", { e }), []))
+        ];
 
-        // Search PubMed (public API - no key needed)
-        try {
-            const pubmedResults = await this.searchPubMed(text, null);
-            results.push(...pubmedResults);
-        } catch (error) {
-            logger.warn("PubMed search failed", { error: (error as Error).message });
-        }
+        const resultsArrays = await Promise.all(searchPromises);
+        const results = resultsArrays.flat();
 
-        // Search OpenAlex (Free & Good for Abstracts)
-        try {
-            const openAlexResults = await this.searchOpenAlex(text);
-            results.push(...openAlexResults);
-        } catch (error) {
-            logger.warn("OpenAlex search failed", { error: (error as Error).message });
-        }
-
-        // Semantic Scholar & IEEE skipped (require API keys)
-
-        return results;
+        // Sort by similarity descending
+        return results.sort((a, b) => b.similarity - a.similarity);
     }
 
     /**

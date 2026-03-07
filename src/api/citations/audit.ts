@@ -3,7 +3,8 @@ import {
     AuditRequest,
     AuditReport,
     CitationFlag,
-    VerificationResult
+    VerificationResult,
+    ScoreBreakdownItem
 } from "../../types/citationAudit";
 import { getStyleRules } from "../../services/citationAudit/styleRules";
 
@@ -148,8 +149,8 @@ router.post("/audit", async (req: Request, res: Response) => {
                     message: rules.messages["NUMBERED_ENTRIES_DISALLOWED"],
                     anchor: {
                         start: firstEntry.start,
-                        end: firstEntry.start + 3, // Highlight the number part approx
-                        text: firstEntry.rawText.substring(0, 3) + "..."
+                        end: firstEntry.end,
+                        text: firstEntry.rawText
                     }
                 });
             } else if (rules.referenceList.numberingAllowed === true && !isNumbered) {
@@ -166,6 +167,23 @@ router.post("/audit", async (req: Request, res: Response) => {
                     }
                 });
             }
+        }
+
+        // Additional Regex Checks: Missing Author/Year in Citation
+        if (patterns) {
+            patterns.forEach(p => {
+                if (p.patternType === 'AUTHOR_YEAR') {
+                    const match = p.text.match(/\(([^,]+),\s*(\d{4})?\)/);
+                    if (match && !match[2]) {
+                        flags.push({
+                            type: "INLINE_STYLE",
+                            ruleId: `${rules.style}.MISSING_YEAR`,
+                            message: "Citation appears to be missing a year.",
+                            anchor: { start: p.start, end: p.end, text: p.text }
+                        });
+                    }
+                }
+            });
         }
 
         // Step 5: Auto-Detection Logic
@@ -226,7 +244,7 @@ router.post("/audit", async (req: Request, res: Response) => {
                             console.log(`    👤 Author: ${pair.reference.extractedAuthor || 'N/A'}`);
                             console.log(`    📅 Year: ${pair.reference.extractedYear || 'N/A'}`);
                         } else {
-                            console.log(`    ❌ No match found`);
+                            console.log(`    ❌ No match found (Author Search: "${pair.inline.text}")`);
                         }
                     });
 
@@ -234,6 +252,12 @@ router.post("/audit", async (req: Request, res: Response) => {
                     console.log("\n🔍 STARTING VERIFICATION...");
                     const { ExternalVerificationService } = await import("../../services/citationAudit/externalVerification");
                     verificationResults = await ExternalVerificationService.verifyCitationPairs(citationPairs);
+
+                    // Map reference index back to verification results
+                    verificationResults.forEach((res, idx) => {
+                        res.referenceIndex = citationPairs[idx].reference?.index;
+                    });
+
                     console.log("✅ Verification complete:", verificationResults.length, "results");
                 } else {
                     // NO REFERENCE LIST - All citations are unmatched
@@ -257,42 +281,147 @@ router.post("/audit", async (req: Request, res: Response) => {
             }
         }
 
-        // Step 7: Construct Response
-        const report: AuditReport = {
+        // DEDUCT credits finally
+        const finalConsumption = await SubscriptionService.consumeAction(userId, "citation_audit", { wordCount: docWordCount });
+
+        // Step 7: Construct Response with Integrity Metrics
+        const confirmed = verificationResults.filter(r => r.status === "VERIFIED" && r.semanticSupport?.status !== "DISPUTED").length;
+        const hallucinations = verificationResults.filter(r => r.status === "VERIFICATION_FAILED").length;
+        const unmatched = verificationResults.filter(r => r.status === "UNMATCHED_REFERENCE").length;
+        const insufficient = verificationResults.filter(r => r.status === "INSUFFICIENT_INFO").length;
+
+        // --- NEW V2 METRICS ---
+        const { CitationMatcher } = require("../../services/citationAudit/citationMatcher");
+
+        // 1. Uncited References (References in list but not in text)
+        const citedIndices = new Set(verificationResults.map(r => r.referenceIndex).filter(idx => idx !== undefined));
+        const uncitedEntries = referenceList?.entries.filter(e => !citedIndices.has(e.index)) || [];
+
+        // 2. Duplicate Detection
+        const duplicates: any[] = [];
+        if (referenceList?.entries) {
+            const extractedMetas = referenceList.entries.map(e => ({
+                index: e.index,
+                title: (CitationMatcher as any).extractTitle(e.rawText)?.toLowerCase().trim(),
+                doi: (CitationMatcher as any).extractDOI(e.rawText)?.toLowerCase().trim(),
+                year: (CitationMatcher as any).extractYear(e.rawText),
+                rawText: e.rawText
+            }));
+
+            for (let i = 0; i < extractedMetas.length; i++) {
+                for (let j = i + 1; j < extractedMetas.length; j++) {
+                    const a = extractedMetas[i];
+                    const b = extractedMetas[j];
+                    const doiMatch = a.doi && b.doi && a.doi === b.doi;
+                    const titleMatch = a.title && b.title && a.title === b.title && a.year === b.year;
+
+                    if (doiMatch || titleMatch) {
+                        duplicates.push({ entry1: a, entry2: b });
+                    }
+                }
+            }
+        }
+
+        // 3. Score Breakdown & Penalties
+        const penalties: ScoreBreakdownItem[] = [
+            { id: 'hallucinations', label: 'Hallucinated Citations', count: hallucinations, penalty: hallucinations * 25, impact: 'CRITICAL' },
+            { id: 'unmatched', label: 'Broken References', count: unmatched, penalty: unmatched * 10, impact: 'MAJOR' },
+            { id: 'uncited', label: 'Uncited Bibliography Entries', count: uncitedEntries.length, penalty: uncitedEntries.length * 2, impact: 'MINOR' },
+            { id: 'duplicates', label: 'Duplicate References', count: duplicates.length, penalty: duplicates.length * 5, impact: 'MINOR' },
+            { id: 'insufficient', label: 'Insufficient Info', count: insufficient, penalty: insufficient * 2, impact: 'MINOR' }
+        ];
+
+        const totalPenalty = penalties.reduce((sum, p) => sum + p.penalty, 0);
+        let integrityIndex = Math.max(0, 100 - totalPenalty);
+
+        // Map verification results to issues with categories
+        const issues: any[] = [...flags.map(f => ({
+            id: require("uuid").v4(),
+            category: "FORMATTING",
+            type: f.type,
+            severity: f.type === "INLINE_STYLE" ? "MINOR" : "MAJOR",
+            message: f.message,
+            location: f.anchor ? { startPos: f.anchor.start, endPos: f.anchor.end } : undefined,
+            suggestedFix: f.expected ? `Use ${f.expected} instead.` : undefined
+        }))];
+
+        // Add duplicated issues
+        duplicates.forEach(dup => {
+            issues.push({
+                id: require("uuid").v4(),
+                category: "DUPLICATES",
+                type: "DUPLICATE_REFERENCE",
+                severity: "MINOR",
+                message: `Duplicate entries found in bibliography. Entry #${dup.entry1.index + 1} and #${dup.entry2.index + 1} appear identical.`,
+                suggestedFix: "Merge these entries into a single bibliography item."
+            });
+        });
+
+        // Add uncited issues
+        uncitedEntries.forEach(entry => {
+            const shortRef = entry.rawText.substring(0, 50) + "...";
+            issues.push({
+                id: require("uuid").v4(),
+                category: "BIBLIOGRAPHY",
+                type: "UNCITED_REFERENCE",
+                severity: "MINOR",
+                message: `Reference "${shortRef}" is listed in the bibliography but never cited in the text.`,
+                suggestedFix: "Remove this reference if it's not used, or add an in-text citation."
+            });
+        });
+
+        verificationResults.forEach(res => {
+            if (res.status === "VERIFICATION_FAILED") {
+                issues.push({
+                    id: require("uuid").v4(),
+                    category: "VERIFICATION",
+                    type: "HALLUCINATION",
+                    severity: "CRITICAL",
+                    message: res.message,
+                    location: { startPos: res.inlineLocation.start, endPos: res.inlineLocation.end },
+                    suggestedFix: "Remove or replace with a verified academic source."
+                });
+            } else if (res.status === "UNMATCHED_REFERENCE") {
+                issues.push({
+                    id: require("uuid").v4(),
+                    category: "MAPPING",
+                    type: "BROKEN_REFERENCE",
+                    severity: "MAJOR",
+                    message: res.message,
+                    location: { startPos: res.inlineLocation.start, endPos: res.inlineLocation.end },
+                    suggestedFix: "Add the full reference to the bibliography section."
+                });
+            }
+        });
+
+        const report: any = {
             style: declaredStyle,
             timestamp: new Date().toISOString(),
             flags,
-            verificationResults,  // NEW: Include verification results
-            detectedStyles
+            issues,
+            verificationResults,
+            detectedStyles,
+            integrityIndex,
+            scoreBreakdown: penalties,
+            summary: {
+                totalInTextCitations: patterns.length,
+                uniqueBibliographyEntries: referenceList?.entries.length || 0,
+                brokenCitations: hallucinations + unmatched,
+                uncitedReferences: uncitedEntries.length,
+                duplicatesDetected: duplicates.length,
+                invalidUrls: 0,
+                complianceScore: integrityIndex
+            },
+            tierMetadata: {
+                CLAIM: { stats: { candidates: patterns.length } }
+            }
         };
 
-        // Summary of verification results
-        if (verificationResults && verificationResults.length > 0) {
-            const verified = verificationResults.filter(r => r.status === "VERIFIED").length;
-            const failed = verificationResults.filter(r => r.status === "VERIFICATION_FAILED").length;
-            const unmatched = verificationResults.filter(r => r.status === "UNMATCHED_REFERENCE").length;
-            const insufficient = verificationResults.filter(r => r.status === "INSUFFICIENT_INFO").length;
-
-            console.log("\n📊 VERIFICATION SUMMARY:");
-            console.log(`   ✅ Verified: ${verified}`);
-            console.log(`   ❌ Failed: ${failed}`);
-            console.log(`   ⚠️  Unmatched: ${unmatched}`);
-            console.log(`   📝 Insufficient Info: ${insufficient}`);
-            console.log(`   📦 Total Results: ${verificationResults.length}`);
-        }
-
-        // DEDUCT credits finally
-        const finalConsumption = await SubscriptionService.consumeAction(userId, "citation_audit", { wordCount: docWordCount });
-        if (!finalConsumption.allowed) {
-            // Edge case: User ran out of credits during processing?
-            // Should we return the report? Maybe return with a warning?
-            // Prompt says: "4. If credits < required → block". We blocked at start.
-            // "6. Deduct credits". using consumeAction.
-            // If this fails, let's log error but returning the report seems fair if work is done.
-            // BUT stricter implementation would fail.
-            // Let's assume if pre-check passed, this passes unless race condition.
-            console.error("CRITICAL: Credit deduction failed AFTER work done", { userId });
-        }
+        console.log("\n📊 AUDIT COMPLETE:", {
+            score: integrityIndex,
+            verified: confirmed,
+            issues: issues.length
+        });
 
         res.status(200).json(report);
 

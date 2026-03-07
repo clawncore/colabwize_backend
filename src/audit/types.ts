@@ -19,6 +19,12 @@ export interface AuditSummaryMetrics {
     invalidUrls: number;
     formattingErrors: number;
     complianceScore: number;
+    sourceHealth?: {
+        peerReviewed: number;
+        web: number;
+        unknown: number;
+    };
+    auditTime?: string;
 }
 
 export interface AuditLocation {
@@ -30,12 +36,14 @@ export interface AuditLocation {
 
 export interface AuditIssue {
     id: string;
+    category?: string;              // e.g., "VERIFICATION", "FORMATTING", "DUPLICATES"
     type: string;                 // e.g., "BROKEN_REFERENCE", "INVALID_URL", "FORMATTING"
     severity: AuditSeverity;
     location?: AuditLocation;
     referenceId?: string;         // e.g., "C12", or RefKey
     message: string;
     suggestedFix?: string;
+    suggestedItems?: any[];
     autoFixAvailable: boolean;
 }
 
@@ -61,6 +69,13 @@ export interface AuditReport {
     issues: AuditIssue[];
     linkValidation: LinkValidationReport[];
     duplicates: DuplicateCluster[];
+    // Extended fields for DB verification modal
+    integrityIndex?: number;
+    scoreBreakdown?: any[];
+    flags?: any[];
+    verificationResults?: any[];
+    tierMetadata?: any;
+    isCached?: boolean; // NEW: Indicates if the result came from cache
 }
 
 export interface AuditJob {

@@ -14,36 +14,36 @@ export class ExternalVerificationService {
      * @returns Verification results for each inline citation
      */
     static async verifyCitationPairs(pairs: CitationPair[]): Promise<VerificationResult[]> {
+        console.log(`[ExternalVerification] Verifying ${pairs.length} citation pairs...`);
         const results: VerificationResult[] = [];
+        const CONCURRENCY_LIMIT = 5; // Increased slightly for better speed
 
-        // Process queue in LIFO order (Last In, First Out)
-        const queue = [...pairs]; // Copy array
+        // Process in batches
+        for (let i = 0; i < pairs.length; i += CONCURRENCY_LIMIT) {
+            console.log(`[ExternalVerification] Processing batch ${Math.floor(i / CONCURRENCY_LIMIT) + 1}/${Math.ceil(pairs.length / CONCURRENCY_LIMIT)}...`);
+            const batch = pairs.slice(i, i + CONCURRENCY_LIMIT);
+            const batchPromises = batch.map(async (pair) => {
+                try {
+                    return await this.verifyPair(pair);
+                } catch (error) {
+                    logger.error("Verification error for citation", {
+                        inline: pair.inline.text,
+                        error: (error as Error).message
+                    });
+                    return {
+                        inlineLocation: {
+                            start: pair.inline.start,
+                            end: pair.inline.end,
+                            text: pair.inline.text,
+                        },
+                        status: "VERIFICATION_FAILED" as const,
+                        message: "Verification error occurred",
+                    };
+                }
+            });
 
-        while (queue.length > 0) {
-            const pair = queue.pop(); // Take from end (LIFO)
-
-            if (!pair) continue;
-
-            try {
-                const result = await this.verifyPair(pair);
-                results.push(result);
-            } catch (error) {
-                logger.error("Verification error for citation", {
-                    inline: pair.inline.text,
-                    error: (error as Error).message
-                });
-
-                // Add error result
-                results.push({
-                    inlineLocation: {
-                        start: pair.inline.start,
-                        end: pair.inline.end,
-                        text: pair.inline.text,
-                    },
-                    status: "VERIFICATION_FAILED",
-                    message: "Verification error occurred",
-                });
-            }
+            const batchResults = await Promise.all(batchPromises);
+            results.push(...batchResults);
         }
 
         return results;
@@ -70,12 +70,12 @@ export class ExternalVerificationService {
 
         // Case 2: Reference too short to verify (e.g., only author-year)
         const wordCount = pair.reference.rawText.trim().split(/\s+/).length;
-        if (wordCount <= 5 || !pair.reference.extractedTitle) {
+        if (wordCount <= 5) {
             console.log(`⚠️  SKIPPING (insufficient info): "${pair.inline.text}"`);
             return {
                 inlineLocation,
                 status: "INSUFFICIENT_INFO",
-                message: "Citation lacks title information for automatic verification",
+                message: "Citation is too short for automatic verification",
             };
         }
 
@@ -91,6 +91,7 @@ export class ExternalVerificationService {
             }
         }
 
+        let apiResults: any[] | null = null;
         if (!bestMatch) {
             const searchQuery = this.buildSearchQuery(pair.reference);
 
@@ -108,7 +109,7 @@ export class ExternalVerificationService {
                 query: searchQuery
             });
 
-            const apiResults = await AcademicDatabaseService.searchAcademicDatabases(searchQuery);
+            apiResults = await AcademicDatabaseService.searchAcademicDatabases(searchQuery);
             console.log(`   📊 API Results: ${apiResults.length} papers found`);
 
             if (apiResults.length > 0) {
@@ -143,34 +144,51 @@ export class ExternalVerificationService {
             console.log(`      Status: ${semanticSupport.status}`);
         }
 
-        const buildVerificationResult = (status: VerificationStatus, baseMessage: string): VerificationResult => {
+        const buildVerificationResult = (status: VerificationStatus, baseMessage: string, apiResults?: any[]): VerificationResult => {
             let message = baseMessage;
             if (bestMatch.isRetracted) {
                 message = `🚨 RETRACTED SOURCE: ${message}`;
             }
 
+            const existenceStatus = (status === "VERIFIED") ? "CONFIRMED" : (status === "VERIFICATION_FAILED" ? "NOT_FOUND" : "UNKNOWN");
+            const supportStatus = semanticSupport?.status || "PENDING";
+
             return {
                 inlineLocation,
                 status: bestMatch.isRetracted ? "VERIFICATION_FAILED" : status,
+                existenceStatus: bestMatch.isRetracted ? "NOT_FOUND" : existenceStatus,
+                supportStatus: supportStatus as any,
                 message: message,
                 similarity: similarity,
+                issues: bestMatch.isRetracted ? ["Source paper has been retracted"] : [],
                 foundPaper: {
                     title: bestMatch.title,
                     year: bestMatch.year,
                     url: bestMatch.url,
                     database: bestMatch.database,
                     abstract: bestMatch.abstract,
-                    isRetracted: bestMatch.isRetracted
+                    isRetracted: bestMatch.isRetracted,
+                    authors: bestMatch.authors
                 },
+                suggestedMatches: (apiResults || []).slice(0, 3).map(p => ({
+                    title: p.title,
+                    authors: p.authors,
+                    year: p.year,
+                    url: p.url,
+                    database: p.database
+                })),
                 semanticSupport
             };
         };
+
+        const suggestions = apiResults || (bestMatch ? [bestMatch] : []);
 
         // Tier 1: Poor Match (< 50%) -> Flag as Failed
         if (similarity < 0.5) {
             return buildVerificationResult(
                 "VERIFICATION_FAILED",
-                `⚠️ Poor match quality (${(similarity * 100).toFixed(0)}%). Closest paper: "${bestMatch.title}". Verification cannot be confirmed.`
+                `⚠️ Poor match quality (${(similarity * 100).toFixed(0)}%). Closest paper: "${bestMatch.title}". Verification cannot be confirmed.`,
+                suggestions
             );
         }
 
@@ -178,14 +196,16 @@ export class ExternalVerificationService {
         if (similarity < 0.7) {
             return buildVerificationResult(
                 "VERIFIED",
-                `✅ Verified (Fair Match: ${(similarity * 100).toFixed(0)}%). Found: "${bestMatch.title}".`
+                `✅ Verified (Fair Match: ${(similarity * 100).toFixed(0)}%). Found: "${bestMatch.title}".`,
+                suggestions
             );
         }
 
         // Tier 3: Good Match (> 70%) -> Verified High Confidence
         return buildVerificationResult(
             "VERIFIED",
-            `✅ Verified: "${bestMatch.title}" (${(similarity * 100).toFixed(0)}% match from ${bestMatch.database})`
+            `✅ Verified: "${bestMatch.title}" (${(similarity * 100).toFixed(0)}% match from ${bestMatch.database})`,
+            suggestions
         );
     }
 
@@ -193,6 +213,7 @@ export class ExternalVerificationService {
      * Build search query from reference data
      */
     private static buildSearchQuery(reference: {
+        rawText: string;
         extractedTitle?: string;
         extractedAuthor?: string;
         extractedYear?: number;
@@ -201,16 +222,17 @@ export class ExternalVerificationService {
 
         if (reference.extractedTitle) {
             parts.push(reference.extractedTitle);
+            if (reference.extractedAuthor) {
+                parts.push(reference.extractedAuthor);
+            }
+            if (reference.extractedYear) {
+                parts.push(reference.extractedYear.toString());
+            }
+            return parts.join(" ");
         }
 
-        if (reference.extractedAuthor) {
-            parts.push(reference.extractedAuthor);
-        }
-
-        if (reference.extractedYear) {
-            parts.push(reference.extractedYear.toString());
-        }
-
-        return parts.join(" ");
+        // Fallback to raw text if title parsing failed
+        // Remove URLs to avoid breaking search APIs
+        return reference.rawText.replace(/https?:\/\/[^\s]+/g, "").substring(0, 200).trim();
     }
 }
