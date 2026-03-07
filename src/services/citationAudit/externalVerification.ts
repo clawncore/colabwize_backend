@@ -98,10 +98,10 @@ export class ExternalVerificationService {
             console.log(`\n🔍 TESTING MATCHED CITATION:`);
             console.log(`   Inline: "${pair.inline.text}"`);
             console.log(`   Reference: ${pair.reference.rawText.substring(0, 80)}...`);
-            console.log(`   Extracted Title: "${pair.reference.extractedTitle}"`);
-            console.log(`   Extracted Author: "${pair.reference.extractedAuthor}"`);
-            console.log(`   Extracted Year: ${pair.reference.extractedYear}`);
-            console.log(`   Search Query: "${searchQuery}"`);
+            console.log(`   [Verification ID: ${pair.inline.start}] Searching academic databases for: "${searchQuery}"`);
+            console.log(`   [Verification ID: ${pair.inline.start}] Extracted Title: "${pair.reference.extractedTitle}"`);
+            console.log(`   [Verification ID: ${pair.inline.start}] Extracted Author: "${pair.reference.extractedAuthor}"`);
+            console.log(`   [Verification ID: ${pair.inline.start}] Extracted Year: ${pair.reference.extractedYear}`);
             console.log(`   🌐 Searching academic databases...`);
 
             logger.info("Verifying citation", {
@@ -112,8 +112,9 @@ export class ExternalVerificationService {
             apiResults = await AcademicDatabaseService.searchAcademicDatabases(searchQuery);
             console.log(`   📊 API Results: ${apiResults.length} papers found`);
 
-            if (apiResults.length > 0) {
+            if (apiResults && apiResults.length > 0) {
                 bestMatch = apiResults[0];
+                console.log(`   [Verification ID: ${pair.inline.start}] Found Match: "${bestMatch.title}" (${(bestMatch.similarity * 100).toFixed(0)}% confidence)`);
             }
         }
 
@@ -126,7 +127,7 @@ export class ExternalVerificationService {
             return {
                 inlineLocation,
                 status: "VERIFICATION_FAILED",
-                message: `Paper not found in academic databases (CrossRef, arXiv, PubMed). Reference: "${refTitle}" by ${author} (${year}). This may indicate a hallucinated or non-existent source.`,
+                message: `External verification inconclusive. Document matches could not be confirmed in academic databases (CrossRef, arXiv, PubMed) for: "${refTitle}" by ${author} (${year}).`,
                 similarity: 0,
             };
         }
@@ -187,7 +188,7 @@ export class ExternalVerificationService {
         if (similarity < 0.5) {
             return buildVerificationResult(
                 "VERIFICATION_FAILED",
-                `⚠️ Poor match quality (${(similarity * 100).toFixed(0)}%). Closest paper: "${bestMatch.title}". Verification cannot be confirmed.`,
+                `⚠️ External verification inconclusive (${(similarity * 100).toFixed(0)}% match). Closest paper found: "${bestMatch.title}".`,
                 suggestions
             );
         }

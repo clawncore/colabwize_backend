@@ -210,7 +210,17 @@ export class CitationEngine {
             if (currentChange) {
                 results.push(currentChange[2]);
             } else {
-                results.push("[Error]"); // Should not happen if valid
+                // FALLBACK: If citeproc fails to format, use a basic (Author, Year) fallback 
+                // to avoid [Error] tags in the document content.
+                const firstId = validIds[0];
+                const item = this.items.get(firstId);
+                if (item) {
+                    const author = item.author?.[0]?.family || item.author?.[0]?.literal || "Unknown";
+                    const year = item.issued?.["date-parts"]?.[0]?.[0] || "n.d.";
+                    results.push(`(${author}, ${year})`);
+                } else {
+                    results.push("[Citation]");
+                }
             }
         }
 
@@ -218,6 +228,96 @@ export class CitationEngine {
         CitationCacheManager.setCluster(cacheKey, JSON.stringify(results));
 
         return results;
+    }
+
+    /**
+     * Resolve all citations in a project document in document order.
+     * Handles clustering of adjacent citation nodes.
+     * Returns a map of occurrence index to formatted string, and structured bibliography.
+     */
+    public async resolveProject(content: any): Promise<{
+        occurrenceMap: Map<number, string>;
+        bibliography: { id: string, text: string }[];
+    }> {
+        if (!this.citeproc) throw new Error("Engine not initialized");
+
+        // 1. Traverse document to find all citation clusters
+        const clusters: string[][] = [];
+        let currentCluster: string[] = [];
+        let citationNodeCount = 0;
+
+        const walk = (node: any) => {
+            if (!node) return;
+
+            if (node.type === 'citation') {
+                const id = node.attrs?.citationId;
+                if (id && this.items.get(id)) {
+                    currentCluster.push(id);
+                } else {
+                    // Fallback for missing ID or metadata
+                    if (currentCluster.length > 0) {
+                        clusters.push([...currentCluster]);
+                        currentCluster = [];
+                    }
+                    clusters.push([id || "unknown"]);
+                }
+                citationNodeCount++;
+            } else if (node.type === 'text' && (node.text === '; ' || node.text === ', ' || node.text === ';')) {
+                // Potential cluster bridge - keep currentCluster open
+            } else if (node.content && Array.isArray(node.content)) {
+                // If it's a block node, we might want to break clusters between them
+                const isBlock = ['paragraph', 'heading', 'listItem', 'tableCell'].includes(node.type);
+                
+                for (const child of node.content) {
+                    walk(child);
+                    // After each child, if it wasn't a citation or bridge, break cluster
+                    if (child.type !== 'citation' && !(child.type === 'text' && (child.text === '; ' || child.text === ', ' || child.text === ';'))) {
+                        if (currentCluster.length > 0) {
+                            clusters.push([...currentCluster]);
+                            currentCluster = [];
+                        }
+                    }
+                }
+
+                if (isBlock && currentCluster.length > 0) {
+                    clusters.push([...currentCluster]);
+                    currentCluster = [];
+                }
+            }
+        };
+
+        walk(content);
+        if (currentCluster.length > 0) {
+            clusters.push([...currentCluster]);
+        }
+
+        // 2. Format all clusters in sequence
+        const formattedResults = this.formatCitations(clusters);
+
+        // 3. Map cluster results back to nodes
+        // If a cluster has multiple entries, the first node gets the text, others get empty string
+        const occurrenceMap = new Map<number, string>();
+        let clusterIdx = 0;
+        let nodeInClusterIdx = 0;
+
+        for (let i = 0; i < citationNodeCount; i++) {
+            if (nodeInClusterIdx === 0) {
+                occurrenceMap.set(i, formattedResults[clusterIdx]);
+            } else {
+                occurrenceMap.set(i, "");
+            }
+
+            nodeInClusterIdx++;
+            if (nodeInClusterIdx >= (clusters[clusterIdx]?.length || 1)) {
+                clusterIdx++;
+                nodeInClusterIdx = 0;
+            }
+        }
+
+        // 4. Generate Bibliography
+        const bibliography = this.generateBibliography();
+
+        return { occurrenceMap, bibliography };
     }
 
     /**

@@ -1,0 +1,57 @@
+﻿node.exe : C:\xampp\htdocs\src\collaboratew
+ise\node_modules\ts-node\src\index.ts:859
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" 
+"C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified 
+   : (C:\xampp\htdocs...rc\index.ts:859:S  
+  tring) [], RemoteException
+    + FullyQualifiedErrorId : NativeComman 
+   dError
+ 
+    return new TSError(diagnosticText, 
+diagnosticCodes, diagnostics);
+           ^
+TSError: Γ¿» Unable to compile TypeScript:
+src/services/citationEngine.ts(5,17): 
+error TS7016: Could not find a declaration 
+file for module 'citeproc'. 'c:/xampp/htdoc
+s/src/collaboratewise/backend/node_modules/
+citeproc/citeproc_commonjs.js' implicitly 
+has an 'any' type.
+  Try `npm i --save-dev @types/citeproc` 
+if it exists or add a new declaration 
+(.d.ts) file containing `declare module 
+'citeproc';`
+
+    at createTSError (C:\xampp\htdocs\src\c
+ollaboratewise\node_modules\ts-node\src\ind
+ex.ts:859:12)
+    at reportTSError (C:\xampp\htdocs\src\c
+ollaboratewise\node_modules\ts-node\src\ind
+ex.ts:863:19)
+    at getOutput (C:\xampp\htdocs\src\colla
+boratewise\node_modules\ts-node\src\index.t
+s:1077:36)
+    at Object.compile (C:\xampp\htdocs\src\
+collaboratewise\node_modules\ts-node\src\in
+dex.ts:1433:41)
+    at Module.m._compile (C:\xampp\htdocs\s
+rc\collaboratewise\node_modules\ts-node\src
+\index.ts:1617:30)
+    at 
+node:internal/modules/cjs/loader:1839:10
+    at 
+Object.require.extensions.<computed> [as 
+.ts] (C:\xampp\htdocs\src\collaboratewise\n
+ode_modules\ts-node\src\index.ts:1621:12)
+    at Module.load 
+(node:internal/modules/cjs/loader:1441:32)
+    at Function._load 
+(node:internal/modules/cjs/loader:1263:12)
+    at TracingChannel.traceSync 
+(node:diagnostics_channel:322:14) {
+  diagnosticCodes: [ 7016 ]
+}

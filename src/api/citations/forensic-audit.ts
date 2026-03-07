@@ -31,7 +31,7 @@ router.post("/forensic-audit", authenticate, async (req: Request, res: Response)
         const issues: any[] = forensicResults.filter(r => r.status !== "VERIFIED").map(r => ({
             id: require("uuid").v4(),
             type: "VERIFICATION",
-            severity: (r.status === "HALLUCINATION" || r.status === "MISMATCH") ? "CRITICAL" : "MAJOR",
+            severity: (r.status === "UNVERIFIED" || r.status === "MISMATCH") ? "CRITICAL" : "MAJOR",
             message: r.issues.join(". "),
             location: {
                 startPos: r.pair.inline.start,
@@ -45,7 +45,7 @@ router.post("/forensic-audit", authenticate, async (req: Request, res: Response)
             timestamp: new Date().toISOString(),
             flags: flags,
             issues: issues,
-            verificationResults: verificationResults,
+            verificationResults: forensicResults.map(r => r.evidence).filter(Boolean),
             summary: {
                 totalInTextCitations: pairs.length,
                 uniqueBibliographyEntries: 0,

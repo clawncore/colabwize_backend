@@ -75,7 +75,6 @@ export interface AuditReport {
     flags?: any[];
     verificationResults?: any[];
     tierMetadata?: any;
-    isCached?: boolean; // NEW: Indicates if the result came from cache
 }
 
 export interface AuditJob {

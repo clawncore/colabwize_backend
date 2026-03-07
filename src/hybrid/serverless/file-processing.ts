@@ -236,6 +236,7 @@ async function generatePDFExport(fileData: any, userId: string) {
         orientation: fileData.orientation || "portrait",
         journalTemplate: fileData.journalTemplate || "",
         journalReady: !!fileData.journalTemplate,
+        citations: fileData.citations, // Accept pre-filtered/updated citations from frontend
         metadata: {
           author: fileData.metadata?.author || user.full_name || "Unknown Author",
           institution: fileData.metadata?.institution,
@@ -400,7 +401,8 @@ async function generateDOCXExport(fileData: any, userId: string) {
           abstract: fileData.metadata?.abstract,
         },
         // Pass citation policy and violations for annotation
-        citationPolicy: fileData.citationPolicy
+        citationPolicy: fileData.citationPolicy,
+        citations: fileData.citations
       }
     );
 

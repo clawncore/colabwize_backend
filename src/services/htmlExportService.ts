@@ -16,6 +16,10 @@ interface HtmlExportOptions {
     abstract?: string;
   };
   useCitationTokens?: boolean;
+  resolvedCitations?: {
+    occurrenceMap: Map<number, string>;
+    bibliography: { id: string, text: string }[];
+  };
 }
 
 export class HtmlExportService {
@@ -215,21 +219,25 @@ export class HtmlExportService {
     if (!options.includeCoverPage) {
       html += `<div style="text-align: center; font-weight: bold; margin-bottom: 1em; text-indent: 0;">${project.title}</div>`;
     }
+    const state = { citationNodeIndex: 0 };
     html += await this.convertTipTapToHtml(
       project.content,
       project.citations || [],
       options.citationStyle || "apa",
-      options
+      options,
+      state
     );
     html += `</div>`;
 
-    // 4. References
-    if (project.citations && project.citations.length > 0) {
+    // 4. Bibliography (Resolved)
+    if (options.resolvedCitations?.bibliography && options.resolvedCitations.bibliography.length > 0) {
       html += `<div class="page-break"></div>`;
+      html += `<div class="references-section">`;
       html += `<div class="references-title">References</div>`;
-      project.citations.forEach((citation: any) => {
-        html += `<div class="reference-item">${this.formatCitation(citation, options.citationStyle || "apa")}</div>`;
+      options.resolvedCitations.bibliography.forEach((entry: any) => {
+        html += `<div class="reference-item">${entry.text}</div>`;
       });
+      html += `</div>`;
     }
 
     // 5. Appended Authorship Certificate
@@ -322,7 +330,8 @@ export class HtmlExportService {
     content: any,
     citations: any[] = [],
     style: string = "apa",
-    options?: HtmlExportOptions
+    options?: HtmlExportOptions,
+    state: { citationNodeIndex: number } = { citationNodeIndex: 0 }
   ): Promise<string> {
     if (!content || !content.content) return "";
 
@@ -330,18 +339,18 @@ export class HtmlExportService {
 
     for (const node of content.content) {
       if (node.type === "paragraph") {
-        html += `<p>${this.extractTextHtml(node, citations, style, options)}</p>`;
+        html += `<p>${this.extractTextHtml(node, citations, style, options, state)}</p>`;
       } else if (node.type === "heading") {
         const level = node.attrs?.level || 1;
-        html += `<h${level}>${this.extractTextHtml(node, citations, style, options)}</h${level}>`;
+        html += `<h${level}>${this.extractTextHtml(node, citations, style, options, state)}</h${level}>`;
       } else if (node.type === "blockquote") {
-        html += `<blockquote>${this.extractTextHtml(node, citations, style, options)}</blockquote>`;
+        html += `<blockquote>${this.extractTextHtml(node, citations, style, options, state)}</blockquote>`;
       } else if (node.type === "bulletList") {
-        html += `<ul>${await this.convertTipTapToHtml(node, citations, style, options)}</ul>`;
+        html += `<ul>${await this.convertTipTapToHtml(node, citations, style, options, state)}</ul>`;
       } else if (node.type === "orderedList") {
-        html += `<ol>${await this.convertTipTapToHtml(node, citations, style, options)}</ol>`;
+        html += `<ol>${await this.convertTipTapToHtml(node, citations, style, options, state)}</ol>`;
       } else if (node.type === "listItem") {
-        html += `<li>${await this.convertTipTapToHtml(node, citations, style, options)}</li>`;
+        html += `<li>${await this.convertTipTapToHtml(node, citations, style, options, state)}</li>`;
       } else if (node.type === "image" || node.type === "imageExtension") {
         const src = node.attrs?.src || "";
         const alt = node.attrs?.alt || "";
@@ -387,7 +396,7 @@ export class HtmlExportService {
               html += `<tr>`;
               if (row.content) {
                 for (const cell of row.content) {
-                  const cellContent = await this.convertTipTapToHtml(cell, citations, style, options);
+                  const cellContent = await this.convertTipTapToHtml(cell, citations, style, options, state);
                   if (cell.type === "tableHeader") {
                     html += `<th>${cellContent}</th>`;
                   } else if (cell.type === "tableCell") {
@@ -406,7 +415,13 @@ export class HtmlExportService {
     return html;
   }
 
-  private static extractTextHtml(node: any, citations: any[] = [], style: string = "apa", options?: HtmlExportOptions): string {
+  private static extractTextHtml(
+    node: any,
+    citations: any[] = [],
+    style: string = "apa",
+    options?: HtmlExportOptions,
+    state: { citationNodeIndex: number } = { citationNodeIndex: 0 }
+  ): string {
     if (!node.content) return "";
     let html = "";
 
@@ -442,31 +457,26 @@ export class HtmlExportService {
       } else if (child.type === "hardBreak") {
         html += "<br>";
       } else if (child.type === "citation") {
-        const citationId = child.attrs?.citationId;
-        const citationText = child.attrs?.text; // Get the actual citation text like "[3]"
         const fallback = child.attrs?.fallback || "[Citation]";
 
-        if (options?.useCitationTokens) {
-          // Output citation text for HyperlinkInjector to process
-          // Use citationText (e.g. "[3]") as the content, with data-cite attribute if ID exists
-          if (citationId) {
-            html += `<span data-cite="${citationId}">${citationText || fallback}</span>`;
-          } else if (citationText) {
-            // No ID but has text - output for text-based matching
-            html += `<span class="citation" data-text="${citationText}">${citationText}</span>`;
+        // Use PRE-RESOLVED data if available
+        if (options?.resolvedCitations) {
+          const formatted = options.resolvedCitations.occurrenceMap.get(state.citationNodeIndex);
+          state.citationNodeIndex++;
+          
+          if (formatted !== undefined) {
+             // Formatted might be an empty string if it's the 2nd+ item in a cluster
+             if (formatted) {
+                html += `<span class="citation">${formatted}</span>`;
+             }
           } else {
-            html += `<span class="citation">${fallback}</span>`;
-          }
-        } else if (citationId && citations.length > 0) {
-          const citationData = citations.find((c: any) => c.id === citationId);
-          if (citationData) {
-            const inText = this.formatInTextCitation(citationData, style);
-            html += `<span class="citation">${inText}</span>`;
-          } else {
-            html += `<span class="citation" style="color: red;">${fallback}</span>`;
+             // Fallback if index missing
+             html += `<span class="citation" style="color:red">${fallback}</span>`;
           }
         } else {
-          html += `<span class="citation">${citationText || fallback}</span>`;
+          // Fallback if no resolution provided
+          html += `<span class="citation">${child.attrs?.text || fallback}</span>`;
+          state.citationNodeIndex++;
         }
       }
     });
@@ -478,40 +488,112 @@ export class HtmlExportService {
    * Format in-text citation
    */
   private static formatInTextCitation(citation: any, style: string): string {
-    const authors = Array.isArray(citation.authors) ? citation.authors : [citation.author || "Unknown"];
-    const year = citation.year || "n.d.";
+    // Try to get authors from CSL-JSON format first ({family, given} objects)
+    const csl = citation.csl_data || citation;
+    let authors: any[] = [];
 
-    // Get last name of first author
-    const firstAuthor = authors[0] || "Unknown";
-    let authorText = typeof firstAuthor === 'string' ? firstAuthor : (firstAuthor.lastName || firstAuthor.firstName || "Unknown");
+    if (Array.isArray(csl.author) && csl.author.length > 0) {
+      authors = csl.author;
+    } else if (Array.isArray(citation.authors) && citation.authors.length > 0) {
+      authors = citation.authors;
+    }
+
+    // Resolve year from CSL issued field or flat year field
+    const year =
+      csl.issued?.["date-parts"]?.[0]?.[0] ||
+      citation.year ||
+      "n.d.";
+
+    // Resolve first author's last name
+    const firstAuthor = authors[0];
+    let authorText = "Unknown";
+    if (firstAuthor) {
+      if (typeof firstAuthor === "string") {
+        // Flat string format — use last word as surname
+        authorText = firstAuthor.trim().split(" ").pop() || firstAuthor;
+      } else {
+        // CSL object format: { family, given } or { literal }
+        authorText = firstAuthor.family || firstAuthor.literal || firstAuthor.firstName || "Unknown";
+      }
+    }
 
     if (authors.length > 2) {
       authorText += " et al.";
     } else if (authors.length === 2) {
       const secondAuthor = authors[1];
-      const secondAuthorText = typeof secondAuthor === 'string' ? secondAuthor : (secondAuthor.lastName || "Unknown");
-      authorText += ` & ${secondAuthorText}`;
+      const secondText =
+        typeof secondAuthor === "string"
+          ? secondAuthor.trim().split(" ").pop() || secondAuthor
+          : secondAuthor.family || secondAuthor.literal || "";
+      authorText += ` & ${secondText}`;
     }
 
-    if (style === "apa") {
-      return `(${authorText}, ${year})`;
-    } else if (style === "mla") {
+    if (style === "mla") {
       return `(${authorText})`;
     }
-
+    // APA and default
     return `(${authorText}, ${year})`;
   }
 
   private static formatCitation(citation: any, style: string): string {
-    const authors = citation.authors || citation.author || "Unknown";
-    const title = citation.title || "Untitled";
-    const year = citation.year || "n.d.";
+    // Prefer CSL-JSON data when available
+    const csl = citation.csl_data || citation;
+
+    // Author: prefer CSL author array [{family, given}], fallback to flat fields
+    let authorText = "Unknown";
+    if (Array.isArray(csl.author) && csl.author.length > 0) {
+      authorText = csl.author
+        .map((a: any) => {
+          if (a.literal) return a.literal;
+          const given = a.given ? `${a.given.charAt(0)}.` : "";
+          return [a.family, given].filter(Boolean).join(", ");
+        })
+        .join(", ");
+    } else if (citation.authors) {
+      authorText = Array.isArray(citation.authors)
+        ? citation.authors.join(", ")
+        : String(citation.authors);
+    } else if (citation.author) {
+      authorText = String(citation.author);
+    }
+
+    const title = csl.title || citation.title || "Untitled";
+    const year =
+      csl.issued?.["date-parts"]?.[0]?.[0] ||
+      citation.year ||
+      "n.d.";
+    const journal = csl["container-title"] || citation.journal || "";
+    const volume = csl.volume || citation.volume || "";
+    const issue = csl.issue || citation.issue || "";
+    const pages = csl.page || citation.pages || "";
+    const doi = csl.DOI || citation.doi || "";
+    const publisher = csl.publisher || citation.publisher || "";
 
     if (style === "apa") {
-      return `${authors} (${year}). <i>${title}</i>.`;
+      let ref = `${authorText} (${year}). <i>${title}</i>`;
+      if (journal) {
+        ref += `. <i>${journal}</i>`;
+        if (volume) ref += `, <i>${volume}</i>`;
+        if (issue) ref += `(${issue})`;
+        if (pages) ref += `, ${pages}`;
+      } else if (publisher) {
+        ref += `. ${publisher}`;
+      }
+      if (doi) ref += `. https://doi.org/${doi}`;
+      return ref + ".";
     } else if (style === "mla") {
-      return `${authors}. "${title}." ${year}.`;
+      let ref = `${authorText}. "${title}."${journal ? ` <i>${journal}</i>,` : ""}`;
+      if (volume) ref += ` vol. ${volume},`;
+      if (issue) ref += ` no. ${issue},`;
+      ref += ` ${year}`;
+      if (pages) ref += `, pp. ${pages}`;
+      if (doi) ref += `. DOI: ${doi}`;
+      return ref + ".";
     }
-    return `${authors}. ${title}. ${year}.`;
+    // Chicago / default
+    let ref = `${authorText}. "${title}."${journal ? ` <i>${journal}</i>` : ""}${volume ? ` ${volume}` : ""} (${year})`;
+    if (pages) ref += `: ${pages}`;
+    if (doi) ref += `. https://doi.org/${doi}`;
+    return ref + ".";
   }
 }

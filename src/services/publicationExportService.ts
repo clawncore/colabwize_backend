@@ -63,6 +63,11 @@ interface PublicationExportOptions {
     violations?: any[];
     wordSafeMode?: boolean; // Pass through to image processing
   };
+  citations?: any[]; // Accept citation override from frontend
+  resolvedCitations?: {
+    occurrenceMap: Map<number, string>;
+    bibliography: { id: string, text: string }[];
+  };
 }
 
 interface PublicationResult {
@@ -216,6 +221,7 @@ export class PublicationExportService {
       // 6. Convert body content to paragraphs (Collect comments here)
       const comments: any[] = [];
       const usedCitationIds = new Set<string>();
+      const state = { citationNodeIndex: 0 };
       let bodyParagraphs = await this.convertTipTapToDOCXParagraphs(
         project.content,
         project.citations || [],
@@ -223,9 +229,11 @@ export class PublicationExportService {
         {
           ...options.citationPolicy,
           wordSafeMode: options.wordSafeMode, // Pass through for image/column processing
+          resolvedCitations: options.resolvedCitations,
         },
         comments,
         usedCitationIds,
+        state,
       );
 
       // --- FIX: Filter empty paragraphs logic ---
@@ -330,7 +338,8 @@ export class PublicationExportService {
       // 7. Generate references section (Conditional)
       const referencesParagraphs: Paragraph[] = [];
 
-      let citationsToUse = project.citations || [];
+      // Use provided citations override or project's citations
+      let citationsToUse = options.citations || project.citations || [];
       // Filter orphan references
       if (
         options.citationPolicy?.excludeOrphanReferences &&
@@ -342,7 +351,7 @@ export class PublicationExportService {
       }
 
       // Only generate References if not already in document
-      if (citationsToUse.length > 0 && !hasReferences) {
+      if (options.resolvedCitations?.bibliography && options.resolvedCitations.bibliography.length > 0 && !hasReferences) {
         referencesParagraphs.push(
           new Paragraph({
             text: "References",
@@ -351,16 +360,16 @@ export class PublicationExportService {
             pageBreakBefore: true,
           }),
         );
-        citationsToUse.forEach((citation: any, index: number) => {
+        options.resolvedCitations.bibliography.forEach((entry: any, index: number) => {
           referencesParagraphs.push(
             new Paragraph({
               children: [
                 new BookmarkStart(
                   (index + 2000) as any,
-                  `ref_${citation.id}` as any,
+                  `ref_${entry.id}` as any,
                 ),
                 new TextRun(
-                  `${index + 1}. ${this.formatCitation(citation, options.citationStyle || "apa")}`,
+                  `${entry.text}`,
                 ),
                 new BookmarkEnd((index + 2000) as any),
               ],
@@ -870,6 +879,7 @@ export class PublicationExportService {
     citationPolicy?: any,
     commentsRef: any[] = [],
     usedCitationIds?: Set<string>,
+    state: { citationNodeIndex: number } = { citationNodeIndex: 0 },
   ): Promise<(Paragraph | Table)[]> {
     const paragraphs: (Paragraph | Table)[] = [];
 
@@ -920,6 +930,7 @@ export class PublicationExportService {
           citationPolicy,
           commentsRef,
           usedCitationIds,
+          state,
         );
         paragraphs.push(
           new Paragraph({
@@ -935,6 +946,7 @@ export class PublicationExportService {
           citationPolicy,
           commentsRef,
           usedCitationIds,
+          state,
         );
         const level = node.attrs?.level || 1;
         // Map number to HeadingLevel enum
@@ -967,6 +979,7 @@ export class PublicationExportService {
                     citationPolicy,
                     commentsRef,
                     usedCitationIds,
+                    state,
                   );
                   paragraphs.push(
                     new Paragraph({
@@ -1051,6 +1064,7 @@ export class PublicationExportService {
                   citationPolicy,
                   commentsRef,
                   usedCitationIds,
+                  state,
                 );
                 paragraphs.push(...columnContent);
               } else {
@@ -1062,6 +1076,7 @@ export class PublicationExportService {
                   citationPolicy,
                   commentsRef,
                   usedCitationIds,
+                  state,
                 );
                 paragraphs.push(...itemContent);
               }
@@ -1091,6 +1106,8 @@ export class PublicationExportService {
                     style,
                     citationPolicy,
                     commentsRef,
+                    usedCitationIds,
+                    state,
                   );
                 columnCells.push(
                   new TableCell({
@@ -1130,6 +1147,8 @@ export class PublicationExportService {
                 style,
                 citationPolicy,
                 commentsRef,
+                undefined,
+                state,
               );
 
               currentRowCells.push(
@@ -1224,6 +1243,7 @@ export class PublicationExportService {
                             citationPolicy,
                             commentsRef,
                             usedCitationIds,
+                            state,
                           );
                           return new Paragraph({
                             children: children,
@@ -1287,6 +1307,7 @@ export class PublicationExportService {
           citationPolicy,
           commentsRef,
           usedCitationIds,
+          state,
         );
         paragraphs.push(...figureParagraphs);
       } else if (node.type === "figcaption") {
@@ -1298,6 +1319,7 @@ export class PublicationExportService {
           citationPolicy,
           commentsRef,
           usedCitationIds,
+          state,
         );
 
         paragraphs.push(
@@ -1329,6 +1351,7 @@ export class PublicationExportService {
     citationPolicy?: any,
     commentsRef: any[] = [],
     usedCitationIds?: Set<string>,
+    state: { citationNodeIndex: number } = { citationNodeIndex: 0 },
   ): any[] {
     const { TextRun } = require("docx");
     const runs: any[] = [];
@@ -1418,54 +1441,66 @@ export class PublicationExportService {
             }
           });
         } else if (child.type === "hardBreak") {
-          // Handle hard breaks (Shift+Enter)
           runs.push(new TextRun({ text: "", break: 1 }));
         } else if (child.type === "citation") {
-          // Handle inline citation node (Semantic)
           const citationId = child.attrs?.citationId;
           const fallback = PublicationExportService.sanitizeText(
             child.attrs?.fallback || "[Citation]",
           );
 
-          if (citationId && citations.length > 0) {
-            if (usedCitationIds) usedCitationIds.add(citationId);
-            const citationData = citations.find((c) => c.id === citationId);
-            if (citationData) {
-              const inText = this.formatInTextCitation(citationData, style);
-              // Wrap in InternalHyperlink to make it clickable
-              runs.push(
-                new InternalHyperlink({
-                  anchor: `ref_${citationId}`,
-                  children: [
-                    new TextRun({
-                      text: inText,
-                      style: "Hyperlink", // Use standard Word Hyperlink style (usually blue/underlined)
-                      // If user wants plain style but clickable, we can override style or omit it.
-                      // Standard academic papers shouldn't have blue links usually, but digital ones do.
-                      // Let's omit style to keep it looking like text, OR use a custom style.
-                      // Actually, for "clickable" to be obvious, it usually needs style.
-                      // But for academic, let's just make it a link without forcing blue if possible,
-                      // actually InternalHyperlink without style might just be a link area.
-                      // Let's try without style first to preserve aesthetics?
-                      // No, user complained it's "unclickable". Visual feedback is good.
-                      // Let's add the standard Hyperlink style but maybe we can customize it later.
-                      // For now, let's NOT add 'Hyperlink' style ID to avoid blue-ing everything if they didn't ask for it.
-                      // Just the functionality.
-                      // Wait, if I don't style it, they won't know it's clickable.
-                      // I'll stick to NO style ID for now to match print look, but functionality will be there.
-                      bold: child.marks?.some((m: any) => m.type === "bold"),
-                      italics: child.marks?.some(
-                        (m: any) => m.type === "italic",
-                      ),
+          if (citationPolicy?.resolvedCitations) {
+            const formatted = citationPolicy.resolvedCitations.occurrenceMap.get(state.citationNodeIndex);
+            state.citationNodeIndex++;
+
+            if (formatted !== undefined) {
+              if (formatted) {
+                if (citationId) {
+                  runs.push(
+                    new InternalHyperlink({
+                      anchor: `ref_${citationId}`,
+                      children: [
+                        new TextRun({
+                          text: formatted,
+                          size: 24,
+                          color: "2563EB",
+                          bold: true,
+                        }),
+                      ],
                     }),
-                  ],
-                }),
-              );
+                  );
+                } else {
+                  runs.push(new TextRun({ text: formatted, size: 24 }));
+                }
+              }
             } else {
-              runs.push(new TextRun({ text: fallback, color: "FF0000" })); // Red for missing ref?
+              runs.push(new TextRun({ text: fallback, color: "FF0000", size: 24 }));
             }
           } else {
-            runs.push(new TextRun({ text: fallback }));
+            if (citationId && citations.length > 0) {
+              if (usedCitationIds) usedCitationIds.add(citationId);
+              const citationData = citations.find((c: any) => c.id === citationId);
+              if (citationData) {
+                const inText = this.formatInTextCitation(citationData, style);
+                runs.push(
+                  new InternalHyperlink({
+                    anchor: `ref_${citationId}`,
+                    children: [
+                      new TextRun({
+                        text: inText,
+                        size: 24,
+                        bold: child.marks?.some((m: any) => m.type === "bold"),
+                        italics: child.marks?.some((m: any) => m.type === "italic"),
+                      }),
+                    ],
+                  }),
+                );
+              } else {
+                runs.push(new TextRun({ text: fallback, color: "FF0000", size: 24 }));
+              }
+            } else {
+              runs.push(new TextRun({ text: fallback, size: 24 }));
+              state.citationNodeIndex++;
+            }
           }
         }
       });

@@ -75,11 +75,11 @@ router.post("/audit", async (req: Request, res: Response) => {
             console.log("   - Entries:", referenceList.entries.length);
         }
 
-        // Step 1: Load Style Rules (Authoritative)
+        console.log("\n[Audit Lifecycle] STEP 1: LOAD STYLE RULES");
         const rules = getStyleRules(declaredStyle);
         const flags: CitationFlag[] = [];
 
-        // Step 2: Inline Citation Violations
+        console.log("[Audit Lifecycle] STEP 2: CHECK INLINE CITATION VIOLATIONS");
         if (patterns) {
             patterns.forEach(pattern => {
                 // Check if pattern is disallowed for this style
@@ -98,7 +98,7 @@ router.post("/audit", async (req: Request, res: Response) => {
             });
         }
 
-        // Step 3: Reference Section Title Check
+        console.log("[Audit Lifecycle] STEP 3: REFERENCE SECTION TITLE CHECK");
         if (referenceList) {
             // Case insensitive check
             const foundTitle = referenceList.sectionTitle.trim();
@@ -134,7 +134,7 @@ router.post("/audit", async (req: Request, res: Response) => {
             }
         }
 
-        // Step 4: Reference Entry Checks
+        console.log("[Audit Lifecycle] STEP 4: REFERENCE ENTRY CHECKS");
         if (referenceList && referenceList.entries.length > 0) {
             // Check Numbering
             const firstEntry = referenceList.entries[0];
@@ -205,7 +205,10 @@ router.post("/audit", async (req: Request, res: Response) => {
         }
 
 
+        console.log("[Audit Lifecycle] STEP 5: STYLE AUTO-DETECTION COMPLETE");
+        
         // Step 6: Citation Matching & External Verification
+        console.log("[Audit Lifecycle] STEP 6: STARTING CITATION MATCHING");
         let verificationResults: VerificationResult[] = [];
 
         // Process citations even if there's no reference list
@@ -286,7 +289,7 @@ router.post("/audit", async (req: Request, res: Response) => {
 
         // Step 7: Construct Response with Integrity Metrics
         const confirmed = verificationResults.filter(r => r.status === "VERIFIED" && r.semanticSupport?.status !== "DISPUTED").length;
-        const hallucinations = verificationResults.filter(r => r.status === "VERIFICATION_FAILED").length;
+        const unverified = verificationResults.filter(r => r.status === "VERIFICATION_FAILED").length;
         const unmatched = verificationResults.filter(r => r.status === "UNMATCHED_REFERENCE").length;
         const insufficient = verificationResults.filter(r => r.status === "INSUFFICIENT_INFO").length;
 
@@ -324,7 +327,7 @@ router.post("/audit", async (req: Request, res: Response) => {
 
         // 3. Score Breakdown & Penalties
         const penalties: ScoreBreakdownItem[] = [
-            { id: 'hallucinations', label: 'Hallucinated Citations', count: hallucinations, penalty: hallucinations * 25, impact: 'CRITICAL' },
+            { id: 'unverified', label: 'Unverified Sources', count: unverified, penalty: unverified * 15, impact: 'CRITICAL' },
             { id: 'unmatched', label: 'Broken References', count: unmatched, penalty: unmatched * 10, impact: 'MAJOR' },
             { id: 'uncited', label: 'Uncited Bibliography Entries', count: uncitedEntries.length, penalty: uncitedEntries.length * 2, impact: 'MINOR' },
             { id: 'duplicates', label: 'Duplicate References', count: duplicates.length, penalty: duplicates.length * 5, impact: 'MINOR' },
@@ -375,7 +378,7 @@ router.post("/audit", async (req: Request, res: Response) => {
                 issues.push({
                     id: require("uuid").v4(),
                     category: "VERIFICATION",
-                    type: "HALLUCINATION",
+                    type: "UNVERIFIED_SOURCE",
                     severity: "CRITICAL",
                     message: res.message,
                     location: { startPos: res.inlineLocation.start, endPos: res.inlineLocation.end },
@@ -406,7 +409,7 @@ router.post("/audit", async (req: Request, res: Response) => {
             summary: {
                 totalInTextCitations: patterns.length,
                 uniqueBibliographyEntries: referenceList?.entries.length || 0,
-                brokenCitations: hallucinations + unmatched,
+                brokenCitations: unverified + unmatched,
                 uncitedReferences: uncitedEntries.length,
                 duplicatesDetected: duplicates.length,
                 invalidUrls: 0,

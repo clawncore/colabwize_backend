@@ -32,7 +32,7 @@ export interface ForensicResult {
   status:
     | "VERIFIED"
     | "SUSPICIOUS"
-    | "HALLUCINATION"
+    | "UNVERIFIED"
     | "UNSUPPORTED"
     | "MISMATCH";
   confidence: number;
@@ -77,7 +77,7 @@ export class ForensicAuditService {
 
       // CHECK 1: Existence (Hallucination Check)
       if (ver.status === "VERIFICATION_FAILED") {
-        status = "HALLUCINATION";
+        status = "UNVERIFIED";
         issues.push(
           ver.message || "Paper does not exist in academic databases.",
         );

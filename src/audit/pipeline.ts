@@ -1,15 +1,11 @@
 import { v4 as uuidv4 } from "uuid";
 import { AuditJob, AuditReport, AuditContext, AuditPipelineStage } from "./types";
-import crypto from "crypto";
 
 import { ALL_STAGES } from "./stages";
 
 // In-memory store for active/completed audit jobs.
 // In a large production environment, this would be Redis.
 const jobStore = new Map<string, AuditJob>();
-
-// Caching: store the last completed report for each documentId + docStateHash
-const cacheStore = new Map<string, { hash: string, report: AuditReport }>();
 
 // Registry of stages to be executed linearly
 const PIPELINE_STAGES: AuditPipelineStage[] = ALL_STAGES;
@@ -50,42 +46,12 @@ function createInitialReport(jobAuthIds: { documentId: string; projectId: string
     };
 }
 
-function getDocHash(docState: any): string {
-    return crypto.createHash("md5").update(JSON.stringify(docState)).digest("hex");
-}
-
 /**
  * Initializes and queues a background audit job.
  * Returns the auditId immediately.
  */
 export function startAudit(documentId: string, projectId: string, docState: any, style: string = "APA"): string {
     const auditId = uuidv4();
-    const docHash = getDocHash(docState);
-
-    // Check Cache
-    const cached = cacheStore.get(documentId);
-    if (cached && cached.hash === docHash) {
-        console.log(`[AuditPipeline] Cache hit for document ${documentId}. Returning existing report.`);
-
-        const cachedReport = { ...cached.report };
-        cachedReport.metadata = { ...cachedReport.metadata, auditId, timestamp: new Date().toISOString() };
-        cachedReport.isCached = true;
-
-        const job: AuditJob = {
-            auditId,
-            documentId,
-            projectId,
-            status: "COMPLETED",
-            progress: 100,
-            currentStage: "DONE",
-            startedAt: new Date().toISOString(),
-            completedAt: new Date().toISOString(),
-            report: cachedReport,
-        };
-        jobStore.set(auditId, job);
-        return auditId;
-    }
-
     const job: AuditJob = {
         auditId,
         documentId,
@@ -158,14 +124,6 @@ async function runPipeline(auditId: string, docState: any) {
         job.currentStage = "DONE";
         job.completedAt = new Date().toISOString();
         jobStore.set(auditId, job);
-
-        // Update Cache
-        if (job.report) {
-            cacheStore.set(job.documentId, {
-                hash: getDocHash(docState),
-                report: job.report
-            });
-        }
 
         console.log(`[AuditPipeline] ${auditId} - COMPLETED.`);
 

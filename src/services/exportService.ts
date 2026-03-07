@@ -33,6 +33,11 @@ interface ExportOptions {
     markUnsupportedClaims: boolean;
     violations?: any[];
   };
+  citations?: any[]; // Accept citation override from frontend
+  resolvedCitations?: {
+    occurrenceMap: Map<number, string>;
+    bibliography: { id: string, text: string }[];
+  };
 }
 
 interface ExportResult {
@@ -70,8 +75,25 @@ export class ExportService {
         project.content = options.contentOverride;
       }
 
-      let buffer: Buffer;
-      let fileSize: number;
+      // 0. Deduplicate and clean citations
+      if (options.citations || project.citations) {
+        options.citations = this.deduplicateCitations(options.citations || project.citations || []);
+      }
+
+      // 1. Resolve all citations in document order BEFORE rendering
+      // This ensures deterministic numbering and cluster formatting
+      const { CitationEngine } = require("./citationEngine");
+      try {
+        const engine = new CitationEngine(
+          options.citations || project.citations || [],
+          options.citationStyle || "apa"
+        );
+        await engine.initialize();
+        options.resolvedCitations = await engine.resolveProject(project.content);
+        logger.info(`Resolved ${options.resolvedCitations.occurrenceMap.size} citation occurrences.`);
+      } catch (err) {
+        logger.error("Failed to resolve citations pre-export", err);
+      }
 
       switch (options.format) {
         case "docx":
@@ -122,6 +144,7 @@ export class ExportService {
         metadata: options.metadata,
         template: options.journalTemplate,
         citationPolicy: options.citationPolicy,
+        citations: options.citations, // Pass citations to publication service
       },
     );
 
@@ -153,34 +176,20 @@ export class ExportService {
       throw new Error("Project not found or access denied");
     }
 
-    // 2. Generate HTML with Citation Tokens
-    let html = await HtmlExportService.generateProjectHtml(project, {
+    if (!options.resolvedCitations) {
+      throw new Error("Citations were not resolved before PDF generation");
+    }
+
+    // 2. Generate HTML with PRE-RESOLVED citations
+    // This eliminates the fragile token-replacement stage entirely.
+    const html = await HtmlExportService.generateProjectHtml(project, {
       citationStyle: options.citationStyle,
       includeCoverPage: false, // DISABLED: User requested raw export for PDF too
       coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
       includeAuthorshipCertificate: options.includeAuthorshipCertificate,
       metadata: options.metadata,
-      useCitationTokens: true, // REQUEST TOKENS
+      resolvedCitations: options.resolvedCitations, // Pass the deterministic data
     });
-
-    // 3. Inject Hyperlinks & Format Citations
-    try {
-      const engine = new CitationEngine(
-        project.citations || [],
-        options.citationStyle || "apa",
-      );
-      await engine.initialize(); // Load styles/locales
-      const injector = new HyperlinkInjector();
-
-      // This replaces <span data-cite="key"> with <a href="...">Formatted Text</a>
-      html = await injector.injectHyperlinks(html, engine);
-    } catch (e) {
-      logger.error("Failed to inject hyperlinks during PDF export", e);
-      // Fallback: The HTML naturally has tokens now which would look ugly (<span data-cite>).
-      // If injection fails, we should ideally re-generate HTML without tokens.
-      // Or we rely on the injector to be robust.
-      // For now, proceed, but logging is critical.
-    }
 
     // 4. Render PDF via Puppeteer
     let browser;
@@ -1109,5 +1118,39 @@ export class ExportService {
         throw finalError;
       }
     }
+  }
+
+  /**
+   * Deduplicate and filter citations to remove junk
+   */
+  private static deduplicateCitations(citations: any[]): any[] {
+    const seen = new Set<string>();
+    const unique: any[] = [];
+
+    // Prioritize entries with DOIs or titles over "Unknown"
+    const sorted = [...citations].sort((a, b) => {
+      const aScore = (a.csl_data?.DOI || a.DOI ? 10 : 0) + (a.title && a.title !== "Untitled" ? 5 : 0);
+      const bScore = (b.csl_data?.DOI || b.DOI ? 10 : 0) + (b.title && b.title !== "Untitled" ? 5 : 0);
+      return bScore - aScore;
+    });
+
+    for (const c of sorted) {
+      // 1. Generate a fingerprint for deduplication
+      let fingerprint = "";
+      if (c.csl_data?.DOI || c.DOI) fingerprint = `doi:${(c.csl_data?.DOI || c.DOI).toLowerCase()}`;
+      else if (c.csl_data?.URL || c.url) fingerprint = `url:${(c.csl_data?.URL || c.url).toLowerCase()}`;
+      else if (c.title) fingerprint = `title:${c.title.toLowerCase().trim()}`;
+      else fingerprint = `id:${c.id}`;
+
+      // 2. Filter obvious junk
+      const hasMetadata = (c.csl_data?.DOI || c.DOI) || (c.csl_data?.author || c.authors) || (c.title && c.title !== "Untitled" && !c.title.includes("Untitled"));
+      
+      if (!seen.has(fingerprint) && hasMetadata) {
+        seen.add(fingerprint);
+        unique.push(c);
+      }
+    }
+
+    return unique;
   }
 }

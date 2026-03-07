@@ -77,7 +77,7 @@ export const VerificationStage: AuditPipelineStage = {
 
                 // Add to modal flags
                 job.report!.flags!.push({
-                    ruleId: 'HALLUCINATION',
+                    ruleId: 'UNVERIFIED_SOURCE',
                     message: res.message,
                     anchor: res.inlineLocation,
                     reason: 'Source could not be found in academic databases.',
@@ -87,7 +87,7 @@ export const VerificationStage: AuditPipelineStage = {
                 // Add to standard sidebar issues
                 job.report!.issues.push({
                     id: uuidv4(),
-                    type: "HALLUCINATION",
+                    type: "UNVERIFIED_SOURCE",
                     severity: "CRITICAL",
                     location: { startPos: res.inlineLocation.start, endPos: res.inlineLocation.end },
                     message: res.message,
@@ -172,17 +172,35 @@ export const VerificationStage: AuditPipelineStage = {
             }
         });
 
-        // 4. Score Breakdown & Penalties
+        // 4. Score Breakdown & Penalties (Proportional to document size)
+        //
+        // Strategy: Each error is penalised as a fraction of the total citation pool.
+        // This prevents a single error on a large document from swinging the score 25 pts.
+        // Base penalty per citation type is divided by Math.max(1, totalCitations) to keep
+        // jumps realistic. Small decimal precision makes changes feel incremental and honest.
+
+        const totalCitations = Math.max(1, citations.length);
+        const totalBib = Math.max(1, bibliography.length);
+
+        // Proportional per-item penalties scaled to document size
+        // Max impact of unverified = 8 pts each, capped at 40% total impact
+        const unverifiedPenaltyEach = Math.min(8, (60 / totalCitations));
+        const brokenPenaltyEach = Math.min(5, (30 / totalCitations));
+        const uncitedPenaltyEach = Math.min(2, (10 / totalBib));
+        const dupPenaltyEach = Math.min(3, (15 / totalBib));
+        const urlPenaltyEach = 2.5;
+
         const penalties: any[] = [
-            { id: 'hallucinations', label: 'Hallucinated Citations', count: hallucinations, penalty: hallucinations * 25, impact: 'CRITICAL' },
-            { id: 'unmatched', label: 'Broken References', count: brokenCitations - hallucinations, penalty: (brokenCitations - hallucinations) * 10, impact: 'MAJOR' },
-            { id: 'uncited', label: 'Uncited Bibliography Entries', count: uncitedEntries.length, penalty: uncitedEntries.length * 2, impact: 'MINOR' },
-            { id: 'duplicates', label: 'Duplicate References', count: duplicates.length, penalty: duplicates.length * 5, impact: 'MINOR' },
-            { id: 'invalid_urls', label: 'Invalid/Broken URLs', count: invalidUrls, penalty: invalidUrls * 3, impact: 'MAJOR' }
+            { id: 'unverified', label: 'Unverified Sources', count: hallucinations, penalty: parseFloat((hallucinations * unverifiedPenaltyEach).toFixed(2)), impact: 'CRITICAL' },
+            { id: 'unmatched', label: 'Broken References', count: brokenCitations - hallucinations, penalty: parseFloat(((brokenCitations - hallucinations) * brokenPenaltyEach).toFixed(2)), impact: 'MAJOR' },
+            { id: 'uncited', label: 'Uncited Bibliography Entries', count: uncitedEntries.length, penalty: parseFloat((uncitedEntries.length * uncitedPenaltyEach).toFixed(2)), impact: 'MINOR' },
+            { id: 'duplicates', label: 'Duplicate References', count: duplicates.length, penalty: parseFloat((duplicates.length * dupPenaltyEach).toFixed(2)), impact: 'MINOR' },
+            { id: 'invalid_urls', label: 'Invalid/Broken URLs', count: invalidUrls, penalty: parseFloat((invalidUrls * urlPenaltyEach).toFixed(2)), impact: 'MAJOR' }
         ];
 
         const totalPenalty = penalties.reduce((sum, p) => sum + p.penalty, 0);
-        let integrityIndex = Math.max(0, 100 - totalPenalty);
+        // Round to 2 decimal places and never go below 0
+        let integrityIndex = parseFloat(Math.max(0, 100 - totalPenalty).toFixed(2));
 
         // Map issues with categories
         duplicates.forEach(dup => {
@@ -213,7 +231,7 @@ export const VerificationStage: AuditPipelineStage = {
         // Add categories to existing issues
         job.report!.issues.forEach((issue: any) => {
             if (!issue.category) {
-                if (issue.type === 'HALLUCINATION') issue.category = 'VERIFICATION';
+                if (issue.type === 'UNVERIFIED_SOURCE') issue.category = 'VERIFICATION';
                 else if (issue.type === 'BROKEN_REFERENCE') issue.category = 'MAPPING';
                 else issue.category = 'FORMATTING';
             }

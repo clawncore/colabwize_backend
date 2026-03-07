@@ -1,0 +1,9 @@
+﻿Starting Citation Clustering Test...
+Resolving project...
+ΓÜÖ∩╕Å Running CSL Processing...
+
+--- Occurrence Map ---
+
+--- Bibliography ---
+
+Γ¥î FAILURE: Clustering logic did not work as expected.

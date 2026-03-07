@@ -57,5 +57,21 @@ export class HyperlinkInjector {
             cursor++;
             return `<a href="${href}" class="${cslClass}" target="${target}">${text}</a>`;
         });
+
+        // 4. Inject Bibliography
+        if (html.includes('[[BIBLIOGRAPHY]]')) {
+            const bibEntries = engine.generateBibliography();
+            const bibHtml = bibEntries.map(e => `<div class="reference-item">${e.text}</div>`).join('\n');
+            const bibContainer = `
+                <div class="page-break"></div>
+                <div class="references-section">
+                    <div class="references-title">References</div>
+                    ${bibHtml}
+                </div>
+            `;
+            html = html.replace('[[BIBLIOGRAPHY]]', bibContainer);
+        }
+
+        return html;
     }
 }
