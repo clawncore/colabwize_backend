@@ -77,6 +77,17 @@ export class HybridAuthService {
         },
       });
 
+      // Send welcome email immediately for OAuth users (since they are already verified)
+      try {
+        await EmailService.sendWelcomeEmail(data.email, data.fullName || "");
+      } catch (emailError: any) {
+        logger.error("Failed to send welcome email to OAuth user", {
+          email: data.email,
+          error: emailError.message,
+        });
+        // We log the error but don't fail the registration process
+      }
+
       return {
         success: true,
         message: "User registered successfully",
@@ -93,8 +104,13 @@ export class HybridAuthService {
    * Verifies the Supabase ID token and ensures user exists in our database
    */
   static async syncUserSession(
-    idToken: string
-  ): Promise<{ success: boolean; error?: string; user?: any; requires_2fa?: boolean }> {
+    idToken: string,
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    user?: any;
+    requires_2fa?: boolean;
+  }> {
     try {
       const supabaseAdmin = await getSupabaseAdminClient();
       if (!supabaseAdmin) {
@@ -129,25 +145,30 @@ export class HybridAuthService {
         const email = supabaseUser.email!; // Email returns string | undefined
 
         // CHECK FOR EXISTING EMAIL TO PREVENT CONFLICT
-        const existingEmailUser = await prisma.user.findUnique({ where: { email } });
+        const existingEmailUser = await prisma.user.findUnique({
+          where: { email },
+        });
         if (existingEmailUser) {
-          logger.error("CONFLICT: User found with same email but different ID", {
-            email,
-            existingId: existingEmailUser.id,
-            newId: supabaseUser.id
-          });
+          logger.error(
+            "CONFLICT: User found with same email but different ID",
+            {
+              email,
+              existingId: existingEmailUser.id,
+              newId: supabaseUser.id,
+            },
+          );
 
           // Debug 2FA status
           logger.info("Conflict User 2FA Status", {
             userId: existingEmailUser.id,
-            enabled: existingEmailUser.two_factor_enabled
+            enabled: existingEmailUser.two_factor_enabled,
           });
 
           // Return existing user and explicitly flag 2FA if enabled
           return {
             success: true,
             user: existingEmailUser,
-            requires_2fa: existingEmailUser.two_factor_enabled // Explicitly pass this
+            requires_2fa: existingEmailUser.two_factor_enabled, // Explicitly pass this
           };
         }
 
@@ -238,7 +259,7 @@ export class HybridAuthService {
       field_of_study?: string;
       selected_plan?: string;
       affiliate_ref?: string;
-    }
+    },
   ): Promise<{
     success: boolean;
     user?: any;
@@ -265,8 +286,8 @@ export class HybridAuthService {
           where: {
             full_name: {
               equals: userData.full_name,
-              mode: 'insensitive' // Case-insensitive search
-            }
+              mode: "insensitive", // Case-insensitive search
+            },
           },
         });
 
@@ -377,7 +398,7 @@ export class HybridAuthService {
   static async verifyOTP(
     userId: string | null,
     otp: string,
-    email?: string // Optional fallback search
+    email?: string, // Optional fallback search
   ): Promise<{ success: boolean; message: string }> {
     try {
       let user;
@@ -431,7 +452,7 @@ export class HybridAuthService {
    * Resend Verification
    */
   static async resendVerification(
-    email: string
+    email: string,
   ): Promise<{ success: boolean; message: string }> {
     try {
       const user = await prisma.user.findUnique({ where: { email } });
@@ -471,7 +492,7 @@ export class HybridAuthService {
    */
   static async updateUserProfile(
     idToken: string,
-    updates: any
+    updates: any,
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const supabaseAdmin = await getSupabaseAdminClient();
