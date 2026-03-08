@@ -164,7 +164,7 @@ export class HybridAuthService {
             email: email,
             full_name: metadata.full_name || metadata.name || "",
             email_verified: !!supabaseUser.email_confirmed_at, // Trust Supabase verification status
-            survey_completed: !isNewUser, // Only show survey to truly new users (created < 5 min ago)
+            survey_completed: false, // Ensure all newly synced users see the survey
             otp_method: "email",
           },
         });

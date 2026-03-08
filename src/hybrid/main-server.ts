@@ -127,6 +127,8 @@ const corsOptions = {
     "Accept",
     "x-auth-organic",
     "x-auth-otp-method",
+    "x-auth-google",
+    "x-auth-microsoft",
   ],
   maxAge: 86400, // Cache preflight response for 24 hours
 };
