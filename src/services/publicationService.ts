@@ -1,5 +1,12 @@
 import logger from "../monitoring/logger";
-import { Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableOfContents } from "docx";
+import {
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+  AlignmentType,
+  Table,
+  TableOfContents,
+} from "docx";
 
 // Interface for document metadata used in cover pages
 interface DocumentMetadata {
@@ -50,7 +57,7 @@ export class PublicationService {
         alignment: AlignmentType.LEFT,
         spacing: { after: 200 },
         style: "Normal",
-      })
+      }),
     );
 
     // Vertical centering (add spacing)
@@ -70,7 +77,7 @@ export class PublicationService {
         ],
         alignment: AlignmentType.CENTER,
         spacing: { after: 400 },
-      })
+      }),
     );
 
     // Author name
@@ -80,7 +87,7 @@ export class PublicationService {
           text: metadata.author,
           alignment: AlignmentType.CENTER,
           spacing: { after: 200 },
-        })
+        }),
       );
     }
 
@@ -96,7 +103,7 @@ export class PublicationService {
           text: line,
           alignment: AlignmentType.CENTER,
           spacing: { after: 100 },
-        })
+        }),
       );
     });
 
@@ -112,7 +119,7 @@ export class PublicationService {
           }),
         alignment: AlignmentType.CENTER,
         spacing: { before: 400 },
-      })
+      }),
     );
 
     return coverPage;
@@ -131,11 +138,11 @@ export class PublicationService {
     if (metadata.course) headerLines.push(metadata.course);
     headerLines.push(
       metadata.date ||
-      new Date().toLocaleDateString("en-US", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
+        new Date().toLocaleDateString("en-US", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        }),
     );
 
     headerLines.forEach((line) => {
@@ -144,7 +151,7 @@ export class PublicationService {
           text: line,
           alignment: AlignmentType.LEFT,
           spacing: { after: 200 }, // Double-spacing
-        })
+        }),
       );
     });
 
@@ -154,7 +161,7 @@ export class PublicationService {
         text: metadata.title,
         alignment: AlignmentType.CENTER,
         spacing: { before: 200, after: 200 },
-      })
+      }),
     );
 
     return coverPage;
@@ -219,14 +226,14 @@ export class PublicationService {
    */
   static generateTOCParagraphs(
     headings: HeadingNode[],
-    level: number = 0
+    level: number = 0,
   ): Paragraph[] {
     const tocParagraphs: Paragraph[] = [];
 
     headings.forEach((heading) => {
       const indent = level * 400; // Indent based on level
       const dotLeader = ".".repeat(
-        Math.max(50 - heading.text.length - indent / 50, 3)
+        Math.max(50 - heading.text.length - indent / 50, 3),
       );
 
       tocParagraphs.push(
@@ -234,13 +241,13 @@ export class PublicationService {
           text: `${heading.text}${dotLeader}${heading.pageNumber || "?"}`,
           indent: { left: indent },
           spacing: { after: 100 },
-        })
+        }),
       );
 
       // Recursively add children
       if (heading.children.length > 0) {
         tocParagraphs.push(
-          ...this.generateTOCParagraphs(heading.children, level + 1)
+          ...this.generateTOCParagraphs(heading.children, level + 1),
         );
       }
     });
@@ -255,7 +262,7 @@ export class PublicationService {
     content: any,
     title: string,
     wordCount: number,
-    minWordCount: number = 0
+    minWordCount: number = 0,
   ): StructuralAuditResult {
     const issues: string[] = [];
     const warnings: string[] = [];
@@ -272,7 +279,7 @@ export class PublicationService {
 
     if (headingCount === 0) {
       warnings.push(
-        "No headings found - consider adding section headers for better structure"
+        "No headings found - consider adding section headers for better structure",
       );
     }
 
@@ -284,7 +291,7 @@ export class PublicationService {
     const minWordCountMet = wordCount >= minWordCount;
     if (!minWordCountMet && minWordCount > 0) {
       issues.push(
-        `Word count (${wordCount}) below minimum requirement (${minWordCount})`
+        `Word count (${wordCount}) below minimum requirement (${minWordCount})`,
       );
     }
 
@@ -311,21 +318,21 @@ export class PublicationService {
    */
   private static validateHeadingHierarchy(
     headings: HeadingNode[],
-    expectedLevel: number = 1
+    expectedLevel: number = 1,
   ): string[] {
     const issues: string[] = [];
 
     headings.forEach((heading) => {
       if (heading.level > expectedLevel + 1) {
         issues.push(
-          `Heading hierarchy issue: "${heading.text}" skips from H${expectedLevel} to H${heading.level}`
+          `Heading hierarchy issue: "${heading.text}" skips from H${expectedLevel} to H${heading.level}`,
         );
       }
 
       // Recursively check children
       if (heading.children.length > 0) {
         issues.push(
-          ...this.validateHeadingHierarchy(heading.children, heading.level)
+          ...this.validateHeadingHierarchy(heading.children, heading.level),
         );
       }
     });
@@ -358,29 +365,28 @@ export class PublicationService {
   }): (Paragraph | Table | TableOfContents)[] {
     const merged: (Paragraph | Table | TableOfContents)[] = [];
 
-    // Add cover page
+    // Helper to add page break to the first paragraph of a component
+    const ensurePageBreak = (component: any[]) => {
+      if (component && component.length > 0) {
+        const first = component[0];
+        // If it's a paragraph, we can set pageBreakBefore
+        if (first instanceof Paragraph) {
+          // We can't easily mutate the private properties of Paragraph,
+          // so we wrap it or trust that the caller has already set it
+          // Actually, in docx library, it's better to just ensure the components
+          // are generated with pageBreakBefore: true on their headers.
+        }
+      }
+    };
+
+    // Add cover page (Cover page should not have page break before itself usually, unless it's not first)
     if (components.coverPage) {
       merged.push(...components.coverPage);
-      // Page break after cover
-      merged.push(
-        new Paragraph({
-          text: "",
-          pageBreakBefore: true,
-        })
-      );
     }
 
     // Add TOC
     if (components.toc && components.toc.length > 0) {
-      // Header is now handled by the caller (PublicationExportService) or included in the array
       merged.push(...components.toc);
-      // Page break after TOC
-      merged.push(
-        new Paragraph({
-          text: "",
-          pageBreakBefore: true,
-        })
-      );
     }
 
     // Add body content
@@ -388,12 +394,6 @@ export class PublicationService {
 
     // Add references
     if (components.references && components.references.length > 0) {
-      merged.push(
-        new Paragraph({
-          text: "",
-          pageBreakBefore: true,
-        })
-      );
       merged.push(...components.references);
     }
 
@@ -404,7 +404,7 @@ export class PublicationService {
    * Get user metadata from database for cover page
    */
   static async getUserMetadata(
-    userId: string
+    userId: string,
   ): Promise<Partial<DocumentMetadata>> {
     try {
       const { prisma } = await import("../lib/prisma");

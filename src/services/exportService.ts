@@ -27,6 +27,7 @@ interface ExportOptions {
     abstract?: string;
   };
   contentOverride?: any;
+  htmlContent?: string;
   citationPolicy?: {
     mode: string;
     excludeOrphanReferences: boolean;
@@ -77,7 +78,9 @@ export class ExportService {
 
       // 0. Deduplicate and clean citations
       if (options.citations || project.citations) {
-        options.citations = this.deduplicateCitations(options.citations || project.citations || []);
+        options.citations = this.deduplicateCitations(
+          options.citations || project.citations || [],
+        );
       }
 
       // 1. Resolve all citations in document order BEFORE rendering
@@ -86,12 +89,14 @@ export class ExportService {
       try {
         const engine = new CitationEngine(
           options.citations || project.citations || [],
-          options.citationStyle || "apa"
+          options.citationStyle || "apa",
         );
         await engine.initialize();
         const resolvedCitations = await engine.resolveProject(project.content);
         options.resolvedCitations = resolvedCitations;
-        logger.info(`Resolved ${resolvedCitations.occurrenceMap.size} citation occurrences.`);
+        logger.info(
+          `Resolved ${resolvedCitations.occurrenceMap.size} citation occurrences.`,
+        );
       } catch (err) {
         logger.error("Failed to resolve citations pre-export", err);
       }
@@ -181,16 +186,17 @@ export class ExportService {
       throw new Error("Citations were not resolved before PDF generation");
     }
 
-    // 2. Generate HTML with PRE-RESOLVED citations
-    // This eliminates the fragile token-replacement stage entirely.
-    const html = await HtmlExportService.generateProjectHtml(project, {
-      citationStyle: options.citationStyle,
-      includeCoverPage: false, // DISABLED: User requested raw export for PDF too
-      coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
-      includeAuthorshipCertificate: options.includeAuthorshipCertificate,
-      metadata: options.metadata,
-      resolvedCitations: options.resolvedCitations, // Pass the deterministic data
-    });
+    // 2. Generate HTML (Use override if provided, otherwise generate)
+    const html =
+      options.htmlContent ||
+      (await HtmlExportService.generateProjectHtml(project, {
+        citationStyle: options.citationStyle,
+        includeCoverPage: false, // DISABLED: User requested raw export for PDF too
+        coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
+        includeAuthorshipCertificate: options.includeAuthorshipCertificate,
+        metadata: options.metadata,
+        resolvedCitations: options.resolvedCitations, // Pass the deterministic data
+      }));
 
     // 4. Render PDF via Puppeteer
     let browser;
@@ -209,7 +215,7 @@ export class ExportService {
 
       // Generate PDF buffer
       const buffer = await page.pdf({
-        format: "Letter",
+        format: "A4",
         printBackground: true, // Required for colors/styles
         margin: {
           top: "1in",
@@ -1130,22 +1136,33 @@ export class ExportService {
 
     // Prioritize entries with DOIs or titles over "Unknown"
     const sorted = [...citations].sort((a, b) => {
-      const aScore = (a.csl_data?.DOI || a.DOI ? 10 : 0) + (a.title && a.title !== "Untitled" ? 5 : 0);
-      const bScore = (b.csl_data?.DOI || b.DOI ? 10 : 0) + (b.title && b.title !== "Untitled" ? 5 : 0);
+      const aScore =
+        (a.csl_data?.DOI || a.DOI ? 10 : 0) +
+        (a.title && a.title !== "Untitled" ? 5 : 0);
+      const bScore =
+        (b.csl_data?.DOI || b.DOI ? 10 : 0) +
+        (b.title && b.title !== "Untitled" ? 5 : 0);
       return bScore - aScore;
     });
 
     for (const c of sorted) {
       // 1. Generate a fingerprint for deduplication
       let fingerprint = "";
-      if (c.csl_data?.DOI || c.DOI) fingerprint = `doi:${(c.csl_data?.DOI || c.DOI).toLowerCase()}`;
-      else if (c.csl_data?.URL || c.url) fingerprint = `url:${(c.csl_data?.URL || c.url).toLowerCase()}`;
+      if (c.csl_data?.DOI || c.DOI)
+        fingerprint = `doi:${(c.csl_data?.DOI || c.DOI).toLowerCase()}`;
+      else if (c.csl_data?.URL || c.url)
+        fingerprint = `url:${(c.csl_data?.URL || c.url).toLowerCase()}`;
       else if (c.title) fingerprint = `title:${c.title.toLowerCase().trim()}`;
       else fingerprint = `id:${c.id}`;
 
       // 2. Filter obvious junk
-      const hasMetadata = (c.csl_data?.DOI || c.DOI) || (c.csl_data?.author || c.authors) || (c.title && c.title !== "Untitled" && !c.title.includes("Untitled"));
-      
+      const hasMetadata =
+        c.csl_data?.DOI ||
+        c.DOI ||
+        c.csl_data?.author ||
+        c.authors ||
+        (c.title && c.title !== "Untitled" && !c.title.includes("Untitled"));
+
       if (!seen.has(fingerprint) && hasMetadata) {
         seen.add(fingerprint);
         unique.push(c);

@@ -21,23 +21,27 @@ import analyzeRouter from "./analyze";
 import batchAnalyzeRouter from "./batch-analyze";
 import forensicAuditRouter from "./forensic-audit";
 
-// Mount sub-routers
-router.use("/", contentScanRouter); // Must come before /:projectId
-router.use("/", analyzeRouter); // Specific path /:p/:c/analyze, safe to put early
-router.use("/", batchAnalyzeRouter);
-router.use("/", forensicAuditRouter);
-router.use("/", missingLinkRouter);
-router.use("/", auditRouter);
-router.use("/", confidenceRouter);
-router.use("/", searchRouter);
-router.use("/", updateRouter);
-router.use("/", createRouter);
-router.use("/", graphRouter); // Mounts as /:projectId/graph (handled inside router)
-router.use("/", gapsRouter); // Mounts as /:projectId/gaps
-router.use("/", intentRouter); // Mounts as /:citationId/classify-intent and /batch-classify-intents
-router.use("/", credibilityRouter); // Mounts as /credibility-score and /batch-credibility
-router.use("/", consensusRouter); // Mounts as /:projectId/consensus
-router.use("/", listRouter); // Mounts as /:projectId
-router.use("/import", importRouter);
+// Mount sub-routers - Order matters! Static routes must come before dynamic /:projectId routes
+
+// 1. Static Routes
+router.use("/", searchRouter); // /search
+router.use("/", batchAnalyzeRouter); // /batch-analyze
+router.use("/", forensicAuditRouter); // /forensic-audit
+router.use("/", missingLinkRouter); // /find-missing-link
+router.use("/", auditRouter); // /audit
+router.use("/", credibilityRouter); // /credibility-score, /batch-credibility
+router.use("/", intentRouter); // /batch-classify-intents (and /:citationId/classify-intent)
+router.use("/import", importRouter); // /import
+
+// 2. Dynamic Routes (/:projectId or /:movieId or /:citationId at the root level)
+router.use("/", contentScanRouter); // /:projectId/content-scan
+router.use("/", analyzeRouter); // /:projectId/:citationId/analyze
+router.use("/", confidenceRouter); // /confidence/:projectId
+router.use("/", updateRouter); // /:projectId/:citationId
+router.use("/", graphRouter); // /:projectId/graph
+router.use("/", gapsRouter); // /:projectId/gaps
+router.use("/", consensusRouter); // /:projectId/consensus
+router.use("/", listRouter); // /:projectId
+router.use("/", createRouter); // /:projectId
 
 export default router;

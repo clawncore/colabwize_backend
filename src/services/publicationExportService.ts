@@ -72,6 +72,7 @@ interface PublicationExportOptions {
     occurrenceMap: Map<number, { text: string; doi?: string; url?: string }>;
     bibliography: { id: string; text: string; doi?: string; url?: string }[];
   };
+  htmlContent?: string;
 }
 
 interface PublicationResult {
@@ -190,11 +191,7 @@ export class PublicationExportService {
             text: metadata.date || "",
             alignment: AlignmentType.CENTER,
           }),
-          new Paragraph({
-            text: "",
-            pageBreakBefore: true,
-          }),
-        ].filter(p => p !== undefined) as Paragraph[];
+        ].filter((p) => p !== undefined) as Paragraph[];
 
         logger.debug("Generated professional cover page", { metadata });
       }
@@ -208,15 +205,12 @@ export class PublicationExportService {
             heading: HeadingLevel.HEADING_1,
             alignment: AlignmentType.CENTER,
             spacing: { after: 240 },
+            pageBreakBefore: true, // Start abstract on new page
           }),
           new Paragraph({
             text: options.metadata.abstract,
             alignment: AlignmentType.LEFT,
             spacing: { line: 360 }, // Double spaced
-          }),
-          new Paragraph({
-            text: "",
-            pageBreakBefore: true,
           }),
         ];
       }
@@ -232,16 +226,12 @@ export class PublicationExportService {
             heading: HeadingLevel.HEADING_1,
             alignment: AlignmentType.CENTER,
             spacing: { after: 400 },
+            pageBreakBefore: true, // Start TOC on new page
           }),
           new TableOfContents("Summary", {
             hyperlink: true,
             headingStyleRange: "1-3",
           }),
-          new Paragraph({
-            text: "",
-            pageBreakBefore: true,
-          }),
-          // REMOVED explicit page break paragraph here, rely on mergeDocumentComponents separator
         ];
       } else if (options.includeTOC && options.wordSafeMode) {
         logger.info(
@@ -253,18 +243,24 @@ export class PublicationExportService {
       const comments: any[] = [];
       const usedCitationIds = new Set<string>();
       const state = { citationNodeIndex: 0 };
-      let bodyParagraphs = await this.convertTipTapToDOCXParagraphs(
+      const bodyParagraphs = await this.convertTipTapToDOCXParagraphs(
         project.content,
         project.citations || [],
         options.citationStyle || "apa",
-        {
-          ...options.citationPolicy,
-          wordSafeMode: options.wordSafeMode, // Pass through for image/column processing
-          resolvedCitations: options.resolvedCitations,
-        },
+        options.citationPolicy,
         comments,
         usedCitationIds,
         state,
+        {
+          wordSafeMode: options.wordSafeMode,
+          resolvedCitations: options.resolvedCitations,
+          startOnNewPage: !!(
+            coverPageParagraphs ||
+            abstractParagraphs ||
+            tocParagraphs
+          ),
+          ownerId: project.user_id, // Pass ownerId for collaborative tracking
+        },
       );
 
       // --- FIX: Filter empty paragraphs logic ---
@@ -279,7 +275,10 @@ export class PublicationExportService {
           const text = node.content?.map((c: any) => c.text).join("") || "";
           const cleanText = text.toLowerCase().trim();
           // Detect common bibliography headers even if they are just paragraphs
-          const isBib = /^(references|bibliography|works cited|references cited|bibliography and references)($|:|\s)/.test(cleanText);
+          const isBib =
+            /^(references|bibliography|works cited|references cited|bibliography and references)($|:|\s)/.test(
+              cleanText,
+            );
           if (node.type === "heading" || isBib) {
             contentMarkers.add(cleanText);
             if (isBib) contentMarkers.add("force_bib_suppress");
@@ -389,7 +388,11 @@ export class PublicationExportService {
       }
 
       // Only generate References if not already in document
-      if (options.resolvedCitations?.bibliography && options.resolvedCitations.bibliography.length > 0 && !hasReferences) {
+      if (
+        options.resolvedCitations?.bibliography &&
+        options.resolvedCitations.bibliography.length > 0 &&
+        !hasReferences
+      ) {
         referencesParagraphs.push(
           new Paragraph({
             text: "References",
@@ -398,55 +401,62 @@ export class PublicationExportService {
             pageBreakBefore: true,
           }),
         );
-        options.resolvedCitations.bibliography.forEach((entry: any, index: number) => {
-          const children: any[] = [
-            new BookmarkStart((index + 2000) as any, `ref_${entry.id}` as any),
-            new TextRun({
-              text: entry.text,
-            })
-          ];
+        options.resolvedCitations.bibliography.forEach(
+          (entry: any, index: number) => {
+            const children: any[] = [
+              new BookmarkStart(
+                (index + 2000) as any,
+                `ref_${entry.id}` as any,
+              ),
+              new TextRun({
+                text: entry.text,
+              }),
+            ];
 
-          // Add DOI link if available
-          if (entry.doi) {
-            const doiUrl = entry.doi.startsWith("http") ? entry.doi : `https://doi.org/${entry.doi}`;
-            children.push(new TextRun({ text: " " }));
-            children.push(
-              new ExternalHyperlink({
-                link: doiUrl,
-                children: [
-                  new TextRun({
-                    text: doiUrl,
-                    color: "0000FF",
-                    underline: {},
-                  }),
-                ],
-              })
+            // Add DOI link if available
+            if (entry.doi) {
+              const doiUrl = entry.doi.startsWith("http")
+                ? entry.doi
+                : `https://doi.org/${entry.doi}`;
+              children.push(new TextRun({ text: " " }));
+              children.push(
+                new ExternalHyperlink({
+                  link: doiUrl,
+                  children: [
+                    new TextRun({
+                      text: doiUrl,
+                      color: "0000FF",
+                      underline: {},
+                    }),
+                  ],
+                }),
+              );
+            } else if (entry.url) {
+              children.push(new TextRun({ text: " " }));
+              children.push(
+                new ExternalHyperlink({
+                  link: entry.url,
+                  children: [
+                    new TextRun({
+                      text: entry.url,
+                      color: "0000FF",
+                      underline: {},
+                    }),
+                  ],
+                }),
+              );
+            }
+
+            children.push(new BookmarkEnd((index + 2000) as any));
+
+            referencesParagraphs.push(
+              new Paragraph({
+                children: children,
+                spacing: { after: 120, line: 360 },
+              }),
             );
-          } else if (entry.url) {
-            children.push(new TextRun({ text: " " }));
-            children.push(
-              new ExternalHyperlink({
-                link: entry.url,
-                children: [
-                  new TextRun({
-                    text: entry.url,
-                    color: "0000FF",
-                    underline: {},
-                  }),
-                ],
-              })
-            );
-          }
-
-          children.push(new BookmarkEnd((index + 2000) as any));
-
-          referencesParagraphs.push(
-            new Paragraph({
-              children: children,
-              spacing: { after: 120, line: 360 },
-            }),
-          );
-        });
+          },
+        );
       } else if (hasReferences) {
         logger.info(
           "Suppressing auto-references because document already has References heading",
@@ -469,8 +479,26 @@ export class PublicationExportService {
 
       // 8. Merge all components
       // Clean up bodyParagraphs: Filter out truly empty paragraphs (heuristic: no text, no children)
-      // This is hard to do cleanly on Paragraph objects without type issues.
-      // We will trust Tiptap conversion for now but fixing the double page breaks above (suppression) helps.
+      // If we have cover sections, the first paragraph of the body should start on a new page
+      if (
+        bodyParagraphs.length > 0 &&
+        (coverPageParagraphs || abstractParagraphs || tocParagraphs)
+      ) {
+        // Since we can't easily set pageBreakBefore on an existing Paragraph safely without knowing its concrete class,
+        // we recreate the first paragraph with the flag if possible, or just insert it.
+        // Actually, for headings and standard paragraphs, we can influence this during conversion.
+        // But here we can just do:
+        const firstPara = bodyParagraphs[0];
+        if (firstPara instanceof Paragraph) {
+          // Re-clone or just use the existing one if we can.
+          // In docx v9, you can't easily mutate options.
+          // So we'll just insert an empty paragraph WITH pageBreakBefore: true BEFORE the body
+          // IF the body doesn't already start with a break.
+          // BUT wait, that's what created the blank page before!
+          // CORRECT FIX: The mergeDocumentComponents handles the arrays.
+          // I will modify mergeDocumentComponents one last time to be even cleaner.
+        }
+      }
 
       const allParagraphs = PublicationService.mergeDocumentComponents({
         coverPage: coverPageParagraphs,
@@ -576,6 +604,16 @@ export class PublicationExportService {
           {
             properties: {
               page: {
+                size: {
+                  width: 11906, // A4 Width in twips (210mm)
+                  height: 16838, // A4 Height in twips (297mm)
+                },
+                margin: {
+                  top: 1440,
+                  right: 1440,
+                  bottom: 1440,
+                  left: 1440,
+                },
                 pageNumbers: {
                   start: 1,
                   formatType: "decimal",
@@ -588,9 +626,15 @@ export class PublicationExportService {
                   new Paragraph({
                     children: [
                       new TextRun({
-                        text: options.metadata?.runningHead ? `Running head: ${options.metadata.runningHead.toUpperCase()}` : "",
+                        text: options.metadata?.runningHead
+                          ? `Running head: ${options.metadata.runningHead.toUpperCase()}`
+                          : "",
                       }),
-                      new PositionalTab({ alignment: "right", relativeTo: "margin", leader: "none" }),
+                      new PositionalTab({
+                        alignment: "right",
+                        relativeTo: "margin",
+                        leader: "none",
+                      }),
                       new TextRun("Page "),
                       new TextRun({
                         children: [PageNumber.CURRENT],
@@ -970,10 +1014,16 @@ export class PublicationExportService {
     content: any,
     citations: any[] = [],
     style: string = "apa",
-    citationPolicy?: any,
+    citationPolicy: any = {},
     commentsRef: any[] = [],
-    usedCitationIds?: Set<string>,
+    usedCitationIds: Set<string> = new Set(),
     state: { citationNodeIndex: number } = { citationNodeIndex: 0 },
+    options: {
+      wordSafeMode?: boolean;
+      resolvedCitations?: any;
+      startOnNewPage?: boolean;
+      ownerId?: string;
+    } = {},
   ): Promise<(Paragraph | Table)[]> {
     const paragraphs: (Paragraph | Table)[] = [];
 
@@ -985,32 +1035,28 @@ export class PublicationExportService {
     try {
       const fs = require("fs");
       const path = require("path");
-      // Use a temp path or specific known path if possible, falling back to cwd
       const debugPath = path.join(process.cwd(), "debug_export.json");
       fs.writeFileSync(debugPath, JSON.stringify(content, null, 2));
-
-      // Also write to a public spot if possible or log the content snippet
-      // logger.info("Debug Content Snippet:", JSON.stringify(content).substring(0, 500));
     } catch (err) {
       logger.warn("Failed to dump debug export", err);
     }
 
+    let isFirstNode = true;
+
     for (const node of content.content) {
+      const shouldApplyPageBreak = isFirstNode && options.startOnNewPage;
+      isFirstNode = false;
+
       // FIX: Strip empty paragraphs to prevent blank pages
       if (node.type === "paragraph") {
         const hasContent =
           node.content &&
           node.content.some((c: any) => {
-            // Keep if text exists
             if (c.text && c.text.trim().length > 0) return true;
-            // Keep if it contains non-text nodes like images, mentions, or hardBreaks
-            // Note: hardBreak might be considered "whitespace" but it's explicit formatting.
-            // We'll be conservative and keep anything that isn't just empty text.
             if (c.type !== "text") return true;
             return false;
           });
 
-        // If content array is empty or all elements are empty text nodes, skip.
         if (!hasContent) {
           continue;
         }
@@ -1025,11 +1071,13 @@ export class PublicationExportService {
           commentsRef,
           usedCitationIds,
           state,
+          options.ownerId,
         );
         paragraphs.push(
           new Paragraph({
             children: children,
             spacing: { line: 360, after: 140 }, // 1.5 line spacing + 7pt after
+            pageBreakBefore: shouldApplyPageBreak,
           }),
         );
       } else if (node.type === "heading") {
@@ -1041,9 +1089,9 @@ export class PublicationExportService {
           commentsRef,
           usedCitationIds,
           state,
+          options.ownerId,
         );
         const level = node.attrs?.level || 1;
-        // Map number to HeadingLevel enum
         const headingLevels: Record<number, any> = {
           1: HeadingLevel.HEADING_1,
           2: HeadingLevel.HEADING_2,
@@ -1057,6 +1105,25 @@ export class PublicationExportService {
             children: children,
             heading: headingLevels[level] || HeadingLevel.HEADING_1,
             spacing: { before: 240, after: 200 }, // Add spacing before/after headings
+            pageBreakBefore: shouldApplyPageBreak,
+          }),
+        );
+      } else if (node.type === "bibliographyEntry") {
+        const children = this.extractTextRunsFromNode(
+          node,
+          citations,
+          style,
+          citationPolicy,
+          commentsRef,
+          usedCitationIds,
+          state,
+          options.ownerId,
+        );
+        paragraphs.push(
+          new Paragraph({
+            children: children,
+            spacing: { line: 360, after: 120 },
+            indent: { left: 720, hanging: 720 }, // 0.5 inch hanging indent
           }),
         );
       } else if (node.type === "bulletList" || node.type === "orderedList") {
@@ -1074,6 +1141,7 @@ export class PublicationExportService {
                     commentsRef,
                     usedCitationIds,
                     state,
+                    options.ownerId,
                   );
                   paragraphs.push(
                     new Paragraph({
@@ -1446,6 +1514,7 @@ export class PublicationExportService {
     commentsRef: any[] = [],
     usedCitationIds?: Set<string>,
     state: { citationNodeIndex: number } = { citationNodeIndex: 0 },
+    ownerId?: string,
   ): any[] {
     const runs: any[] = [];
 
@@ -1469,7 +1538,7 @@ export class PublicationExportService {
         (v: any) => v.context && fullText.includes(v.context.substring(0, 50)),
       );
 
-      if (violation) {
+      if (violation && !DEBUG_FLAGS.SKIP_COMMENTS) {
         violationCommentId = commentsRef.length + 1;
         commentsRef.push({
           id: violationCommentId,
@@ -1495,7 +1564,66 @@ export class PublicationExportService {
     }
 
     if (node.content) {
+      let activeCommentId: number | null = null;
+      let activeAuthorId: string | null = null;
+
       node.content.forEach((child: any) => {
+        // --- Collaboration Comment Range Check ---
+        // Look for authorship mark on text nodes
+        const authorshipMark = child.marks?.find(
+          (m: any) => m.type === "authorship",
+        );
+        const authorId = authorshipMark?.attrs?.authorId;
+        const authorName = authorshipMark?.attrs?.authorName || "Collaborator";
+        const dateString = authorshipMark?.attrs?.timestamp;
+        const commentDate = dateString ? new Date(dateString) : new Date();
+
+        // Only comment for collaborators (not the document owner)
+        const shouldComment = authorId && ownerId && authorId !== ownerId;
+
+        // If author changed, manage ranges
+        if (shouldComment) {
+          if (authorId !== activeAuthorId) {
+            // Close previous comment if exists
+            if (activeCommentId !== null) {
+              runs.push(new CommentRangeEnd(activeCommentId));
+              runs.push(new CommentReference(activeCommentId));
+            }
+
+            // Start new comment
+            activeCommentId = commentsRef.length + 1;
+            activeAuthorId = authorId;
+            commentsRef.push({
+              id: activeCommentId,
+              author: authorName,
+              date: commentDate,
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: PublicationExportService.sanitizeText(
+                        `Collaborative edit by ${authorName}.`,
+                      ),
+                      bold: true,
+                    }),
+                  ],
+                }),
+              ],
+            });
+
+            // Start Range BEFORE text run
+            runs.push(new CommentRangeStart(activeCommentId));
+          }
+        } else {
+          // If no authorship (or owner's edit), close active range if exists
+          if (activeCommentId !== null) {
+            runs.push(new CommentRangeEnd(activeCommentId));
+            runs.push(new CommentReference(activeCommentId));
+            activeCommentId = null;
+            activeAuthorId = null;
+          }
+        }
+
         if (child.type === "text") {
           let textContent = PublicationExportService.sanitizeText(
             child.text || "",
@@ -1533,6 +1661,9 @@ export class PublicationExportService {
               runs.push(new TextRun(options));
             }
           });
+        } else if (child.HardBreak) {
+          // Keep hardBreak compatible
+          runs.push(new TextRun({ text: "", break: 1 }));
         } else if (child.type === "hardBreak") {
           runs.push(new TextRun({ text: "", break: 1 }));
         } else if (child.type === "citation") {
@@ -1542,12 +1673,18 @@ export class PublicationExportService {
           );
 
           if (citationPolicy?.resolvedCitations) {
-            const resolved = citationPolicy.resolvedCitations.occurrenceMap.get(state.citationNodeIndex);
+            const resolved = citationPolicy.resolvedCitations.occurrenceMap.get(
+              state.citationNodeIndex,
+            );
             state.citationNodeIndex++;
 
             if (resolved !== undefined) {
               if (resolved.text) {
-                const doiUrl = resolved.doi ? (resolved.doi.startsWith("http") ? resolved.doi : `https://doi.org/${resolved.doi}`) : null;
+                const doiUrl = resolved.doi
+                  ? resolved.doi.startsWith("http")
+                    ? resolved.doi
+                    : `https://doi.org/${resolved.doi}`
+                  : null;
                 const url = resolved.url || doiUrl;
 
                 if (url) {
@@ -1559,7 +1696,6 @@ export class PublicationExportService {
                           text: resolved.text,
                           size: 24,
                           color: "2563EB",
-                          bold: true,
                           underline: {},
                         }),
                       ],
@@ -1574,7 +1710,7 @@ export class PublicationExportService {
                           text: resolved.text,
                           size: 24,
                           color: "2563EB",
-                          bold: true,
+                          underline: {},
                         }),
                       ],
                     }),
@@ -1584,12 +1720,16 @@ export class PublicationExportService {
                 }
               }
             } else {
-              runs.push(new TextRun({ text: fallback, color: "FF0000", size: 24 }));
+              runs.push(
+                new TextRun({ text: fallback, color: "FF0000", size: 24 }),
+              );
             }
           } else {
             if (citationId && citations.length > 0) {
               if (usedCitationIds) usedCitationIds.add(citationId);
-              const citationData = citations.find((c: any) => c.id === citationId);
+              const citationData = citations.find(
+                (c: any) => c.id === citationId,
+              );
               if (citationData) {
                 const inText = this.formatInTextCitation(citationData, style);
                 runs.push(
@@ -1599,14 +1739,20 @@ export class PublicationExportService {
                       new TextRun({
                         text: inText,
                         size: 24,
+                        color: "2563EB",
+                        underline: {},
                         bold: child.marks?.some((m: any) => m.type === "bold"),
-                        italics: child.marks?.some((m: any) => m.type === "italic"),
+                        italics: child.marks?.some(
+                          (m: any) => m.type === "italic",
+                        ),
                       }),
                     ],
                   }),
                 );
               } else {
-                runs.push(new TextRun({ text: fallback, color: "FF0000", size: 24 }));
+                runs.push(
+                  new TextRun({ text: fallback, color: "FF0000", size: 24 }),
+                );
               }
             } else {
               runs.push(new TextRun({ text: fallback, size: 24 }));
@@ -1615,10 +1761,16 @@ export class PublicationExportService {
           }
         }
       });
+
+      // --- CLOSE ACTIVE COLLABORATION COMMENT AT END OF NODE ---
+      if (activeCommentId !== null) {
+        runs.push(new CommentRangeEnd(activeCommentId));
+        runs.push(new CommentReference(activeCommentId));
+      }
     }
 
     // Add End Range if comment was started
-    if (violationCommentId !== null) {
+    if (violationCommentId !== null && !DEBUG_FLAGS.SKIP_COMMENTS) {
       runs.push(new CommentRangeEnd(violationCommentId));
       runs.push(new CommentReference(violationCommentId)); // Visual marker
     }

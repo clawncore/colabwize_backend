@@ -30,7 +30,7 @@ export class HtmlExportService {
     return `
       @page {
         margin: 1in;
-        size: letter;
+        size: a4;
       }
       body {
         font-family: "Times New Roman", Times, serif;
@@ -187,7 +187,7 @@ export class HtmlExportService {
    */
   static async generateProjectHtml(
     project: any, // Using any for Project to avoid strict Prisma type issues in this snippet
-    options: HtmlExportOptions
+    options: HtmlExportOptions,
   ): Promise<string> {
     let html = `<!DOCTYPE html>
     <html>
@@ -223,7 +223,8 @@ export class HtmlExportService {
     };
     if (project.content) scanForMarkers(project.content);
 
-    const hasAbstract = contentMarkers.has("abstract") || !!options.metadata?.abstract;
+    const hasAbstract =
+      contentMarkers.has("abstract") || !!options.metadata?.abstract;
     const hasReferences =
       contentMarkers.has("references") ||
       contentMarkers.has("bibliography") ||
@@ -251,12 +252,16 @@ export class HtmlExportService {
       project.citations || [],
       options.citationStyle || "apa",
       options,
-      state
+      state,
     );
     html += `</div>`;
 
     // 4. Bibliography (Resolved)
-    if (options.resolvedCitations?.bibliography && options.resolvedCitations.bibliography.length > 0 && !hasReferences) {
+    if (
+      options.resolvedCitations?.bibliography &&
+      options.resolvedCitations.bibliography.length > 0 &&
+      !hasReferences
+    ) {
       html += `<div class="page-break"></div>`;
       html += `<div class="references-section">`;
       html += `<div class="references-title">References</div>`;
@@ -264,7 +269,9 @@ export class HtmlExportService {
         let entryHtml = entry.text;
         // Append DOI link if available
         if (entry.doi) {
-          const doiUrl = entry.doi.startsWith("http") ? entry.doi : `https://doi.org/${entry.doi}`;
+          const doiUrl = entry.doi.startsWith("http")
+            ? entry.doi
+            : `https://doi.org/${entry.doi}`;
           entryHtml += ` <a href="${doiUrl}" class="doi-link">${doiUrl}</a>`;
         } else if (entry.url) {
           entryHtml += ` <a href="${entry.url}" class="url-link">${entry.url}</a>`;
@@ -277,8 +284,12 @@ export class HtmlExportService {
     // 5. Appended Authorship Certificate
     if (options.includeAuthorshipCertificate) {
       try {
-        const { AuthorshipCertificateGenerator } = require("./authorshipCertificateGenerator");
-        const { AuthorshipReportService } = require("./authorshipReportService");
+        const {
+          AuthorshipCertificateGenerator,
+        } = require("./authorshipCertificateGenerator");
+        const {
+          AuthorshipReportService,
+        } = require("./authorshipReportService");
         const { config } = require("../config/env");
 
         // 1. Get Stats and User Data (we need user name, project title etc)
@@ -289,39 +300,45 @@ export class HtmlExportService {
         // For efficiency, let's use metadata reference if available or "Author".
         const userName = options.metadata?.author || "Author";
 
-        const stats = await AuthorshipReportService.getAuthorshipMetrics(project.id);
+        const stats = await AuthorshipReportService.getAuthorshipMetrics(
+          project.id,
+        );
         const verificationUrl = `${config.appUrl}/verify/${project.id}`;
 
         // Generate QR Code
-        const qrCodeDataUrl = await AuthorshipCertificateGenerator.generateQRCodeDataURL(verificationUrl);
+        const qrCodeDataUrl =
+          await AuthorshipCertificateGenerator.generateQRCodeDataURL(
+            verificationUrl,
+          );
 
         // Generate Certificate HTML
-        const certHtml = await AuthorshipCertificateGenerator.generateCertificateHTML(
-          {
-            projectId: project.id,
-            userId: project.user_id || "",
-            userName: userName,
-            projectTitle: project.title,
-            certificateType: "authorship",
-            includeQRCode: true,
-            verificationUrl: verificationUrl
-          },
-          stats,
-          qrCodeDataUrl
-        );
+        const certHtml =
+          await AuthorshipCertificateGenerator.generateCertificateHTML(
+            {
+              projectId: project.id,
+              userId: project.user_id || "",
+              userName: userName,
+              projectTitle: project.title,
+              certificateType: "authorship",
+              includeQRCode: true,
+              verificationUrl: verificationUrl,
+            },
+            stats,
+            qrCodeDataUrl,
+          );
 
         // Render as Image to safely embed
         // Note: generating preview image uses Puppeteer internally too.
         // If nested puppeteer calls are an issue, consider direct HTML integration, but CSS isolation is hard.
         // Image is safer for layout fidelity.
-        const imageBuffer = await AuthorshipCertificateGenerator.generatePreviewImage(certHtml);
-        const base64Image = imageBuffer.toString('base64');
+        const imageBuffer =
+          await AuthorshipCertificateGenerator.generatePreviewImage(certHtml);
+        const base64Image = imageBuffer.toString("base64");
 
         html += `<div class="page-break"></div>`;
         html += `<div style="display: flex; justify-content: center; align-items: center; height: 100vh;">`;
         html += `<img src="data:image/png;base64,${base64Image}" style="max-width: 100%; max-height: 100vh; object-fit: contain;" alt="Authorship Certificate" />`;
         html += `</div>`;
-
       } catch (error) {
         console.error("Failed to append authorship certificate", error);
         // Don't fail the whole export
@@ -334,7 +351,7 @@ export class HtmlExportService {
 
   private static generateCoverPage(
     project: any,
-    options: HtmlExportOptions
+    options: HtmlExportOptions,
   ): string {
     const { metadata } = options;
     const author = metadata?.author || "Unknown Author";
@@ -365,7 +382,7 @@ export class HtmlExportService {
     citations: any[] = [],
     style: string = "apa",
     options?: HtmlExportOptions,
-    state: { citationNodeIndex: number } = { citationNodeIndex: 0 }
+    state: { citationNodeIndex: number } = { citationNodeIndex: 0 },
   ): Promise<string> {
     if (!content || !content.content) return "";
 
@@ -430,7 +447,13 @@ export class HtmlExportService {
               html += `<tr>`;
               if (row.content) {
                 for (const cell of row.content) {
-                  const cellContent = await this.convertTipTapToHtml(cell, citations, style, options, state);
+                  const cellContent = await this.convertTipTapToHtml(
+                    cell,
+                    citations,
+                    style,
+                    options,
+                    state,
+                  );
                   if (cell.type === "tableHeader") {
                     html += `<th>${cellContent}</th>`;
                   } else if (cell.type === "tableCell") {
@@ -454,7 +477,7 @@ export class HtmlExportService {
     citations: any[] = [],
     style: string = "apa",
     options?: HtmlExportOptions,
-    state: { citationNodeIndex: number } = { citationNodeIndex: 0 }
+    state: { citationNodeIndex: number } = { citationNodeIndex: 0 },
   ): string {
     if (!node.content) return "";
     let html = "";
@@ -495,28 +518,34 @@ export class HtmlExportService {
 
         // Use PRE-RESOLVED data if available
         if (options?.resolvedCitations) {
-          const resolved = options.resolvedCitations.occurrenceMap.get(state.citationNodeIndex);
+          const resolved = options.resolvedCitations.occurrenceMap.get(
+            state.citationNodeIndex,
+          );
           state.citationNodeIndex++;
-          
+
           if (resolved !== undefined) {
-             if (resolved.text) {
-                const doiUrl = resolved.doi ? (resolved.doi.startsWith("http") ? resolved.doi : `https://doi.org/${resolved.doi}`) : null;
-                const url = resolved.url || doiUrl;
-                
-                if (url) {
-                   html += `<a href="${url}" class="citation">${resolved.text}</a>`;
+            if (resolved.text) {
+              const doiUrl = resolved.doi
+                ? resolved.doi.startsWith("http")
+                  ? resolved.doi
+                  : `https://doi.org/${resolved.doi}`
+                : null;
+              const url = resolved.url || doiUrl;
+
+              if (url) {
+                html += `<a href="${url}" class="citation">${resolved.text}</a>`;
+              } else {
+                const citationId = child.attrs?.citationId;
+                if (citationId) {
+                  html += `<a href="#ref_${citationId}" class="citation">${resolved.text}</a>`;
                 } else {
-                   const citationId = child.attrs?.citationId;
-                   if (citationId) {
-                      html += `<a href="#ref_${citationId}" class="citation">${resolved.text}</a>`;
-                   } else {
-                      html += `<span class="citation">${resolved.text}</span>`;
-                   }
+                  html += `<span class="citation">${resolved.text}</span>`;
                 }
-             }
+              }
+            }
           } else {
-             // Fallback if index missing
-             html += `<span class="citation" style="color:red">${fallback}</span>`;
+            // Fallback if index missing
+            html += `<span class="citation" style="color:red">${fallback}</span>`;
           }
         } else {
           // Fallback if no resolution provided
@@ -545,9 +574,7 @@ export class HtmlExportService {
 
     // Resolve year from CSL issued field or flat year field
     const year =
-      csl.issued?.["date-parts"]?.[0]?.[0] ||
-      citation.year ||
-      "n.d.";
+      csl.issued?.["date-parts"]?.[0]?.[0] || citation.year || "n.d.";
 
     // Resolve first author's last name
     const firstAuthor = authors[0];
@@ -558,7 +585,11 @@ export class HtmlExportService {
         authorText = firstAuthor.trim().split(" ").pop() || firstAuthor;
       } else {
         // CSL object format: { family, given } or { literal }
-        authorText = firstAuthor.family || firstAuthor.literal || firstAuthor.firstName || "Unknown";
+        authorText =
+          firstAuthor.family ||
+          firstAuthor.literal ||
+          firstAuthor.firstName ||
+          "Unknown";
       }
     }
 
@@ -604,9 +635,7 @@ export class HtmlExportService {
 
     const title = csl.title || citation.title || "Untitled";
     const year =
-      csl.issued?.["date-parts"]?.[0]?.[0] ||
-      citation.year ||
-      "n.d.";
+      csl.issued?.["date-parts"]?.[0]?.[0] || citation.year || "n.d.";
     const journal = csl["container-title"] || citation.journal || "";
     const volume = csl.volume || citation.volume || "";
     const issue = csl.issue || citation.issue || "";

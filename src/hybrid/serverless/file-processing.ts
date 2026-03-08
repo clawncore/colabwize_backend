@@ -7,7 +7,6 @@ import { StorageService } from "../../services/storageService";
 import { ContentNormalizer } from "../../services/contentNormalizer";
 
 interface FileProcessingRequest {
-
   json(): Promise<{
     fileData: any;
     fileType: string;
@@ -60,7 +59,7 @@ export default async function fileProcessing(req: FileProcessingRequest) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("File processing failed", { error: error.message });
@@ -72,7 +71,7 @@ export default async function fileProcessing(req: FileProcessingRequest) {
       {
         status: 500,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   }
 }
@@ -150,7 +149,9 @@ async function generatePDFExport(fileData: any, userId: string) {
 
     // --- Subscription & Limit Logic ---
     // Check if user is on a paid plan
-    const isPaid = user.subscription?.status === "active" && user.subscription?.plan !== "free"; // Adjust based on your plan names
+    const isPaid =
+      user.subscription?.status === "active" &&
+      user.subscription?.plan !== "free"; // Adjust based on your plan names
 
     if (!isPaid) {
       // Free User Logic: Check limits
@@ -187,7 +188,7 @@ async function generatePDFExport(fileData: any, userId: string) {
           -COST,
           "USAGE",
           `export_pdf_${Date.now()}`,
-          "PDF Export (Free Limit Exceeded)"
+          "PDF Export (Free Limit Exceeded)",
         );
       }
     }
@@ -219,34 +220,35 @@ async function generatePDFExport(fileData: any, userId: string) {
 
     // Generate PDF using ExportService
     // Normalize content (resolve images, fix tables)
-    const { ContentNormalizer } = await import("../../services/contentNormalizer");
-    const normalizedContent = await ContentNormalizer.normalizeContent(project.content);
-
-    const exportResult = await ExportService.exportProject(
-      project.id,
-      userId,
-      {
-        format: "pdf",
-        contentOverride: normalizedContent,
-        includeCitations: fileData.includeCitations ?? true,
-        includeComments: fileData.includeComments ?? false,
-        includeAuthorshipCertificate: fileData.includeAuthorshipCertificate ?? false,
-        citationStyle: fileData.citationStyle || "apa",
-        pageSize: fileData.pageSize || "A4",
-        orientation: fileData.orientation || "portrait",
-        journalTemplate: fileData.journalTemplate || "",
-        journalReady: !!fileData.journalTemplate,
-        citations: fileData.citations, // Accept pre-filtered/updated citations from frontend
-        metadata: {
-          author: fileData.metadata?.author || user.full_name || "Unknown Author",
-          institution: fileData.metadata?.institution,
-          course: fileData.metadata?.course,
-          instructor: fileData.metadata?.instructor,
-          runningHead: fileData.metadata?.runningHead,
-          abstract: fileData.metadata?.abstract,
-        },
-      }
+    const { ContentNormalizer } =
+      await import("../../services/contentNormalizer");
+    const normalizedContent = await ContentNormalizer.normalizeContent(
+      project.content,
     );
+
+    const exportResult = await ExportService.exportProject(project.id, userId, {
+      format: "pdf",
+      contentOverride: normalizedContent,
+      includeCitations: fileData.includeCitations ?? true,
+      includeComments: fileData.includeComments ?? false,
+      includeAuthorshipCertificate:
+        fileData.includeAuthorshipCertificate ?? false,
+      citationStyle: fileData.citationStyle || "apa",
+      htmlContent: fileData.htmlContent,
+      pageSize: fileData.pageSize || "A4",
+      orientation: fileData.orientation || "portrait",
+      journalTemplate: fileData.journalTemplate || "",
+      journalReady: !!fileData.journalTemplate,
+      citations: fileData.citations, // Accept pre-filtered/updated citations from frontend
+      metadata: {
+        author: fileData.metadata?.author || user.full_name || "Unknown Author",
+        institution: fileData.metadata?.institution,
+        course: fileData.metadata?.course,
+        instructor: fileData.metadata?.instructor,
+        runningHead: fileData.metadata?.runningHead,
+        abstract: fileData.metadata?.abstract,
+      },
+    });
 
     // Upload the file to Supabase Storage
     const { SupabaseStorageService } =
@@ -265,7 +267,7 @@ async function generatePDFExport(fileData: any, userId: string) {
         fileSize: exportResult.fileSize,
         projectId: fileData.projectId,
         createdAt: new Date(),
-      }
+      },
     );
 
     // Sanitize filename for download
@@ -275,7 +277,7 @@ async function generatePDFExport(fileData: any, userId: string) {
     const downloadUrl = await SupabaseStorageService.createSignedUrl(
       uploadResult.path,
       3600, // 1 hour expiration
-      { download: `${sanitizedTitle}.pdf` } // Force download with correct filename
+      { download: `${sanitizedTitle}.pdf` }, // Force download with correct filename
     );
 
     // Store export record in database
@@ -297,8 +299,24 @@ async function generatePDFExport(fileData: any, userId: string) {
       fileSize: exportResult.fileSize,
     });
 
+    let certificateDownloadUrl;
+    if (fileData.includeAuthorshipCertificate) {
+      try {
+        certificateDownloadUrl = await generateAndUploadCertificate(
+          project,
+          userId,
+          fileData.metadata,
+        );
+      } catch (err: any) {
+        logger.error("Failed to generate standalone certificate", {
+          error: err.message,
+        });
+      }
+    }
+
     return {
       downloadUrl,
+      certificateDownloadUrl,
       fileSize: exportResult.fileSize,
       generatedAt: new Date().toISOString(),
     };
@@ -337,7 +355,6 @@ async function generatePDFExport(fileData: any, userId: string) {
   }
 }
 
-
 // Generate DOCX export
 async function generateDOCXExport(fileData: any, userId: string) {
   try {
@@ -360,7 +377,7 @@ async function generateDOCXExport(fileData: any, userId: string) {
         content: fileData.content,
         user_id: userId,
         // Accept filtered citations from frontend if available
-        citations: fileData.citations // Now accepting pre-filtered citations from frontend
+        citations: fileData.citations, // Now accepting pre-filtered citations from frontend
       };
     } else {
       // Fetch project from DB by ID
@@ -378,33 +395,33 @@ async function generateDOCXExport(fileData: any, userId: string) {
 
     // Generate DOCX using ExportService
     // Normalize content (resolve images, fix tables)
-    const { ContentNormalizer } = await import("../../services/contentNormalizer");
-    const normalizedContent = await ContentNormalizer.normalizeContent(project.content);
-
-    const exportResult = await ExportService.exportProject(
-      project.id,
-      userId,
-      {
-        format: "docx",
-        contentOverride: normalizedContent,
-        includeCitations: fileData.includeCitations ?? true,
-        includeComments: fileData.includeComments ?? false,
-        citationStyle: fileData.citationStyle || "apa",
-        journalTemplate: fileData.journalTemplate || "",
-        journalReady: !!fileData.journalTemplate,
-        metadata: {
-          author: fileData.metadata?.author || user.full_name || "Unknown Author",
-          institution: fileData.metadata?.institution,
-          course: fileData.metadata?.course,
-          instructor: fileData.metadata?.instructor,
-          runningHead: fileData.metadata?.runningHead,
-          abstract: fileData.metadata?.abstract,
-        },
-        // Pass citation policy and violations for annotation
-        citationPolicy: fileData.citationPolicy,
-        citations: fileData.citations
-      }
+    const { ContentNormalizer } =
+      await import("../../services/contentNormalizer");
+    const normalizedContent = await ContentNormalizer.normalizeContent(
+      project.content,
     );
+
+    const exportResult = await ExportService.exportProject(project.id, userId, {
+      format: "docx",
+      contentOverride: normalizedContent,
+      includeCitations: fileData.includeCitations ?? true,
+      includeComments: fileData.includeComments ?? false,
+      citationStyle: fileData.citationStyle || "apa",
+      htmlContent: fileData.htmlContent,
+      journalTemplate: fileData.journalTemplate || "",
+      journalReady: !!fileData.journalTemplate,
+      metadata: {
+        author: fileData.metadata?.author || user.full_name || "Unknown Author",
+        institution: fileData.metadata?.institution,
+        course: fileData.metadata?.course,
+        instructor: fileData.metadata?.instructor,
+        runningHead: fileData.metadata?.runningHead,
+        abstract: fileData.metadata?.abstract,
+      },
+      // Pass citation policy and violations for annotation
+      citationPolicy: fileData.citationPolicy,
+      citations: fileData.citations,
+    });
 
     // Upload the file to Supabase Storage
     const { SupabaseStorageService } =
@@ -423,7 +440,7 @@ async function generateDOCXExport(fileData: any, userId: string) {
         fileSize: exportResult.fileSize,
         projectId: fileData.projectId,
         createdAt: new Date(),
-      }
+      },
     );
 
     // Sanitize filename for download
@@ -433,7 +450,7 @@ async function generateDOCXExport(fileData: any, userId: string) {
     const downloadUrl = await SupabaseStorageService.createSignedUrl(
       uploadResult.path,
       3600, // 1 hour expiration
-      { download: `${sanitizedTitle}.docx` } // Force download with correct filename
+      { download: `${sanitizedTitle}.docx` }, // Force download with correct filename
     );
 
     // Store export record in database
@@ -455,8 +472,24 @@ async function generateDOCXExport(fileData: any, userId: string) {
       fileSize: exportResult.fileSize,
     });
 
+    let certificateDownloadUrl;
+    if (fileData.includeAuthorshipCertificate) {
+      try {
+        certificateDownloadUrl = await generateAndUploadCertificate(
+          project,
+          userId,
+          fileData.metadata,
+        );
+      } catch (err: any) {
+        logger.error("Failed to generate standalone certificate", {
+          error: err.message,
+        });
+      }
+    }
+
     return {
       downloadUrl,
+      certificateDownloadUrl,
       fileSize: exportResult.fileSize,
       generatedAt: new Date().toISOString(),
     };
@@ -491,7 +524,6 @@ async function generateDOCXExport(fileData: any, userId: string) {
     throw error;
   }
 }
-
 
 // Generate TXT export
 async function generateTXTExport(fileData: any, userId: string) {
@@ -531,29 +563,28 @@ async function generateTXTExport(fileData: any, userId: string) {
 
     // Generate TXT using ExportService
     // Normalize content for TXT as well (though less critical, good for consistency)
-    const { ContentNormalizer } = await import("../../services/contentNormalizer");
-    const normalizedContent = await ContentNormalizer.normalizeContent(project.content);
-
-    const exportResult = await ExportService.exportProject(
-      project.id,
-      userId,
-      {
-        format: "txt",
-        contentOverride: normalizedContent,
-        includeCitations: fileData.includeCitations ?? true,
-        citationStyle: fileData.citationStyle || "apa",
-        journalTemplate: fileData.journalTemplate || "",
-        journalReady: !!fileData.journalTemplate,
-        metadata: {
-          author: fileData.metadata?.author || user.full_name || "Unknown Author",
-          institution: fileData.metadata?.institution,
-          course: fileData.metadata?.course,
-          instructor: fileData.metadata?.instructor,
-          runningHead: fileData.metadata?.runningHead,
-          abstract: fileData.metadata?.abstract,
-        },
-      }
+    const { ContentNormalizer } =
+      await import("../../services/contentNormalizer");
+    const normalizedContent = await ContentNormalizer.normalizeContent(
+      project.content,
     );
+
+    const exportResult = await ExportService.exportProject(project.id, userId, {
+      format: "txt",
+      contentOverride: normalizedContent,
+      includeCitations: fileData.includeCitations ?? true,
+      citationStyle: fileData.citationStyle || "apa",
+      journalTemplate: fileData.journalTemplate || "",
+      journalReady: !!fileData.journalTemplate,
+      metadata: {
+        author: fileData.metadata?.author || user.full_name || "Unknown Author",
+        institution: fileData.metadata?.institution,
+        course: fileData.metadata?.course,
+        instructor: fileData.metadata?.instructor,
+        runningHead: fileData.metadata?.runningHead,
+        abstract: fileData.metadata?.abstract,
+      },
+    });
 
     // Upload the file to Supabase Storage
     const { SupabaseStorageService } =
@@ -572,7 +603,7 @@ async function generateTXTExport(fileData: any, userId: string) {
         fileSize: exportResult.fileSize,
         projectId: fileData.projectId,
         createdAt: new Date(),
-      }
+      },
     );
 
     // Sanitize filename for download
@@ -582,7 +613,7 @@ async function generateTXTExport(fileData: any, userId: string) {
     const downloadUrl = await SupabaseStorageService.createSignedUrl(
       uploadResult.path,
       3600,
-      { download: `${sanitizedTitle}.txt` }
+      { download: `${sanitizedTitle}.txt` },
     );
 
     // Store export record in database
@@ -678,28 +709,26 @@ async function generateLaTeXExport(fileData: any, userId: string) {
     }
 
     // Generate LaTeX using ExportService
-    const normalizedContent = await ContentNormalizer.normalizeContent(project.content);
-
-    const exportResult = await ExportService.exportProject(
-      project.id,
-      userId,
-      {
-        format: "latex",
-        contentOverride: normalizedContent,
-        includeCitations: fileData.includeCitations ?? true,
-        citationStyle: fileData.citationStyle || "apa",
-        journalTemplate: fileData.journalTemplate || "",
-        journalReady: !!fileData.journalTemplate,
-        metadata: {
-          author: fileData.metadata?.author || user.full_name || "Unknown Author",
-          institution: fileData.metadata?.institution,
-          course: fileData.metadata?.course,
-          instructor: fileData.metadata?.instructor,
-          runningHead: fileData.metadata?.runningHead,
-          abstract: fileData.metadata?.abstract,
-        },
-      }
+    const normalizedContent = await ContentNormalizer.normalizeContent(
+      project.content,
     );
+
+    const exportResult = await ExportService.exportProject(project.id, userId, {
+      format: "latex",
+      contentOverride: normalizedContent,
+      includeCitations: fileData.includeCitations ?? true,
+      citationStyle: fileData.citationStyle || "apa",
+      journalTemplate: fileData.journalTemplate || "",
+      journalReady: !!fileData.journalTemplate,
+      metadata: {
+        author: fileData.metadata?.author || user.full_name || "Unknown Author",
+        institution: fileData.metadata?.institution,
+        course: fileData.metadata?.course,
+        instructor: fileData.metadata?.instructor,
+        runningHead: fileData.metadata?.runningHead,
+        abstract: fileData.metadata?.abstract,
+      },
+    });
 
     // Upload the file to Supabase Storage
     const { SupabaseStorageService } =
@@ -718,7 +747,7 @@ async function generateLaTeXExport(fileData: any, userId: string) {
         fileSize: exportResult.fileSize,
         projectId: fileData.projectId,
         createdAt: new Date(),
-      }
+      },
     );
 
     // Sanitize filename for download
@@ -728,7 +757,7 @@ async function generateLaTeXExport(fileData: any, userId: string) {
     const downloadUrl = await SupabaseStorageService.createSignedUrl(
       uploadResult.path,
       3600,
-      { download: `${sanitizedTitle}.tex` }
+      { download: `${sanitizedTitle}.tex` },
     );
 
     // Store export record in database
@@ -823,29 +852,28 @@ async function generateRTFExport(fileData: any, userId: string) {
       }
     }
 
-    const { ContentNormalizer } = await import("../../services/contentNormalizer");
-    const normalizedContent = await ContentNormalizer.normalizeContent(project.content);
-
-    const exportResult = await ExportService.exportProject(
-      project.id,
-      userId,
-      {
-        format: "rtf",
-        contentOverride: normalizedContent,
-        includeCitations: fileData.includeCitations ?? true,
-        citationStyle: fileData.citationStyle || "apa",
-        journalTemplate: fileData.journalTemplate || "",
-        journalReady: !!fileData.journalTemplate,
-        metadata: {
-          author: fileData.metadata?.author || user.full_name || "Unknown Author",
-          institution: fileData.metadata?.institution,
-          course: fileData.metadata?.course,
-          instructor: fileData.metadata?.instructor,
-          runningHead: fileData.metadata?.runningHead,
-          abstract: fileData.metadata?.abstract,
-        },
-      }
+    const { ContentNormalizer } =
+      await import("../../services/contentNormalizer");
+    const normalizedContent = await ContentNormalizer.normalizeContent(
+      project.content,
     );
+
+    const exportResult = await ExportService.exportProject(project.id, userId, {
+      format: "rtf",
+      contentOverride: normalizedContent,
+      includeCitations: fileData.includeCitations ?? true,
+      citationStyle: fileData.citationStyle || "apa",
+      journalTemplate: fileData.journalTemplate || "",
+      journalReady: !!fileData.journalTemplate,
+      metadata: {
+        author: fileData.metadata?.author || user.full_name || "Unknown Author",
+        institution: fileData.metadata?.institution,
+        course: fileData.metadata?.course,
+        instructor: fileData.metadata?.instructor,
+        runningHead: fileData.metadata?.runningHead,
+        abstract: fileData.metadata?.abstract,
+      },
+    });
 
     // Upload the file to Supabase Storage
     const { SupabaseStorageService } =
@@ -864,7 +892,7 @@ async function generateRTFExport(fileData: any, userId: string) {
         fileSize: exportResult.fileSize,
         projectId: fileData.projectId,
         createdAt: new Date(),
-      }
+      },
     );
 
     // Sanitize filename for download
@@ -874,7 +902,7 @@ async function generateRTFExport(fileData: any, userId: string) {
     const downloadUrl = await SupabaseStorageService.createSignedUrl(
       uploadResult.path,
       3600,
-      { download: `${sanitizedTitle}.rtf` }
+      { download: `${sanitizedTitle}.rtf` },
     );
 
     // Store export record in database
@@ -933,6 +961,61 @@ async function generateRTFExport(fileData: any, userId: string) {
 
     throw error;
   }
+}
+
+// Helper to generate standalone authorship certificate
+async function generateAndUploadCertificate(
+  project: any,
+  userId: string,
+  metadata: any,
+) {
+  const { AuthorshipCertificateGenerator } =
+    await import("../../services/authorshipCertificateGenerator");
+  const { PublicationService } =
+    await import("../../services/publicationService");
+  const { SupabaseStorageService } =
+    await import("../../services/supabaseStorageService");
+  const { config } = await import("../../config/env");
+
+  const userMetadata = await PublicationService.getUserMetadata(userId);
+  const userName = metadata?.author || userMetadata.author || "Author";
+  const verificationUrl = `${config.app.url}/verify/${project.id}`;
+
+  const pdfBuffer = await AuthorshipCertificateGenerator.generateCertificate({
+    projectId: project.id,
+    userId: userId,
+    userName: userName,
+    projectTitle: project.title,
+    certificateType: "authorship",
+    includeQRCode: true,
+    verificationUrl: verificationUrl,
+  });
+
+  const sanitizedTitle = project.title.replace(/[^a-zA-Z0-9-_]/g, "_");
+  const fileName = `${sanitizedTitle}_Authorship_Certificate.pdf`;
+
+  const uploadResult = await SupabaseStorageService.uploadFile(
+    pdfBuffer,
+    fileName,
+    "application/pdf",
+    userId,
+    {
+      userId,
+      fileName,
+      fileType: "pdf",
+      fileSize: pdfBuffer.length,
+      projectId: project.id,
+      createdAt: new Date(),
+    },
+  );
+
+  const downloadUrl = await SupabaseStorageService.createSignedUrl(
+    uploadResult.path,
+    3600,
+    { download: fileName },
+  );
+
+  return downloadUrl;
 }
 
 // Export config for serverless function

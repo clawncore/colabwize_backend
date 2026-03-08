@@ -19,6 +19,18 @@ interface AuthenticatedRequest extends Request {
  * Query params: q (search query)
  */
 router.get("/search", async (req: Request, res: Response) => {
+  await handleSearch(req, res);
+});
+
+/**
+ * GET /api/citations/search-external
+ * Alias for /search used by some frontend components
+ */
+router.get("/search-external", async (req: Request, res: Response) => {
+  await handleSearch(req, res);
+});
+
+async function handleSearch(req: Request, res: Response) {
   try {
     const authReq = req as AuthenticatedRequest;
     const userId = authReq.user?.id;
@@ -30,10 +42,19 @@ router.get("/search", async (req: Request, res: Response) => {
       });
     }
 
+    const query = req.query.q as string;
+
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        message: "Search query is required",
+      });
+    }
+
     // Check limits and consume action
     const consumption = await SubscriptionService.consumeAction(
       userId,
-      "paper_search"
+      "paper_search",
     );
 
     if (!consumption.allowed) {
@@ -41,15 +62,6 @@ router.get("/search", async (req: Request, res: Response) => {
         success: false,
         message: consumption.message || "Monthly search limit reached",
         requiresUpgrade: true,
-      });
-    }
-
-    const query = req.query.q as string;
-
-    if (!query) {
-      return res.status(400).json({
-        success: false,
-        message: "Search query is required",
       });
     }
 
@@ -70,7 +82,7 @@ router.get("/search", async (req: Request, res: Response) => {
       message: "Failed to search for papers",
     });
   }
-});
+}
 
 /**
  * POST /api/citations/legitimize
@@ -100,7 +112,7 @@ router.post("/legitimize", async (req: Request, res: Response) => {
     // Check limits (Reuse paper_search or new limit?)
     const consumption = await SubscriptionService.consumeAction(
       userId,
-      "paper_search"
+      "paper_search",
     );
 
     if (!consumption.allowed) {
@@ -118,9 +130,9 @@ router.post("/legitimize", async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       data: papers,
-      message: papers.length > 0 ? "Evidence found" : "No direct evidence found",
+      message:
+        papers.length > 0 ? "Evidence found" : "No direct evidence found",
     });
-
   } catch (error: any) {
     logger.error("Error legitimizing claim", { error: error.message });
     return res.status(500).json({
