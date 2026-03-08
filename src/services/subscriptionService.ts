@@ -11,10 +11,10 @@ export type ConsumptionResult = {
   cost?: number;
   message?: string;
   code?:
-  | "PLAN_LIMIT_REACHED"
-  | "INSUFFICIENT_CREDITS"
-  | "FEATURE_NOT_ALLOWED"
-  | "SYSTEM_ERROR";
+    | "PLAN_LIMIT_REACHED"
+    | "INSUFFICIENT_CREDITS"
+    | "FEATURE_NOT_ALLOWED"
+    | "SYSTEM_ERROR";
 };
 
 /**
@@ -28,7 +28,7 @@ export const plans = {
     citation_audit: 3,
     draft_comparison: false,
     rephrase_suggestions: 3,
-    paper_search: 3,
+    paper_search: 25,
     ai_integrity: 0,
     ai_chat: 5,
     certificate: 0,
@@ -74,7 +74,7 @@ export const plans = {
     citation_audit: 25,
     draft_comparison: false,
     rephrase_suggestions: 25,
-    paper_search: 25,
+    paper_search: 100,
     ai_integrity: 25,
     ai_chat: 50,
     certificate: 25,
@@ -97,7 +97,7 @@ export const plans = {
     citation_audit: 100,
     draft_comparison: 100,
     rephrase_suggestions: 100,
-    paper_search: 100,
+    paper_search: 200,
     ai_integrity: 100,
     ai_chat: 100,
     certificate: 100,
@@ -354,7 +354,10 @@ export class SubscriptionService {
     const normalizedPlan = plan.toLowerCase();
 
     // Development Bypass
-    if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") {
+    if (
+      process.env.NODE_ENV === "development" ||
+      process.env.NODE_ENV === "test"
+    ) {
       return { allowed: true, source: "PLAN" };
     }
 
@@ -586,7 +589,10 @@ export class SubscriptionService {
     const limits = this.getPlanLimits(plan);
 
     // Development Bypass
-    if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") {
+    if (
+      process.env.NODE_ENV === "development" ||
+      process.env.NODE_ENV === "test"
+    ) {
       return { allowed: true, source: "PLAN" };
     }
 
