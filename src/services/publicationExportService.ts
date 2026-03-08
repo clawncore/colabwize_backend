@@ -21,7 +21,11 @@ import {
   BookmarkStart,
   BookmarkEnd,
   InternalHyperlink,
+  ExternalHyperlink,
   TextRun,
+  Header,
+  PositionalTab,
+  PageNumber,
 } from "docx";
 import { PublicationService } from "./publicationService";
 import { DocumentUploadService } from "./documentUploadService";
@@ -65,8 +69,8 @@ interface PublicationExportOptions {
   };
   citations?: any[]; // Accept citation override from frontend
   resolvedCitations?: {
-    occurrenceMap: Map<number, string>;
-    bibliography: { id: string, text: string }[];
+    occurrenceMap: Map<number, { text: string; doi?: string; url?: string }>;
+    bibliography: { id: string; text: string; doi?: string; url?: string }[];
   };
 }
 
@@ -141,7 +145,6 @@ export class PublicationExportService {
 
       // 4. Generate document components
       let coverPageParagraphs: Paragraph[] | undefined;
-      /* DISABLED PER USER REQUEST - MANUAL COVER PAGE ONLY
       if (options.includeCoverPage) {
         const metadata = {
           title: project.title,
@@ -149,24 +152,55 @@ export class PublicationExportService {
           institution: options.metadata?.institution,
           course: options.metadata?.course,
           instructor: options.metadata?.instructor,
-          runningHead: options.metadata?.runningHead,
+          date: new Date().toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          }),
         };
 
-        coverPageParagraphs =
-          options.coverPageStyle === "apa"
-            ? PublicationService.generateAPACoverPage(metadata)
-            : PublicationService.generateMLACoverPage(metadata);
+        coverPageParagraphs = [
+          new Paragraph({
+            children: [new TextRun({ text: "", break: 6 })], // Spacing
+          }),
+          new Paragraph({
+            text: metadata.title,
+            heading: HeadingLevel.HEADING_1,
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 200 },
+          }),
+          new Paragraph({
+            text: metadata.author || "",
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 400 },
+          }),
+          new Paragraph({
+            text: metadata.institution || "",
+            alignment: AlignmentType.CENTER,
+          }),
+          new Paragraph({
+            text: metadata.course || "",
+            alignment: AlignmentType.CENTER,
+          }),
+          new Paragraph({
+            text: metadata.instructor || "",
+            alignment: AlignmentType.CENTER,
+          }),
+          new Paragraph({
+            text: metadata.date || "",
+            alignment: AlignmentType.CENTER,
+          }),
+          new Paragraph({
+            text: "",
+            pageBreakBefore: true,
+          }),
+        ].filter(p => p !== undefined) as Paragraph[];
 
-        logger.debug("Generated cover page", {
-          style: options.coverPageStyle,
-          metadata,
-        });
+        logger.debug("Generated professional cover page", { metadata });
       }
-      */
 
       // 4b. Generate Abstract Page
       let abstractParagraphs: Paragraph[] | undefined;
-      /* DISABLED PER USER REQUEST - CONTENT ABSTRACT ONLY
       if (options.metadata?.abstract) {
         abstractParagraphs = [
           new Paragraph({
@@ -174,21 +208,18 @@ export class PublicationExportService {
             heading: HeadingLevel.HEADING_1,
             alignment: AlignmentType.CENTER,
             spacing: { after: 240 },
-            pageBreakBefore: true, // Abstract on new page after title
           }),
           new Paragraph({
             text: options.metadata.abstract,
-            alignment: AlignmentType.LEFT, // APA 7 abstract is not indented
+            alignment: AlignmentType.LEFT,
             spacing: { line: 360 }, // Double spaced
           }),
-          // Keywords could go here if we collected them
           new Paragraph({
             text: "",
-            pageBreakBefore: true, // Body starts on new page
+            pageBreakBefore: true,
           }),
         ];
       }
-      */
 
       // 5. Native TOC Generation (DISABLED IN WORD-SAFE MODE)
       let tocParagraphs: (Paragraph | TableOfContents)[] | undefined;
@@ -242,21 +273,28 @@ export class PublicationExportService {
       // but strictly preventing empty Body paragraphs if they have no Runs is hard without strict typing.
       // We will perform HEADINGS CHECK here.
 
-      const contentHeadings = new Set<string>();
-      const extractHeadings = (node: any) => {
-        if (node.type === "heading") {
+      const contentMarkers = new Set<string>();
+      const scanForMarkers = (node: any) => {
+        if (node.type === "heading" || node.type === "paragraph") {
           const text = node.content?.map((c: any) => c.text).join("") || "";
-          contentHeadings.add(text.toLowerCase().trim());
+          const cleanText = text.toLowerCase().trim();
+          // Detect common bibliography headers even if they are just paragraphs
+          const isBib = /^(references|bibliography|works cited|references cited|bibliography and references)($|:|\s)/.test(cleanText);
+          if (node.type === "heading" || isBib) {
+            contentMarkers.add(cleanText);
+            if (isBib) contentMarkers.add("force_bib_suppress");
+          }
         }
-        if (node.content) node.content.forEach(extractHeadings);
+        if (node.content) node.content.forEach(scanForMarkers);
       };
-      if (project.content) extractHeadings(project.content);
+      if (project.content) scanForMarkers(project.content);
 
-      const hasAbstract = contentHeadings.has("abstract");
+      const hasAbstract = contentMarkers.has("abstract");
       const hasReferences =
-        contentHeadings.has("references") ||
-        contentHeadings.has("bibliography") ||
-        contentHeadings.has("works cited");
+        contentMarkers.has("references") ||
+        contentMarkers.has("bibliography") ||
+        contentMarkers.has("works cited") ||
+        contentMarkers.has("force_bib_suppress");
 
       // 4b. Re-Evaluate Abstract Page (since we moved logic down to check content)
       // Note: We defined abstractParagraphs earlier (lines 149-170).
@@ -361,19 +399,51 @@ export class PublicationExportService {
           }),
         );
         options.resolvedCitations.bibliography.forEach((entry: any, index: number) => {
+          const children: any[] = [
+            new BookmarkStart((index + 2000) as any, `ref_${entry.id}` as any),
+            new TextRun({
+              text: entry.text,
+            })
+          ];
+
+          // Add DOI link if available
+          if (entry.doi) {
+            const doiUrl = entry.doi.startsWith("http") ? entry.doi : `https://doi.org/${entry.doi}`;
+            children.push(new TextRun({ text: " " }));
+            children.push(
+              new ExternalHyperlink({
+                link: doiUrl,
+                children: [
+                  new TextRun({
+                    text: doiUrl,
+                    color: "0000FF",
+                    underline: {},
+                  }),
+                ],
+              })
+            );
+          } else if (entry.url) {
+            children.push(new TextRun({ text: " " }));
+            children.push(
+              new ExternalHyperlink({
+                link: entry.url,
+                children: [
+                  new TextRun({
+                    text: entry.url,
+                    color: "0000FF",
+                    underline: {},
+                  }),
+                ],
+              })
+            );
+          }
+
+          children.push(new BookmarkEnd((index + 2000) as any));
+
           referencesParagraphs.push(
             new Paragraph({
-              children: [
-                new BookmarkStart(
-                  (index + 2000) as any,
-                  `ref_${entry.id}` as any,
-                ),
-                new TextRun(
-                  `${entry.text}`,
-                ),
-                new BookmarkEnd((index + 2000) as any),
-              ],
-              spacing: { after: 100 },
+              children: children,
+              spacing: { after: 120, line: 360 },
             }),
           );
         });
@@ -494,9 +564,8 @@ export class PublicationExportService {
       const doc = new Document({
         styles: defaultStyles,
         features: {
-          updateFields: true, // Forces TOC update on open
+          updateFields: true,
         },
-        // Only include comments if they exist AND NOT STRICT MODE
         comments:
           comments.length > 0 && !DEBUG_FLAGS.SKIP_COMMENTS
             ? {
@@ -505,7 +574,32 @@ export class PublicationExportService {
             : undefined,
         sections: [
           {
-            properties: {},
+            properties: {
+              page: {
+                pageNumbers: {
+                  start: 1,
+                  formatType: "decimal",
+                },
+              },
+            },
+            headers: {
+              default: new Header({
+                children: [
+                  new Paragraph({
+                    children: [
+                      new TextRun({
+                        text: options.metadata?.runningHead ? `Running head: ${options.metadata.runningHead.toUpperCase()}` : "",
+                      }),
+                      new PositionalTab({ alignment: "right", relativeTo: "margin", leader: "none" }),
+                      new TextRun("Page "),
+                      new TextRun({
+                        children: [PageNumber.CURRENT],
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            },
             children: allParagraphs,
           },
         ],
@@ -1353,7 +1447,6 @@ export class PublicationExportService {
     usedCitationIds?: Set<string>,
     state: { citationNodeIndex: number } = { citationNodeIndex: 0 },
   ): any[] {
-    const { TextRun } = require("docx");
     const runs: any[] = [];
 
     // Check for violations in this node context
@@ -1449,18 +1542,36 @@ export class PublicationExportService {
           );
 
           if (citationPolicy?.resolvedCitations) {
-            const formatted = citationPolicy.resolvedCitations.occurrenceMap.get(state.citationNodeIndex);
+            const resolved = citationPolicy.resolvedCitations.occurrenceMap.get(state.citationNodeIndex);
             state.citationNodeIndex++;
 
-            if (formatted !== undefined) {
-              if (formatted) {
-                if (citationId) {
+            if (resolved !== undefined) {
+              if (resolved.text) {
+                const doiUrl = resolved.doi ? (resolved.doi.startsWith("http") ? resolved.doi : `https://doi.org/${resolved.doi}`) : null;
+                const url = resolved.url || doiUrl;
+
+                if (url) {
+                  runs.push(
+                    new ExternalHyperlink({
+                      link: url,
+                      children: [
+                        new TextRun({
+                          text: resolved.text,
+                          size: 24,
+                          color: "2563EB",
+                          bold: true,
+                          underline: {},
+                        }),
+                      ],
+                    }),
+                  );
+                } else if (citationId) {
                   runs.push(
                     new InternalHyperlink({
                       anchor: `ref_${citationId}`,
                       children: [
                         new TextRun({
-                          text: formatted,
+                          text: resolved.text,
                           size: 24,
                           color: "2563EB",
                           bold: true,
@@ -1469,7 +1580,7 @@ export class PublicationExportService {
                     }),
                   );
                 } else {
-                  runs.push(new TextRun({ text: formatted, size: 24 }));
+                  runs.push(new TextRun({ text: resolved.text, size: 24 }));
                 }
               }
             } else {

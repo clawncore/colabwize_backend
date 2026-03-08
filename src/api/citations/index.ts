@@ -11,6 +11,7 @@ import intentRouter from "./intent";
 import credibilityRouter from "./credibility";
 import consensusRouter from "./consensus";
 import listRouter from "./list";
+import importRouter from "./import";
 
 const router = express.Router();
 
@@ -37,5 +38,6 @@ router.use("/", intentRouter); // Mounts as /:citationId/classify-intent and /ba
 router.use("/", credibilityRouter); // Mounts as /credibility-score and /batch-credibility
 router.use("/", consensusRouter); // Mounts as /:projectId/consensus
 router.use("/", listRouter); // Mounts as /:projectId
+router.use("/import", importRouter);
 
 export default router;

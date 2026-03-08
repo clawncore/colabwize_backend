@@ -17,8 +17,8 @@ interface HtmlExportOptions {
   };
   useCitationTokens?: boolean;
   resolvedCitations?: {
-    occurrenceMap: Map<number, string>;
-    bibliography: { id: string, text: string }[];
+    occurrenceMap: Map<number, { text: string; doi?: string; url?: string }>;
+    bibliography: { id: string; text: string; doi?: string; url?: string }[];
   };
 }
 
@@ -202,8 +202,34 @@ export class HtmlExportService {
       html += this.generateCoverPage(project, options);
     }
 
-    // 1b. Abstract
-    if (options.metadata?.abstract) {
+    // 1b. Abstract (Scan for markers too)
+    const contentMarkers = new Set<string>();
+    const scanForMarkers = (node: any) => {
+      if (node.type === "heading" || node.type === "paragraph") {
+        const text = node.content?.map((c: any) => c.text).join("") || "";
+        const cleanText = text.toLowerCase().trim();
+        if (node.type === "heading") {
+          contentMarkers.add(cleanText);
+        } else if (
+          cleanText === "references" ||
+          cleanText === "bibliography" ||
+          cleanText === "works cited" ||
+          cleanText === "abstract"
+        ) {
+          contentMarkers.add(cleanText);
+        }
+      }
+      if (node.content) node.content.forEach(scanForMarkers);
+    };
+    if (project.content) scanForMarkers(project.content);
+
+    const hasAbstract = contentMarkers.has("abstract") || !!options.metadata?.abstract;
+    const hasReferences =
+      contentMarkers.has("references") ||
+      contentMarkers.has("bibliography") ||
+      contentMarkers.has("works cited");
+
+    if (options.metadata?.abstract && !contentMarkers.has("abstract")) {
       html += `<div class="abstract-page">
         <div class="abstract-title">Abstract</div>
         <p style="text-indent: 0;">${options.metadata.abstract}</p>
@@ -230,12 +256,20 @@ export class HtmlExportService {
     html += `</div>`;
 
     // 4. Bibliography (Resolved)
-    if (options.resolvedCitations?.bibliography && options.resolvedCitations.bibliography.length > 0) {
+    if (options.resolvedCitations?.bibliography && options.resolvedCitations.bibliography.length > 0 && !hasReferences) {
       html += `<div class="page-break"></div>`;
       html += `<div class="references-section">`;
       html += `<div class="references-title">References</div>`;
       options.resolvedCitations.bibliography.forEach((entry: any) => {
-        html += `<div class="reference-item">${entry.text}</div>`;
+        let entryHtml = entry.text;
+        // Append DOI link if available
+        if (entry.doi) {
+          const doiUrl = entry.doi.startsWith("http") ? entry.doi : `https://doi.org/${entry.doi}`;
+          entryHtml += ` <a href="${doiUrl}" class="doi-link">${doiUrl}</a>`;
+        } else if (entry.url) {
+          entryHtml += ` <a href="${entry.url}" class="url-link">${entry.url}</a>`;
+        }
+        html += `<div class="reference-item" id="ref_${entry.id}">${entryHtml}</div>`;
       });
       html += `</div>`;
     }
@@ -461,13 +495,24 @@ export class HtmlExportService {
 
         // Use PRE-RESOLVED data if available
         if (options?.resolvedCitations) {
-          const formatted = options.resolvedCitations.occurrenceMap.get(state.citationNodeIndex);
+          const resolved = options.resolvedCitations.occurrenceMap.get(state.citationNodeIndex);
           state.citationNodeIndex++;
           
-          if (formatted !== undefined) {
-             // Formatted might be an empty string if it's the 2nd+ item in a cluster
-             if (formatted) {
-                html += `<span class="citation">${formatted}</span>`;
+          if (resolved !== undefined) {
+             if (resolved.text) {
+                const doiUrl = resolved.doi ? (resolved.doi.startsWith("http") ? resolved.doi : `https://doi.org/${resolved.doi}`) : null;
+                const url = resolved.url || doiUrl;
+                
+                if (url) {
+                   html += `<a href="${url}" class="citation">${resolved.text}</a>`;
+                } else {
+                   const citationId = child.attrs?.citationId;
+                   if (citationId) {
+                      html += `<a href="#ref_${citationId}" class="citation">${resolved.text}</a>`;
+                   } else {
+                      html += `<span class="citation">${resolved.text}</span>`;
+                   }
+                }
              }
           } else {
              // Fallback if index missing

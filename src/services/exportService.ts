@@ -35,8 +35,8 @@ interface ExportOptions {
   };
   citations?: any[]; // Accept citation override from frontend
   resolvedCitations?: {
-    occurrenceMap: Map<number, string>;
-    bibliography: { id: string, text: string }[];
+    occurrenceMap: Map<number, { text: string; doi?: string; url?: string }>;
+    bibliography: { id: string; text: string; doi?: string; url?: string }[];
   };
 }
 

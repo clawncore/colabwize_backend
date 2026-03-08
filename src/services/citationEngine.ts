@@ -23,6 +23,19 @@ interface SysInterface {
     retrieveItem: (id: string) => any;
 }
 
+export interface BibliographyEntry {
+    id: string;
+    text: string; // Formatted HTML string from citeproc
+    doi?: string;
+    url?: string;
+}
+
+export interface ResolvedCitation {
+    text: string;
+    doi?: string;
+    url?: string;
+}
+
 export class CitationEngine {
     private style: string;
     private sys: SysInterface;
@@ -40,8 +53,15 @@ export class CitationEngine {
             if (itemsOrStyle) {
                 // Pre-load items
                 itemsOrStyle.forEach(item => {
-                    if (item.id) this.items.set(item.id, item);
-                    else if (item.csl_data) this.items.set(item.csl_data.id, item.csl_data);
+                    const csl = item.csl_data || {
+                        id: item.ref_key || item.id || "unknown",
+                        title: item.raw_reference_text || "Unknown",
+                        _is_dummy: !item.csl_data,
+                        raw_text: item.raw_reference_text
+                    };
+                    if (item.id) this.items.set(item.id, csl);
+                    if (item.csl_data?.id) this.items.set(item.csl_data.id, csl);
+                    if (item.ref_key) this.items.set(item.ref_key, csl);
                 });
             }
         }
@@ -49,7 +69,11 @@ export class CitationEngine {
         // Basic Sys implementation required by citeproc-js
         this.sys = {
             retrieveLocale: (lang: string) => this.localeXml,
-            retrieveItem: (id: string) => this.items.get(id)
+            retrieveItem: (id: string) => {
+                const item = this.items.get(id);
+                if (item) return { ...item, id: id };
+                return undefined;
+            }
         };
     }
 
@@ -133,26 +157,27 @@ export class CitationEngine {
         // We initialize with ALL citations in the project so the processor has access to everything
         // But specifically ensure requested IDs are present
         citations.forEach(c => {
-            if (c.csl_data) {
-                this.items.set(c.csl_data.id, c.csl_data);
-            } else if (c.ref_key) {
-                // Fallback if CSL data missing but we have ref_key
-                this.items.set(c.ref_key, {
-                    id: c.ref_key,
-                    title: c.raw_reference_text || "Unknown",
-                    type: "article-journal",
-                    author: [{ literal: "Unknown Author" }],
-                    issued: { "date-parts": [[2023]] }
-                });
-            }
+            const csl = c.csl_data || {
+                id: c.ref_key || c.id || "unknown",
+                title: c.raw_reference_text || "Unknown",
+                type: "article-journal",
+                author: [{ literal: "Unknown Author" }],
+                issued: { "date-parts": [[new Date().getFullYear()]] },
+                _is_dummy: true,
+                raw_text: c.raw_reference_text
+            };
+
+            if (c.id) this.items.set(c.id, csl);
+            if (c.csl_data?.id) this.items.set(c.csl_data.id, csl);
+            if (c.ref_key) this.items.set(c.ref_key, csl);
         });
     }
 
     /**
      * Format a list of citation clusters (e.g. [['ref_1'], ['ref_2', 'ref_3']])
-     * Returns: Array of formatted citation strings corresponding to input clusters.
+     * Returns: Array of formatted citation objects corresponding to input clusters.
      */
-    public formatCitations(citationClusters: string[][]): string[] {
+    public formatCitations(citationClusters: string[][]): ResolvedCitation[] {
         if (!this.citeproc) throw new Error("Engine not initialized");
 
         // --- Caching Check ---
@@ -174,12 +199,11 @@ export class CitationEngine {
         }
 
         console.log("⚙️ Running CSL Processing...");
-        // Clear previous state to ensure clean run? 
-        // For stateless service behavior, we should.
-        // CSL-JSON processor is stateful for numbering (IEEE).
-        this.citeproc.updateItems(Array.from(this.items.keys()));
+        // Clear previous state and update with ONLY used items for numbering accuracy
+        const allIdsInClusters = Array.from(new Set(citationClusters.flat()));
+        this.citeproc.updateItems(allIdsInClusters);
 
-        const results: string[] = [];
+        const results: ResolvedCitation[] = [];
 
         // Process each cluster sequentially
         for (let i = 0; i < citationClusters.length; i++) {
@@ -188,7 +212,7 @@ export class CitationEngine {
             // Validate IDs exist
             const validIds = clusterIds.filter(id => this.items.has(id));
             if (validIds.length === 0) {
-                results.push("[?]");
+                results.push({ text: "[?]" });
                 continue;
             }
 
@@ -207,19 +231,36 @@ export class CitationEngine {
 
             // Isolate the text for the current cluster
             const currentChange = changes.find((c: any) => c[0] === `cit_${i}`);
+            
+            // Get DOI/URL for the first item in the cluster for hyperlinking
+            const firstId = validIds[0];
+            const firstItem = this.items.get(firstId);
+            const doi = firstItem?.DOI || firstItem?.doi;
+            const url = firstItem?.URL || firstItem?.url;
+
             if (currentChange) {
-                results.push(currentChange[2]);
+                results.push({ 
+                    text: currentChange[2],
+                    doi,
+                    url
+                });
             } else {
                 // FALLBACK: If citeproc fails to format, use a basic (Author, Year) fallback 
-                // to avoid [Error] tags in the document content.
-                const firstId = validIds[0];
-                const item = this.items.get(firstId);
-                if (item) {
-                    const author = item.author?.[0]?.family || item.author?.[0]?.literal || "Unknown";
-                    const year = item.issued?.["date-parts"]?.[0]?.[0] || "n.d.";
-                    results.push(`(${author}, ${year})`);
+                if (firstItem) {
+                    const author = firstItem.author?.[0]?.family || firstItem.author?.[0]?.literal || firstItem.title || "Unknown";
+                    const year = firstItem.issued?.["date-parts"]?.[0]?.[0] || firstItem.year || "n.d.";
+                    results.push({ 
+                        text: `(${author}, ${year})`,
+                        doi,
+                        url
+                    });
                 } else {
-                    results.push("[Citation]");
+                    const fallbackAuthor = firstId.split('_')[0] || "Unknown";
+                    results.push({ 
+                        text: `(${fallbackAuthor}, n.d.)`,
+                        doi,
+                        url
+                    });
                 }
             }
         }
@@ -236,13 +277,14 @@ export class CitationEngine {
      * Returns a map of occurrence index to formatted string, and structured bibliography.
      */
     public async resolveProject(content: any): Promise<{
-        occurrenceMap: Map<number, string>;
-        bibliography: { id: string, text: string }[];
+        occurrenceMap: Map<number, ResolvedCitation>;
+        bibliography: BibliographyEntry[];
     }> {
         if (!this.citeproc) throw new Error("Engine not initialized");
 
         // 1. Traverse document to find all citation clusters
         const clusters: string[][] = [];
+        const usedIds = new Set<string>();
         let currentCluster: string[] = [];
         let citationNodeCount = 0;
 
@@ -253,6 +295,7 @@ export class CitationEngine {
                 const id = node.attrs?.citationId;
                 if (id && this.items.get(id)) {
                     currentCluster.push(id);
+                    usedIds.add(id);
                 } else {
                     // Fallback for missing ID or metadata
                     if (currentCluster.length > 0) {
@@ -296,7 +339,7 @@ export class CitationEngine {
 
         // 3. Map cluster results back to nodes
         // If a cluster has multiple entries, the first node gets the text, others get empty string
-        const occurrenceMap = new Map<number, string>();
+        const occurrenceMap = new Map<number, ResolvedCitation>();
         let clusterIdx = 0;
         let nodeInClusterIdx = 0;
 
@@ -304,7 +347,7 @@ export class CitationEngine {
             if (nodeInClusterIdx === 0) {
                 occurrenceMap.set(i, formattedResults[clusterIdx]);
             } else {
-                occurrenceMap.set(i, "");
+                occurrenceMap.set(i, { text: "" });
             }
 
             nodeInClusterIdx++;
@@ -315,7 +358,7 @@ export class CitationEngine {
         }
 
         // 4. Generate Bibliography
-        const bibliography = this.generateBibliography();
+        const bibliography = this.generateBibliography(usedIds);
 
         return { occurrenceMap, bibliography };
     }
@@ -330,7 +373,7 @@ export class CitationEngine {
     /**
      * Generate Bibliography
      */
-    public generateBibliography(): { id: string, text: string }[] {
+    public generateBibliography(usedIds?: Set<string>): BibliographyEntry[] {
         if (!this.citeproc) throw new Error("Engine not initialized");
 
         // --- Caching Check ---
@@ -366,7 +409,9 @@ export class CitationEngine {
             if (cachedJson) return JSON.parse(cachedJson);
         }
 
-        const bib = this.citeproc.makeBibliography();
+        if (usedIds && usedIds.size === 0) return [];
+
+        const bib = this.citeproc.makeBibliography(usedIds ? { entry_ids: Array.from(usedIds) } : undefined);
         // bib[0] is formatting parameters and entry_ids: { "entry_ids": [...] }
         // bib[1] is array of bibliography entries strings
 
@@ -376,9 +421,24 @@ export class CitationEngine {
 
         const result = bib[1].map((entry: string, index: number) => {
             const entryId = entryIds[index];
+            const cleanId = String(entryId).trim();
+            const item = this.items.get(cleanId);
+            
+            let finalText = entry.trim();
+            // If it was a dummy item OR if citeproc produced "Unknown Author/Untitled" garbage, prefer raw text
+            const isJunk = finalText.toLowerCase().includes("unknown author") || 
+                           finalText.toLowerCase().includes("untitled") ||
+                           finalText.replace(/<[^>]*>/g, "").length < 10; // Very short text after stripping HTML
+
+            if ((item?._is_dummy || isJunk) && item?.raw_text) {
+                finalText = item.raw_text;
+            }
+
             return {
-                id: entryId,
-                text: `<div id="${entryId}" class="csl-entry">${entry.trim()}</div>`
+                id: cleanId,
+                text: finalText,
+                doi: item?.DOI || item?.doi,
+                url: item?.URL || item?.url
             };
         });
 

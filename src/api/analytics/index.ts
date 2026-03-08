@@ -177,23 +177,13 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     // Extract the actual values from the database records
     const originalityScore = latestOriginalityScan?.overall_score || undefined;
 
-    // Convert originality classification to citation status
-    let citationStatus: string | undefined = undefined;
-    if (latestOriginalityScan?.classification) {
-      // Map originality classification to citation status
-      switch (latestOriginalityScan.classification) {
-        case "safe":
-          citationStatus = "strong";
-          break;
-        case "review":
-          citationStatus = "good";
-          break;
-        case "action_required":
-          citationStatus = "weak";
-          break;
-        default:
-          citationStatus = "poor";
-      }
+    // Calculate citation status based on actual record count
+    let citationStatus = "None";
+    if (citationCount > 0) {
+      if (citationCount > 15) citationStatus = "Strong";
+      else if (citationCount > 8) citationStatus = "Good";
+      else if (citationCount > 3) citationStatus = "Fair";
+      else citationStatus = "Active";
     }
 
     const authorshipVerified = latestCertificate?.status === "completed";
