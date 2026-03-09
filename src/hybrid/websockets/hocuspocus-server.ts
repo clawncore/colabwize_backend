@@ -132,11 +132,12 @@ export class HocuspocusCollaborationServer {
     return text.trim().split(/\s+/).filter(Boolean).length;
   }
 
-  constructor(port = 9081) {
+  constructor(port?: number) {
     const self = this;
-    this.port = port;
+    this.port = port || 9081;
     this.server = new Server({
-      port: this.port,
+      // Only bind port if not multiplexing (handled by main server)
+      port: port ? this.port : undefined,
       debounce: 1000,
       maxDebounce: 5000,
       timeout: 30000,
@@ -817,6 +818,12 @@ export class HocuspocusCollaborationServer {
         timestamp: new Date().toISOString(),
       });
     }
+  }
+
+  public handleUpgrade(request: any, socket: any, head: any) {
+    this.server.webSocketServer.handleUpgrade(request, socket, head, (ws) => {
+      this.server.hocuspocus.handleConnection(ws, request);
+    });
   }
 
   getServerInstance() {

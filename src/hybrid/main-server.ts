@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import express, { Application, Request, Response, NextFunction } from "express";
+import * as http from "http";
+import * as url from "url";
 import cors from "cors";
 import logger from "../monitoring/logger";
 import { authenticateExpressRequest } from "../middleware/auth";
@@ -1063,11 +1065,13 @@ const startServer = async () => {
       logger.error("Failed to initialize version scheduler:", error);
     }
 
-    // Initialize notification WebSocket server
+    // Initialize notification WebSocket server (No port - multiplexed)
+    let notificationServerInstance: any;
     try {
-      const notificationServer = getNotificationServer();
-      await notificationServer;
-      logger.info("Notification WebSocket server initialized on port 8082");
+      const { NotificationServer } =
+        await import("./websockets/notification-server");
+      notificationServerInstance = new NotificationServer(8082); // Keep port for service reference if needed
+      logger.info("Notification WebSocket server initialized (multiplexed)");
     } catch (error) {
       logger.error(
         "Failed to initialize notification WebSocket server:",
@@ -1075,17 +1079,32 @@ const startServer = async () => {
       );
     }
 
-    // Initialize collaboration WebSocket server (Hocuspocus)
+    // Initialize collaboration WebSocket server (Hocuspocus) (No port - multiplexed)
+    let collaborationServerInstance: any;
     try {
-      const collaborationServer = new HocuspocusCollaborationServer(9081);
-      await collaborationServer.start();
-      logger.info("WebSocket collaboration server initialized on port 9081");
+      collaborationServerInstance = new HocuspocusCollaborationServer();
+      // In multiplexed mode, we don't call .start() as it would try to listen on a port
+      logger.info("WebSocket collaboration server initialized (multiplexed)");
     } catch (error) {
       logger.error(
         "Failed to initialize WebSocket collaboration server:",
         error,
       );
     }
+
+    // Set up WebSocket multiplexing
+    server.on("upgrade", (request, socket, head) => {
+      const pathname = request.url ? url.parse(request.url).pathname : "";
+
+      if (pathname === "/collaboration" && collaborationServerInstance) {
+        collaborationServerInstance.handleUpgrade(request, socket, head);
+      } else if (pathname === "/notifications" && notificationServerInstance) {
+        notificationServerInstance.handleUpgrade(request, socket, head);
+      } else {
+        // Fallback or legacy (if any)
+        socket.destroy();
+      }
+    });
   } catch (error: any) {
     console.error("❌ Failed to start server:", error);
     logger.error("❌ Failed to start server:", error);

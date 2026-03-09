@@ -619,7 +619,10 @@ router.post(
       try {
         const EmailService =
           require("../../services/emailService").EmailService;
-        const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+        const SecretsService =
+          require("../../services/secrets-service").default;
+        const frontendUrl = await SecretsService.getFrontendUrl();
+
         await EmailService.sendWorkspaceInvitation({
           to: email,
           workspaceName: workspace.name,
