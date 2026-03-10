@@ -22,14 +22,9 @@ export class WorkspaceAnalyticsService {
       });
 
       // 3. Get member task completion stats
-      // Join WorkspaceMember -> User -> TaskAssignee -> WorkspaceTask (if status is done)
-      const tasksByMember = await prisma.taskAssignee.findMany({
-        where: {
-          task: {
-            workspace_id: workspaceId,
-            status: "done",
-          },
-        },
+      // First, get all members in the workspace so we can initialize them to 0
+      const allMembers = await prisma.workspaceMember.findMany({
+        where: { workspace_id: workspaceId },
         include: {
           user: {
             select: { id: true, full_name: true, email: true },
@@ -37,40 +32,70 @@ export class WorkspaceAnalyticsService {
         },
       });
 
-      const memberCompletionMap = new Map<string, number>();
-      tasksByMember.forEach((assignment: any) => {
-        const name = assignment.user.full_name || assignment.user.email;
-        memberCompletionMap.set(name, (memberCompletionMap.get(name) || 0) + 1);
+      // 3. Get member task completion stats & workload balance
+      const memberStatsMap = new Map<
+        string,
+        { assigned: number; completed: number }
+      >();
+
+      // Initialize all members with 0
+      allMembers.forEach((member: any) => {
+        const name = member.user.full_name || member.user.email;
+        memberStatsMap.set(name, { assigned: 0, completed: 0 });
       });
 
-      const memberActivity: { name: string; completed: number }[] = [];
-      memberCompletionMap.forEach((count: number, name: string) => {
-        memberActivity.push({ name, completed: count });
+      // Get all task assignments for this workspace
+      const allAssignments = await prisma.taskAssignee.findMany({
+        where: {
+          task: { workspace_id: workspaceId },
+        },
+        include: {
+          task: { select: { status: true } },
+          user: { select: { id: true, full_name: true, email: true } },
+        },
       });
+
+      allAssignments.forEach((assignment: any) => {
+        const name = assignment.user.full_name || assignment.user.email;
+        const stats = memberStatsMap.get(name) || { assigned: 0, completed: 0 };
+
+        stats.assigned++;
+        if (assignment.task.status === "done") {
+          stats.completed++;
+        }
+        memberStatsMap.set(name, stats);
+      });
+
+      const memberActivity = Array.from(memberStatsMap.entries()).map(
+        ([name, stats]) => ({
+          name,
+          ...stats,
+        }),
+      );
 
       // 4. Trend: Completion over last 14 days
+      const now = new Date();
       const fourteenDaysAgo = new Date();
       fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 13);
       fourteenDaysAgo.setHours(0, 0, 0, 0);
 
-      const completedTasks = await prisma.workspaceTask.findMany({
+      const completedTasksHistory = await prisma.workspaceTask.findMany({
         where: {
           workspace_id: workspaceId,
           status: "done",
           updated_at: { gte: fourteenDaysAgo },
         },
-        select: { updated_at: true },
+        select: { updated_at: true, created_at: true },
       });
 
       const trendMap = new Map<string, number>();
-      // Initialize the map with all dates
       for (let i = 0; i < 14; i++) {
         const d = new Date();
         d.setDate(d.getDate() - i);
         trendMap.set(d.toISOString().split("T")[0], 0);
       }
 
-      completedTasks.forEach((task: { updated_at: Date }) => {
+      completedTasksHistory.forEach((task: { updated_at: Date }) => {
         const dateStr = task.updated_at.toISOString().split("T")[0];
         if (trendMap.has(dateStr)) {
           trendMap.set(dateStr, (trendMap.get(dateStr) || 0) + 1);
@@ -81,7 +106,49 @@ export class WorkspaceAnalyticsService {
         .map(([date, count]: [string, number]) => ({ date, count }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
-      // 5. High-level stats
+      // 5. Health Metrics: Overdue & Upcoming
+      const nextSevenDays = new Date();
+      nextSevenDays.setDate(nextSevenDays.getDate() + 7);
+
+      const overdueCount = await prisma.workspaceTask.count({
+        where: {
+          workspace_id: workspaceId,
+          status: { not: "done" },
+          due_date: { lt: now },
+        },
+      });
+
+      const upcomingCount = await prisma.workspaceTask.count({
+        where: {
+          workspace_id: workspaceId,
+          status: { not: "done" },
+          due_date: {
+            gte: now,
+            lte: nextSevenDays,
+          },
+        },
+      });
+
+      // 6. Efficiency: Avg Completion Time
+      let totalCompletionTimeDays = 0;
+      completedTasksHistory.forEach(
+        (task: { updated_at: Date; created_at: Date }) => {
+          const durationMs =
+            task.updated_at.getTime() - task.created_at.getTime();
+          totalCompletionTimeDays += durationMs / (1000 * 60 * 60 * 24);
+        },
+      );
+
+      const avgCompletionDays =
+        completedTasksHistory.length > 0
+          ? parseFloat(
+              (totalCompletionTimeDays / completedTasksHistory.length).toFixed(
+                1,
+              ),
+            )
+          : 0;
+
+      // 7. High-level stats
       const totalTasks = await prisma.workspaceTask.count({
         where: { workspace_id: workspaceId },
       });
@@ -103,6 +170,13 @@ export class WorkspaceAnalyticsService {
         doneTasks,
         totalMembers,
         completionRate,
+        health: {
+          overdue: overdueCount,
+          upcoming: upcomingCount,
+        },
+        efficiency: {
+          avgCompletionDays,
+        },
         statusDistribution: statusCounts.map(
           (s: { status: string; _count: { _all: number } }) => ({
             name: s.status,
