@@ -150,14 +150,8 @@ export class OTPService {
             userId,
             email: emailToSend,
           });
-        } else if (method === "sms") {
-          const phoneToSend = phoneNumber || "";
-          if (!phoneToSend) {
-            logger.error("Phone number is required for SMS OTP", { userId });
-            return false;
-          }
         } else {
-          logger.error("Invalid OTP method", { method, userId });
+          logger.error("Invalid or unsupported OTP method", { method, userId });
           return false;
         }
       }
