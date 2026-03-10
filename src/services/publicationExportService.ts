@@ -1522,108 +1522,10 @@ export class PublicationExportService {
     let violationCommentId: number | null = null;
 
     // If citationPolicy.markUnsupportedClaims is true and we have violations:
-    if (
-      citationPolicy?.markUnsupportedClaims &&
-      citationPolicy.violations &&
-      node.content
-    ) {
-      // Collect text content of this node for matching
-      const fullText = node.content
-        .map((c: any) => PublicationExportService.sanitizeText(c.text || ""))
-        .join("");
-
-      // Find if this text contains any violation context
-      // Matching logic: simple substring check or fuzzy match on start
-      const violation = citationPolicy.violations.find(
-        (v: any) => v.context && fullText.includes(v.context.substring(0, 50)),
-      );
-
-      if (violation && !DEBUG_FLAGS.SKIP_COMMENTS) {
-        violationCommentId = commentsRef.length + 1;
-        commentsRef.push({
-          id: violationCommentId,
-          author: "Citation Audit",
-          date: new Date(),
-          children: [
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: PublicationExportService.sanitizeText(
-                    `[${violation.ruleId}] ${violation.message || "Potential citation issue detected."}`,
-                  ),
-                  bold: true,
-                }),
-              ],
-            }),
-          ],
-        });
-
-        // Add Start Range
-        runs.push(new CommentRangeStart(violationCommentId));
-      }
-    }
+    // (Citation audit comments removed per user request)
 
     if (node.content) {
-      let activeCommentId: number | null = null;
-      let activeAuthorId: string | null = null;
-
       node.content.forEach((child: any) => {
-        // --- Collaboration Comment Range Check ---
-        // Look for authorship mark on text nodes
-        const authorshipMark = child.marks?.find(
-          (m: any) => m.type === "authorship",
-        );
-        const authorId = authorshipMark?.attrs?.authorId;
-        const authorName = authorshipMark?.attrs?.authorName || "Collaborator";
-        const dateString = authorshipMark?.attrs?.timestamp;
-        const commentDate = dateString ? new Date(dateString) : new Date();
-
-        // Only comment for collaborators (not the document owner)
-        const shouldComment = authorId && ownerId && authorId !== ownerId;
-
-        // If author changed, manage ranges
-        if (shouldComment) {
-          if (authorId !== activeAuthorId) {
-            // Close previous comment if exists
-            if (activeCommentId !== null) {
-              runs.push(new CommentRangeEnd(activeCommentId));
-              runs.push(new CommentReference(activeCommentId));
-            }
-
-            // Start new comment
-            activeCommentId = commentsRef.length + 1;
-            activeAuthorId = authorId;
-            commentsRef.push({
-              id: activeCommentId,
-              author: authorName,
-              date: commentDate,
-              children: [
-                new Paragraph({
-                  children: [
-                    new TextRun({
-                      text: PublicationExportService.sanitizeText(
-                        `Collaborative edit by ${authorName}.`,
-                      ),
-                      bold: true,
-                    }),
-                  ],
-                }),
-              ],
-            });
-
-            // Start Range BEFORE text run
-            runs.push(new CommentRangeStart(activeCommentId));
-          }
-        } else {
-          // If no authorship (or owner's edit), close active range if exists
-          if (activeCommentId !== null) {
-            runs.push(new CommentRangeEnd(activeCommentId));
-            runs.push(new CommentReference(activeCommentId));
-            activeCommentId = null;
-            activeAuthorId = null;
-          }
-        }
-
         if (child.type === "text") {
           let textContent = PublicationExportService.sanitizeText(
             child.text || "",
@@ -1761,18 +1663,6 @@ export class PublicationExportService {
           }
         }
       });
-
-      // --- CLOSE ACTIVE COLLABORATION COMMENT AT END OF NODE ---
-      if (activeCommentId !== null) {
-        runs.push(new CommentRangeEnd(activeCommentId));
-        runs.push(new CommentReference(activeCommentId));
-      }
-    }
-
-    // Add End Range if comment was started
-    if (violationCommentId !== null && !DEBUG_FLAGS.SKIP_COMMENTS) {
-      runs.push(new CommentRangeEnd(violationCommentId));
-      runs.push(new CommentReference(violationCommentId)); // Visual marker
     }
 
     return runs;

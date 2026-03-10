@@ -6,6 +6,7 @@ import {
   POST_COMMENT,
   GET_COMMENTS,
   POST_RESTORE_VERSION,
+  DELETE_VERSION,
   GET_SETTINGS,
   PUT_SETTINGS,
   GET_ANALYTICS,
@@ -141,7 +142,24 @@ router.post("/restore-version", async (req, res) => {
   }
 });
 
-// Get editor settings
+// Delete document version
+router.delete("/versions/:versionId", async (req, res) => {
+  try {
+    const mockRequest = {
+      json: async () => ({
+        projectId: req.query.projectId as string,
+        versionId: req.params.versionId,
+      }),
+      user: { id: (req as any).user?.id },
+    };
+    const response = await DELETE_VERSION(mockRequest as any);
+    const data = await response.json();
+    return res.status(response.status).json(data);
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.get("/settings", async (req, res) => {
   try {
     // Create a mock request object that matches the Edge function signature

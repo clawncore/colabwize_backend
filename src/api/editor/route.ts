@@ -41,7 +41,7 @@ async function handleGET(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error fetching project content:", error);
@@ -90,7 +90,7 @@ async function handlePUT(request: Request & { user?: any }) {
       userId,
       content,
       title,
-      wordCount
+      wordCount,
     );
 
     // Track editor activity
@@ -104,7 +104,7 @@ async function handlePUT(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error saving project content:", error);
@@ -148,7 +148,7 @@ async function handlePATCH_METADATA(request: Request & { user?: any }) {
     const updatedProject = await EditorService.updateProjectMetadata(
       projectId,
       userId,
-      metadata
+      metadata,
     );
 
     return new Response(
@@ -159,7 +159,7 @@ async function handlePATCH_METADATA(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error updating project metadata:", error);
@@ -208,7 +208,7 @@ async function handleGET_VERSIONS(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error fetching document versions:", error);
@@ -240,7 +240,7 @@ async function handlePOST_COMMENT(request: Request & { user?: any }) {
         {
           status: 400,
           headers: { "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -258,7 +258,7 @@ async function handlePOST_COMMENT(request: Request & { user?: any }) {
       projectId,
       userId,
       content,
-      position
+      position,
     );
 
     // Track editor activity
@@ -272,7 +272,7 @@ async function handlePOST_COMMENT(request: Request & { user?: any }) {
       {
         status: 201,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error adding comment:", error);
@@ -321,7 +321,7 @@ async function handleGET_COMMENTS(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error fetching comments:", error);
@@ -352,7 +352,7 @@ async function handlePOST_RESTORE_VERSION(request: Request & { user?: any }) {
         {
           status: 400,
           headers: { "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -369,7 +369,7 @@ async function handlePOST_RESTORE_VERSION(request: Request & { user?: any }) {
     const restoredProject = await EditorService.restoreDocumentVersion(
       projectId,
       versionId,
-      userId
+      userId,
     );
 
     return new Response(
@@ -380,10 +380,96 @@ async function handlePOST_RESTORE_VERSION(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error restoring document version:", error);
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
+// Delete a specific document version
+export async function DELETE_VERSION(request: Request) {
+  return withHybridAuth(handleDELETE_VERSION)(request);
+}
+
+async function handleDELETE_VERSION(request: Request & { user?: any }) {
+  try {
+    const body = (await request.json()) as {
+      projectId: string;
+      versionId: string;
+    };
+    const { projectId, versionId } = body;
+
+    if (!projectId || !versionId) {
+      return new Response(
+        JSON.stringify({ error: "Project ID and Version ID are required" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const userId = request.user?.id;
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "User ID is required" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Verify the project belongs to this user
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, user_id: userId },
+      select: { id: true },
+    });
+
+    if (!project) {
+      return new Response(
+        JSON.stringify({ error: "Project not found or access denied" }),
+        {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    // Find the version and check it's not the latest
+    const version = await prisma.documentVersion.findUnique({
+      where: { id: versionId },
+      select: { id: true, project_id: true },
+    });
+
+    if (!version || version.project_id !== projectId) {
+      return new Response(JSON.stringify({ error: "Version not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Prevent deleting the most recent version (current)
+    const latestVersion = await prisma.documentVersion.findFirst({
+      where: { project_id: projectId },
+      orderBy: { created_at: "desc" },
+      select: { id: true },
+    });
+
+    if (latestVersion?.id === versionId) {
+      return new Response(
+        JSON.stringify({ error: "Cannot delete the current version" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    await prisma.documentVersion.delete({ where: { id: versionId } });
+
+    return new Response(
+      JSON.stringify({ success: true, message: "Version deleted" }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  } catch (error: any) {
+    logger.error("Error deleting document version:", error);
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
@@ -419,7 +505,7 @@ async function handleGET_SETTINGS(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error fetching editor settings:", error);
@@ -460,7 +546,7 @@ async function handlePUT_SETTINGS(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error updating editor settings:", error);
@@ -499,7 +585,7 @@ async function handleGET_ANALYTICS(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error fetching editor analytics:", error);
@@ -562,7 +648,7 @@ async function handlePOST_BEACON_DRAFT(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error handling draft beacon:", error);
@@ -625,7 +711,7 @@ async function handlePOST_IMPORT(request: Request & { user?: any }) {
 
     const importedProject = await EditorService.importDocument(
       userId,
-      fileData
+      fileData,
     );
 
     return new Response(
@@ -636,7 +722,7 @@ async function handlePOST_IMPORT(request: Request & { user?: any }) {
       {
         status: 201,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error importing document:", error);
@@ -666,7 +752,7 @@ async function handlePOST_EVENTS(request: Request & { user?: any }) {
         {
           status: 400,
           headers: { "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -694,7 +780,7 @@ async function handlePOST_EVENTS(request: Request & { user?: any }) {
           userId,
           event.projectId,
           event.eventType,
-          event.metadata
+          event.metadata,
         );
       } catch (eventError: any) {
         logger.error("Error processing editor event", {
@@ -713,7 +799,7 @@ async function handlePOST_EVENTS(request: Request & { user?: any }) {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error: any) {
     logger.error("Error handling editor events:", error);

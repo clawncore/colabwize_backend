@@ -1,9 +1,5 @@
 import express, { Request, Response } from "express";
 import { AIChatService } from "../../services/aiChatService";
-import {
-  checkUsageLimit,
-  incrementFeatureUsage,
-} from "../../middleware/usageMiddleware";
 import { sendJsonResponse, sendErrorResponse } from "../../lib/api-response";
 
 const router = express.Router();
@@ -14,7 +10,7 @@ const router = express.Router();
  */
 router.post("/", async (req: Request, res: Response) => {
   try {
-    const { messages, context, sessionId } = req.body as any; // Safe cast until strict model is ready
+    const { messages, context, sessionId } = req.body as any;
     const userId = (req as any).user?.id;
 
     console.log("Chat API Request received:", {
@@ -24,32 +20,13 @@ router.post("/", async (req: Request, res: Response) => {
       hasContext: !!context,
     });
 
-    // Check and consume usage (Atomic Plan/Credit Check)
-    const { SubscriptionService } = await import("../../services/subscriptionService");
-    const consumption = await SubscriptionService.consumeAction(userId, "ai_integrity");
-
-    if (!consumption.allowed) {
-      // Map reason to status code
-      let status = 403;
-      if (consumption.code === "INSUFFICIENT_CREDITS") {
-        status = 402; // Payment required
-      }
-
-      return res.status(status).json({
-        error: consumption.message || "Usage limit reached",
-        code: consumption.code || "PLAN_LIMIT_REACHED",
-        data: {
-          upgrade_url: "/pricing",
-          limit_info: consumption
-        }
-      });
-    }
-
+    // Usage enforcement is handled inside AIChatService.streamChat using the correct
+    // 'ai_chat' feature key. Do NOT add a redundant check here.
     const result = await AIChatService.streamChat(
       messages,
       context || { documentContent: "" },
       sessionId,
-      userId
+      userId,
     );
 
     // Forward status and headers
@@ -57,6 +34,12 @@ router.post("/", async (req: Request, res: Response) => {
     result.headers.forEach((value, key) => {
       res.setHeader(key, value);
     });
+
+    // If the service returned a non-2xx (e.g. 403 limit reached), pipe the JSON body
+    if (result.status >= 400) {
+      const body = await result.text();
+      return res.end(body);
+    }
 
     // Pipe the web stream to express response
     if (result.body) {
@@ -140,7 +123,7 @@ router.patch("/session/:sessionId", async (req: Request, res: Response) => {
     const updatedSession = await AIChatService.updateSession(
       sessionId as string,
       userId,
-      { title }
+      { title },
     );
     return sendJsonResponse(res, 200, updatedSession);
   } catch (error: any) {
@@ -181,7 +164,10 @@ router.get("/session/:sessionId", async (req: Request, res: Response) => {
       return sendErrorResponse(res, 401, "Unauthorized");
     }
 
-    const history = await AIChatService.getSessionHistory(sessionId as string, userId);
+    const history = await AIChatService.getSessionHistory(
+      sessionId as string,
+      userId,
+    );
     return sendJsonResponse(res, 200, history);
   } catch (error: any) {
     return sendErrorResponse(res, 500, error.message);
@@ -195,7 +181,7 @@ router.post("/explain-flag", async (req: Request, res: Response) => {
     const { flagType, context } = req.body;
     const explanation = await AIChatService.explainOriginalityFlag(
       flagType,
-      context
+      context,
     );
     return sendJsonResponse(res, 200, explanation);
   } catch (error: any) {
@@ -211,7 +197,7 @@ router.post("/explain-citation", async (req: Request, res: Response) => {
     const { ruleType, context } = req.body;
     const explanation = await AIChatService.explainCitationRule(
       ruleType,
-      context
+      context,
     );
     return sendJsonResponse(res, 200, explanation);
   } catch (error: any) {
