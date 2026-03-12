@@ -40,6 +40,7 @@ export async function GET(request: Request & { user?: { id: string } }) {
     const search = url.searchParams.get("search") || undefined;
     const read = url.searchParams.get("read");
     const readFilter = read !== null ? read === "true" : undefined;
+    const workspaceId = url.searchParams.get("workspaceId") || undefined;
 
     // Build filters object
     const filters = {
@@ -47,6 +48,7 @@ export async function GET(request: Request & { user?: { id: string } }) {
       priority,
       search,
       read: readFilter,
+      workspaceId,
     };
 
     // Remove undefined values from filters
@@ -65,7 +67,9 @@ export async function GET(request: Request & { user?: { id: string } }) {
     );
 
     // Get unread count
-    const unreadCount = await getUnreadNotificationCount(userId);
+    const unreadCount = await getUnreadNotificationCount(userId, {
+      workspaceId,
+    });
 
     return new Response(
       JSON.stringify({ success: true, notifications, unreadCount }),

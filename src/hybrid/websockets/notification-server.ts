@@ -186,6 +186,11 @@ export class NotificationServer {
         if (ws.userId) {
           this.removeClientConnection(ws.userId, ws);
           logger.info(`Client disconnected: ${ws.userId}`);
+          
+          // Update presence to offline in DB
+          this.updateUserPresence(ws.userId, "offline").catch(err => 
+            logger.error("Failed to update presence on disco", { err })
+          );
         }
         // Cleanup all channel subscriptions for this connection
         this.unsubscribeFromAllChannels(ws);
@@ -228,6 +233,25 @@ export class NotificationServer {
       case "channel_message":
         if (ws.isAuthenticated && message.channel && message.data) {
           this.broadcastToChannel(message.channel, message.data);
+        }
+        break;
+      case "typing":
+        if (ws.isAuthenticated && message.channel) {
+          this.broadcastToChannel(message.channel, {
+            type: "TYPING_STATUS",
+            userId: ws.userId,
+            isTyping: message.isTyping,
+          });
+        }
+        break;
+      case "message_read":
+        if (ws.isAuthenticated && message.messageId) {
+          try {
+            const { TeamChatService } = await import("../../services/teamChatService");
+            await TeamChatService.markMessageAsRead(message.messageId, ws.userId!);
+          } catch (err) {
+            logger.error("Error handling message_read event", { err });
+          }
         }
         break;
       default:
@@ -338,6 +362,11 @@ export class NotificationServer {
       }
 
       logger.info(`User authenticated via WebSocket: ${userId}`);
+      
+      // Update presence to online
+      this.updateUserPresence(userId, "online").catch(err => 
+        logger.error("Failed to update presence on auth", { err })
+      );
     } catch (error) {
       logger.error("Authentication error", { error });
       ws.send(
@@ -566,5 +595,21 @@ export class NotificationServer {
       totalConnections,
       uniqueUsers: this.connectedClients.size,
     };
+  }
+
+  private async updateUserPresence(userId: string, status: string) {
+    try {
+      const { TeamChatService } = await import("../../services/teamChatService");
+      await TeamChatService.updatePresence(userId, status);
+      
+      this.broadcastToChannel("global-presence", {
+        type: "USER_PRESENCE",
+        userId,
+        status,
+        lastSeen: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error("Error in updateUserPresence", { userId, error });
+    }
   }
 }

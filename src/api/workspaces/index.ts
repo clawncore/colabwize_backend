@@ -551,22 +551,19 @@ router.post(
       // Premium plan is unlimited
       // --- End Subscription Limits Check ---
 
-      // Check if user exists
+      // Check if user exists (for notification purposes only)
       const userToInvite = await prisma.user.findUnique({ where: { email } });
-      if (!userToInvite) {
-        return res
-          .status(404)
-          .json({ error: "User not found with that email" });
-      }
 
       // Check if already a member
-      const existingMember = await prisma.workspaceMember.findUnique({
-        where: {
-          workspace_id_user_id: { workspace_id: id, user_id: userToInvite.id },
-        },
-      });
-      if (existingMember) {
-        return res.status(400).json({ error: "User is already a member" });
+      if (userToInvite) {
+        const existingMember = await prisma.workspaceMember.findUnique({
+          where: {
+            workspace_id_user_id: { workspace_id: id, user_id: userToInvite.id },
+          },
+        });
+        if (existingMember) {
+          return res.status(400).json({ error: "User is already a member" });
+        }
       }
 
       // Check for existing pending invitation

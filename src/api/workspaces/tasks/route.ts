@@ -710,7 +710,7 @@ router.get("/project-stats/:projectId", async (req: any, res) => {
 });
 
 // --- Dependency Routes ---
-router.use("/:taskId/dependencies", dependenciesRouter);
+router.use("/:taskId/dependencies", checkWorkspaceRole("editor"), dependenciesRouter);
 
 // ============ TIME TRACKING ENDPOINTS ============
 

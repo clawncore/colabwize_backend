@@ -32,13 +32,13 @@ router.post("/", authenticateExpressRequest, checkWorkspaceRole("editor"), async
   }
 });
 
-// PATCH /api/workspaces/tasks/subtasks/:id - Update a subtask
-router.patch("/:id", authenticateExpressRequest, checkWorkspaceRole("editor"), async (req: any, res) => {
+// PATCH /api/workspaces/tasks/subtasks/:subtaskId - Update a subtask
+router.patch("/:subtaskId", authenticateExpressRequest, checkWorkspaceRole("editor"), async (req: any, res) => {
   try {
-    const { id } = req.params;
+    const { subtaskId } = req.params;
     const { title, is_done, order } = req.body;
 
-    const subtask = await SubtaskService.updateSubtask(id, {
+    const subtask = await SubtaskService.updateSubtask(subtaskId, {
       title,
       is_done,
       order,
@@ -49,11 +49,11 @@ router.patch("/:id", authenticateExpressRequest, checkWorkspaceRole("editor"), a
   }
 });
 
-// DELETE /api/workspaces/tasks/subtasks/:id - Delete a subtask
-router.delete("/:id", authenticateExpressRequest, checkWorkspaceRole("editor"), async (req: any, res) => {
+// DELETE /api/workspaces/tasks/subtasks/:subtaskId - Delete a subtask
+router.delete("/:subtaskId", authenticateExpressRequest, checkWorkspaceRole("editor"), async (req: any, res) => {
   try {
-    const { id } = req.params;
-    await SubtaskService.deleteSubtask(id);
+    const { subtaskId } = req.params;
+    await SubtaskService.deleteSubtask(subtaskId);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

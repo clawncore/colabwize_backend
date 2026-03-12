@@ -1,6 +1,7 @@
 import prisma from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { createNotification } from "./notificationService";
+import { getNotificationServer } from "../lib/notificationServer";
 
 export interface TeamChatFilter {
   workspaceId?: string;
@@ -32,6 +33,7 @@ export class TeamChatService {
               id: true,
               full_name: true,
               email: true,
+              avatar_url: true,
             },
           },
           parent: {
@@ -41,12 +43,16 @@ export class TeamChatService {
                   id: true,
                   full_name: true,
                   email: true,
+                  avatar_url: true,
                 },
               },
             },
           },
           _count: {
-            select: { replies: true },
+            select: { 
+              replies: true,
+              read_by: true
+            },
           },
         },
         orderBy: {
@@ -86,6 +92,7 @@ export class TeamChatService {
               id: true,
               full_name: true,
               email: true,
+              avatar_url: true,
             },
           },
         },
@@ -317,6 +324,69 @@ export class TeamChatService {
       return { success: true, count: result.count };
     } catch (error) {
       logger.error("Error clearing chat:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Mark a message as read by a user
+   */
+  static async markMessageAsRead(messageId: string, userId: string) {
+    try {
+      await prisma.teamChatMessageRead.upsert({
+        where: {
+          message_id_user_id: {
+            message_id: messageId,
+            user_id: userId,
+          },
+        },
+        create: {
+          message_id: messageId,
+          user_id: userId,
+        },
+        update: {}, // No change if already exists
+      });
+
+      // Broadcast to channel that message was read
+      const message = await prisma.teamChatMessage.findUnique({
+        where: { id: messageId },
+        select: { workspace_id: true, project_id: true },
+      });
+
+      if (message) {
+        const channelName = `team-chat-${message.workspace_id || message.project_id}`;
+        getNotificationServer().broadcastToChannel(channelName, {
+          type: "MESSAGE_READ",
+          messageId,
+          userId,
+        });
+      }
+
+      return { success: true };
+    } catch (error) {
+      logger.error("Error marking message as read:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update user presence status
+   */
+  static async updatePresence(userId: string, status: string) {
+    try {
+      const user = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          online_status: status,
+          last_seen_at: new Date(),
+        },
+      });
+
+      // Broadcast presence change to relevant workspaces (simplified: broadcast to all active user channels)
+      // For now, we'll let the NotificationServer handle the broadness
+      return user;
+    } catch (error) {
+      logger.error("Error updating user presence:", error);
       throw error;
     }
   }

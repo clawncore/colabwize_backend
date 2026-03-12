@@ -587,6 +587,7 @@ export async function getUserNotifications(
     priority?: "high" | "medium" | "low";
     search?: string;
     read?: boolean;
+    workspaceId?: string;
   },
 ) {
   try {
@@ -601,6 +602,14 @@ export async function getUserNotifications(
     // Apply read status filter
     if (filters?.read !== undefined) {
       where.read = filters.read;
+    }
+
+    // Apply workspace filter (stored in JSON 'data' field)
+    if (filters?.workspaceId) {
+      where.data = {
+        path: ["workspaceId"],
+        equals: filters.workspaceId,
+      };
     }
 
     // Apply search filter
@@ -797,10 +806,23 @@ export async function snoozeNotification(
 }
 
 // Get unread notification count for a user
-export async function getUnreadNotificationCount(userId: string) {
+// Get unread notification count for a user
+export async function getUnreadNotificationCount(
+  userId: string,
+  filters?: { workspaceId?: string },
+) {
   try {
+    const where: any = { user_id: userId, read: false, dismissed: false };
+
+    if (filters?.workspaceId) {
+      where.data = {
+        path: ["workspaceId"],
+        equals: filters.workspaceId,
+      };
+    }
+
     const count = await prisma.notification.count({
-      where: { user_id: userId, read: false, dismissed: false },
+      where,
     });
 
     return count;

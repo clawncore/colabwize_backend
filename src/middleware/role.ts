@@ -18,65 +18,59 @@ export const checkWorkspaceRole = (requiredRole: WorkspaceRole) => {
                 return res.status(401).json({ error: "Unauthorized" });
             }
 
-            // 1. Get workspaceId from various places
-            let workspaceId = req.params.workspaceId || req.params.id || req.body.workspaceId || req.query.workspaceId;
+            // 1. Get workspaceId from specific places first
+            let workspaceId = req.params.workspaceId || req.body.workspaceId || req.query.workspaceId;
 
-            // 2. If no workspaceId, try to get it from taskId, subtaskId, attachmentId, or entryId
+            // 2. Identify specific entity IDs
             const taskId = req.params.taskId || req.body.taskId || req.query.id; // kanban uses ?id= for delete
-            const attachmentId = req.params.attachmentId || req.params.id && req.path.includes('attachments');
-            const entryId = req.params.entryId || req.params.id && req.path.includes('time');
+            const attachmentId = req.params.attachmentId || (req.params.id && req.path.includes('attachments') ? req.params.id : undefined);
+            const entryId = req.params.entryId || (req.params.id && (req.path.includes('time') || req.path.includes('/tasks/time')) ? req.params.id : undefined);
+            const subtaskId = req.params.subtaskId || (req.path.includes('subtasks') && req.params.id ? req.params.id : undefined);
             const labelId = req.params.labelId;
             const viewId = req.params.viewId;
-            const subtaskId = req.params.subtaskId || (req.path.includes('subtasks') && req.params.id);
 
+            // 3. If no workspaceId, resolve it from entities
             if (!workspaceId && taskId) {
                 const task = await prisma.workspaceTask.findUnique({
                     where: { id: taskId },
                     select: { workspace_id: true }
                 });
-                if (task) {
-                    workspaceId = task.workspace_id;
-                }
+                if (task) workspaceId = task.workspace_id;
             } else if (!workspaceId && attachmentId) {
-                const attachment = await prisma.workspaceTaskAttachment.findUnique({
+                const attachment = await prisma.taskAttachment.findUnique({
                     where: { id: attachmentId as string },
                     include: { task: { select: { workspace_id: true } } }
                 });
-                if (attachment) {
-                    workspaceId = attachment.task.workspace_id;
-                }
+                if (attachment) workspaceId = attachment.task.workspace_id;
             } else if (!workspaceId && entryId) {
-                const entry = await prisma.workspaceTaskTimeEntry.findUnique({
+                const entry = await prisma.taskTimeEntry.findUnique({
                     where: { id: entryId as string },
                     include: { task: { select: { workspace_id: true } } }
                 });
-                if (entry) {
-                    workspaceId = entry.task.workspace_id;
-                }
-            } else if (!workspaceId && labelId) {
-                const label = await prisma.workspaceLabel.findUnique({
-                    where: { id: labelId as string },
-                    select: { workspace_id: true }
-                });
-                if (label) {
-                    workspaceId = label.workspace_id;
-                }
-            } else if (!workspaceId && viewId) {
-                const view = await prisma.workspaceView.findUnique({
-                    where: { id: viewId as string },
-                    select: { workspace_id: true }
-                });
-                if (view) {
-                    workspaceId = view.workspace_id;
-                }
+                if (entry) workspaceId = entry.task.workspace_id;
             } else if (!workspaceId && subtaskId) {
                 const subtask = await prisma.workspaceSubtask.findUnique({
                     where: { id: subtaskId as string },
                     include: { task: { select: { workspace_id: true } } }
                 });
-                if (subtask) {
-                    workspaceId = subtask.task.workspace_id;
-                }
+                if (subtask) workspaceId = subtask.task.workspace_id;
+            } else if (!workspaceId && labelId) {
+                const label = await prisma.workspaceLabel.findUnique({
+                    where: { id: labelId as string },
+                    select: { workspace_id: true }
+                });
+                if (label) workspaceId = label.workspace_id;
+            } else if (!workspaceId && viewId) {
+                const view = await prisma.workspaceView.findUnique({
+                    where: { id: viewId as string },
+                    select: { workspace_id: true }
+                });
+                if (view) workspaceId = view.workspace_id;
+            }
+
+            // 4. Fallback to generic 'id' parameter if still no workspaceId
+            if (!workspaceId && req.params.id) {
+                workspaceId = req.params.id;
             }
 
             if (!workspaceId) {

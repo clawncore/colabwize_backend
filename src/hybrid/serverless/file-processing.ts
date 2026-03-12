@@ -231,8 +231,6 @@ async function generatePDFExport(fileData: any, userId: string) {
       contentOverride: normalizedContent,
       includeCitations: fileData.includeCitations ?? true,
       includeComments: fileData.includeComments ?? false,
-      includeAuthorshipCertificate:
-        fileData.includeAuthorshipCertificate ?? false,
       citationStyle: fileData.citationStyle || "apa",
       htmlContent: fileData.htmlContent,
       pageSize: fileData.pageSize || "A4",
@@ -299,24 +297,8 @@ async function generatePDFExport(fileData: any, userId: string) {
       fileSize: exportResult.fileSize,
     });
 
-    let certificateDownloadUrl;
-    if (fileData.includeAuthorshipCertificate) {
-      try {
-        certificateDownloadUrl = await generateAndUploadCertificate(
-          project,
-          userId,
-          fileData.metadata,
-        );
-      } catch (err: any) {
-        logger.error("Failed to generate standalone certificate", {
-          error: err.message,
-        });
-      }
-    }
-
     return {
       downloadUrl,
-      certificateDownloadUrl,
       fileSize: exportResult.fileSize,
       generatedAt: new Date().toISOString(),
     };
@@ -472,24 +454,8 @@ async function generateDOCXExport(fileData: any, userId: string) {
       fileSize: exportResult.fileSize,
     });
 
-    let certificateDownloadUrl;
-    if (fileData.includeAuthorshipCertificate) {
-      try {
-        certificateDownloadUrl = await generateAndUploadCertificate(
-          project,
-          userId,
-          fileData.metadata,
-        );
-      } catch (err: any) {
-        logger.error("Failed to generate standalone certificate", {
-          error: err.message,
-        });
-      }
-    }
-
     return {
       downloadUrl,
-      certificateDownloadUrl,
       fileSize: exportResult.fileSize,
       generatedAt: new Date().toISOString(),
     };
@@ -963,60 +929,7 @@ async function generateRTFExport(fileData: any, userId: string) {
   }
 }
 
-// Helper to generate standalone authorship certificate
-async function generateAndUploadCertificate(
-  project: any,
-  userId: string,
-  metadata: any,
-) {
-  const { AuthorshipCertificateGenerator } =
-    await import("../../services/authorshipCertificateGenerator");
-  const { PublicationService } =
-    await import("../../services/publicationService");
-  const { SupabaseStorageService } =
-    await import("../../services/supabaseStorageService");
-  const { config } = await import("../../config/env");
 
-  const userMetadata = await PublicationService.getUserMetadata(userId);
-  const userName = metadata?.author || userMetadata.author || "Author";
-  const verificationUrl = `${config.app.url}/verify/${project.id}`;
-
-  const pdfBuffer = await AuthorshipCertificateGenerator.generateCertificate({
-    projectId: project.id,
-    userId: userId,
-    userName: userName,
-    projectTitle: project.title,
-    certificateType: "authorship",
-    includeQRCode: true,
-    verificationUrl: verificationUrl,
-  });
-
-  const sanitizedTitle = project.title.replace(/[^a-zA-Z0-9-_]/g, "_");
-  const fileName = `${sanitizedTitle}_Authorship_Certificate.pdf`;
-
-  const uploadResult = await SupabaseStorageService.uploadFile(
-    pdfBuffer,
-    fileName,
-    "application/pdf",
-    userId,
-    {
-      userId,
-      fileName,
-      fileType: "pdf",
-      fileSize: pdfBuffer.length,
-      projectId: project.id,
-      createdAt: new Date(),
-    },
-  );
-
-  const downloadUrl = await SupabaseStorageService.createSignedUrl(
-    uploadResult.path,
-    3600,
-    { download: fileName },
-  );
-
-  return downloadUrl;
-}
 
 // Export config for serverless function
 export const config = {

@@ -48,7 +48,6 @@ interface PublicationExportOptions {
   coverPageStyle: "apa" | "mla";
   template?: string; // e.g., "ieee", "acm"
   includeTOC: boolean;
-  includeAuthorshipCertificate?: boolean;
   performStructuralAudit: boolean;
   minWordCount?: number;
   wordSafeMode?: boolean; // Enable strict Word compatibility (disables TOC, columns, complex features)
@@ -243,9 +242,10 @@ export class PublicationExportService {
       const comments: any[] = [];
       const usedCitationIds = new Set<string>();
       const state = { citationNodeIndex: 0 };
+      const citationsToPass = options.citations || project.citations || [];
       const bodyParagraphs = await this.convertTipTapToDOCXParagraphs(
         project.content,
-        project.citations || [],
+        citationsToPass,
         options.citationStyle || "apa",
         options.citationPolicy,
         comments,
@@ -305,72 +305,6 @@ export class PublicationExportService {
         );
       }
 
-      // 7b. Generate Authorship Certificate
-      const certificateParagraphs: Paragraph[] = [];
-      if (options.includeAuthorshipCertificate) {
-        try {
-          // Dynamic imports to avoid excessive boilerplate in this method if not needed
-          const {
-            AuthorshipCertificateGenerator,
-          } = require("./authorshipCertificateGenerator");
-          const {
-            AuthorshipReportService,
-          } = require("./authorshipReportService");
-          const { config } = require("../config/env");
-
-          const userMetadata = await PublicationService.getUserMetadata(userId);
-          const userName =
-            options.metadata?.author || userMetadata.author || "Author";
-
-          const stats = await AuthorshipReportService.getAuthorshipMetrics(
-            project.id,
-          );
-          const verificationUrl = `${config.appUrl}/verify/${project.id}`;
-          const qrCodeDataUrl =
-            await AuthorshipCertificateGenerator.generateQRCodeDataURL(
-              verificationUrl,
-            );
-
-          const certHtml =
-            await AuthorshipCertificateGenerator.generateCertificateHTML(
-              {
-                projectId: project.id,
-                userId: userId,
-                userName: userName,
-                projectTitle: project.title,
-                certificateType: "authorship",
-                includeQRCode: true,
-                verificationUrl: verificationUrl,
-              },
-              stats,
-              qrCodeDataUrl,
-            );
-
-          const imageBuffer =
-            await AuthorshipCertificateGenerator.generatePreviewImage(certHtml);
-
-          certificateParagraphs.push(
-            new Paragraph({
-              children: [
-                new ImageRun({
-                  data: imageBuffer,
-                  transformation: {
-                    width: 600,
-                    height: 450,
-                  },
-                  type: "png",
-                }),
-              ],
-              pageBreakBefore: true,
-            }),
-          );
-        } catch (error) {
-          logger.error(
-            "Failed to append authorship certificate to DOCX",
-            error,
-          );
-        }
-      }
 
       // 7. Generate references section (Conditional)
       const referencesParagraphs: Paragraph[] = [];
@@ -463,19 +397,6 @@ export class PublicationExportService {
         );
       }
 
-      // Append certificate (Certificate usually goes last)
-      // We will append it to references or body
-      if (certificateParagraphs.length > 0) {
-        if (referencesParagraphs.length > 0) {
-          referencesParagraphs.push(...certificateParagraphs);
-        } else {
-          // If no references generated (or suppressed), append to body?
-          // But mergeDocumentComponents puts body before references.
-          // So if referencesParagraphs is empty, we must ensure it's passed or append to body.
-          // Let's passed it as references if empty.
-          referencesParagraphs.push(...certificateParagraphs);
-        }
-      }
 
       // 8. Merge all components
       // Clean up bodyParagraphs: Filter out truly empty paragraphs (heuristic: no text, no children)
@@ -1071,7 +992,7 @@ export class PublicationExportService {
           commentsRef,
           usedCitationIds,
           state,
-          options.ownerId,
+          options,
         );
         paragraphs.push(
           new Paragraph({
@@ -1089,7 +1010,7 @@ export class PublicationExportService {
           commentsRef,
           usedCitationIds,
           state,
-          options.ownerId,
+          options,
         );
         const level = node.attrs?.level || 1;
         const headingLevels: Record<number, any> = {
@@ -1117,7 +1038,7 @@ export class PublicationExportService {
           commentsRef,
           usedCitationIds,
           state,
-          options.ownerId,
+          options,
         );
         paragraphs.push(
           new Paragraph({
@@ -1141,7 +1062,7 @@ export class PublicationExportService {
                     commentsRef,
                     usedCitationIds,
                     state,
-                    options.ownerId,
+                    options,
                   );
                   paragraphs.push(
                     new Paragraph({
@@ -1227,6 +1148,7 @@ export class PublicationExportService {
                   commentsRef,
                   usedCitationIds,
                   state,
+                  options,
                 );
                 paragraphs.push(...columnContent);
               } else {
@@ -1239,6 +1161,7 @@ export class PublicationExportService {
                   commentsRef,
                   usedCitationIds,
                   state,
+                  options,
                 );
                 paragraphs.push(...itemContent);
               }
@@ -1311,6 +1234,7 @@ export class PublicationExportService {
                 commentsRef,
                 undefined,
                 state,
+                options,
               );
 
               currentRowCells.push(
@@ -1470,6 +1394,7 @@ export class PublicationExportService {
           commentsRef,
           usedCitationIds,
           state,
+          options,
         );
         paragraphs.push(...figureParagraphs);
       } else if (node.type === "figcaption") {
@@ -1514,7 +1439,7 @@ export class PublicationExportService {
     commentsRef: any[] = [],
     usedCitationIds?: Set<string>,
     state: { citationNodeIndex: number } = { citationNodeIndex: 0 },
-    ownerId?: string,
+    options: any = {},
   ): any[] {
     const runs: any[] = [];
 
@@ -1574,8 +1499,8 @@ export class PublicationExportService {
             child.attrs?.fallback || "[Citation]",
           );
 
-          if (citationPolicy?.resolvedCitations) {
-            const resolved = citationPolicy.resolvedCitations.occurrenceMap.get(
+          if (options?.resolvedCitations) {
+            const resolved = options.resolvedCitations.occurrenceMap.get(
               state.citationNodeIndex,
             );
             state.citationNodeIndex++;
