@@ -12,7 +12,6 @@ interface ExportOptions {
   format: "pdf" | "docx" | "txt" | "latex" | "rtf" | "zip";
   includeCitations?: boolean;
   includeComments?: boolean;
-  includeAuthorshipCertificate?: boolean;
   citationStyle?: "apa" | "mla" | "chicago";
   pageSize?: "A4" | "letter";
   orientation?: "portrait" | "landscape";
@@ -145,12 +144,12 @@ export class ExportService {
         includeCoverPage: true,
         coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
         includeTOC: false, // Disabled per user request - academic papers don't need TOC
-        includeAuthorshipCertificate: options.includeAuthorshipCertificate,
         performStructuralAudit: false,
         metadata: options.metadata,
         template: options.journalTemplate,
         citationPolicy: options.citationPolicy,
         citations: options.citations, // Pass citations to publication service
+        resolvedCitations: options.resolvedCitations, // Pass resolved citations
       },
     );
 
@@ -193,7 +192,6 @@ export class ExportService {
         citationStyle: options.citationStyle,
         includeCoverPage: false, // DISABLED: User requested raw export for PDF too
         coverPageStyle: options.citationStyle === "mla" ? "mla" : "apa",
-        includeAuthorshipCertificate: options.includeAuthorshipCertificate,
         metadata: options.metadata,
         resolvedCitations: options.resolvedCitations, // Pass the deterministic data
       }));

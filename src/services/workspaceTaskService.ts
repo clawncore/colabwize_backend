@@ -142,6 +142,9 @@ export class WorkspaceTaskService {
                   title: true,
                   status: true,
                   project_id: true,
+                  project: {
+                    select: { title: true },
+                  },
                 },
               },
             },
@@ -154,6 +157,9 @@ export class WorkspaceTaskService {
                   title: true,
                   status: true,
                   project_id: true,
+                  project: {
+                    select: { title: true },
+                  },
                 },
               },
             },
@@ -379,7 +385,7 @@ export class WorkspaceTaskService {
         title: `${originalTask.title} (Copy)`,
         description: originalTask.description,
         priority: originalTask.priority,
-        status: "TODO", // Reset status
+        status: "todo", // Reset status
         due_date: originalTask.due_date, // Keep due date? Optional: clear it
         estimated_hours: originalTask.estimated_hours,
         project_id: originalTask.project_id,
@@ -441,7 +447,6 @@ export class WorkspaceTaskService {
         if (originalTask.attachments.length > 0) {
           await tx.taskAttachment.createMany({
             data: originalTask.attachments.map((att: any) => ({
-              id: undefined, // Let DB generate new ID
               task_id: newTask.id,
               name: att.name,
               file_url: att.file_url,

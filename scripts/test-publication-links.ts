@@ -60,7 +60,6 @@ async function testExport() {
                 includeCoverPage: false,
                 coverPageStyle: "apa",
                 includeTOC: false,
-                includeAuthorshipCertificate: false,
                 performStructuralAudit: false
             }
         );

@@ -111,4 +111,27 @@ router.delete("/", authenticateExpressRequest, async (req: any, res) => {
   }
 });
 
+// POST /api/team-chat/read - Mark a message as read
+router.post("/read", authenticateExpressRequest, async (req: any, res) => {
+  try {
+    const { messageId } = req.body;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!messageId) {
+      return res.status(400).json({ error: "Message ID is required" });
+    }
+
+    await TeamChatService.markMessageAsRead(messageId, userId);
+
+    res.status(200).json({ success: true });
+  } catch (error: any) {
+    console.error("Error in Team Chat READ:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
 export default router;

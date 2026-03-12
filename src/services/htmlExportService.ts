@@ -6,7 +6,6 @@ interface HtmlExportOptions {
   includeCoverPage?: boolean;
   coverPageStyle?: "apa" | "mla";
   includeTOC?: boolean;
-  includeAuthorshipCertificate?: boolean;
   metadata?: {
     author?: string;
     institution?: string;
@@ -281,69 +280,6 @@ export class HtmlExportService {
       html += `</div>`;
     }
 
-    // 5. Appended Authorship Certificate
-    if (options.includeAuthorshipCertificate) {
-      try {
-        const {
-          AuthorshipCertificateGenerator,
-        } = require("./authorshipCertificateGenerator");
-        const {
-          AuthorshipReportService,
-        } = require("./authorshipReportService");
-        const { config } = require("../config/env");
-
-        // 1. Get Stats and User Data (we need user name, project title etc)
-        // Ensure project has title and user info. If not, we might need to fetch user.
-        // Assuming project.user_id is present.
-
-        // We need the user's name. We can try to get it from metadata or fetch it if needed.
-        // For efficiency, let's use metadata reference if available or "Author".
-        const userName = options.metadata?.author || "Author";
-
-        const stats = await AuthorshipReportService.getAuthorshipMetrics(
-          project.id,
-        );
-        const verificationUrl = `${config.appUrl}/verify/${project.id}`;
-
-        // Generate QR Code
-        const qrCodeDataUrl =
-          await AuthorshipCertificateGenerator.generateQRCodeDataURL(
-            verificationUrl,
-          );
-
-        // Generate Certificate HTML
-        const certHtml =
-          await AuthorshipCertificateGenerator.generateCertificateHTML(
-            {
-              projectId: project.id,
-              userId: project.user_id || "",
-              userName: userName,
-              projectTitle: project.title,
-              certificateType: "authorship",
-              includeQRCode: true,
-              verificationUrl: verificationUrl,
-            },
-            stats,
-            qrCodeDataUrl,
-          );
-
-        // Render as Image to safely embed
-        // Note: generating preview image uses Puppeteer internally too.
-        // If nested puppeteer calls are an issue, consider direct HTML integration, but CSS isolation is hard.
-        // Image is safer for layout fidelity.
-        const imageBuffer =
-          await AuthorshipCertificateGenerator.generatePreviewImage(certHtml);
-        const base64Image = imageBuffer.toString("base64");
-
-        html += `<div class="page-break"></div>`;
-        html += `<div style="display: flex; justify-content: center; align-items: center; height: 100vh;">`;
-        html += `<img src="data:image/png;base64,${base64Image}" style="max-width: 100%; max-height: 100vh; object-fit: contain;" alt="Authorship Certificate" />`;
-        html += `</div>`;
-      } catch (error) {
-        console.error("Failed to append authorship certificate", error);
-        // Don't fail the whole export
-      }
-    }
 
     html += `</body></html>`;
     return html;
