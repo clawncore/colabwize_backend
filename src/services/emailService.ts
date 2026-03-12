@@ -67,7 +67,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <noreply@email.colabwize.com>",
+        from: "ColabWize <noreply@noreply.colabwize.com>",
         to,
         subject: "Verify your ColabWize sign-up",
         html: `
@@ -158,7 +158,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <welcome@email.colabwize.com>",
+        from: "ColabWize <welcome@noreply.colabwize.com>",
         to,
         subject: "🚀 Welcome to ColabWize - Let's Protect Your Work!",
         html: `
@@ -249,7 +249,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <noreply@email.colabwize.com>",
+        from: "ColabWize <noreply@noreply.colabwize.com>",
         to,
         subject: "🔒 Reset your ColabWize password",
         html: `
@@ -318,7 +318,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <notifications@email.colabwize.com>",
+        from: "ColabWize <notifications@noreply.colabwize.com>",
         to,
         subject: title,
         html: `
@@ -389,7 +389,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <noreply@email.colabwize.com>",
+        from: "ColabWize <noreply@noreply.colabwize.com>",
         to,
         subject,
         html: `
@@ -476,7 +476,7 @@ export class EmailService {
       const roleLabel = roleLabels[role as keyof typeof roleLabels] || role;
 
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <invites@email.colabwize.com>",
+        from: "ColabWize <invites@noreply.colabwize.com>",
         to,
         subject: `Workspace Invitation: Join ${workspaceName} on ColabWize`,
         html: `
@@ -554,7 +554,7 @@ export class EmailService {
       }
 
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <notifications@email.colabwize.com>",
+        from: "ColabWize <notifications@noreply.colabwize.com>",
         to,
         subject: `Workspace Update: Removed from ${workspaceName}`,
         html: `
@@ -615,7 +615,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <billing@email.colabwize.com>",
+        from: "ColabWize <billing@noreply.colabwize.com>",
         to,
         subject: `ColabWize ${planName} Plan Subscription Confirmed`,
         html: `
@@ -686,7 +686,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <billing@email.colabwize.com>",
+        from: "ColabWize <billing@noreply.colabwize.com>",
         to,
         subject: `ColabWize Payment Successful - $${amount.toFixed(2)}`,
         html: `
@@ -750,7 +750,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <billing@email.colabwize.com>",
+        from: "ColabWize <billing@noreply.colabwize.com>",
         to,
         subject: `ColabWize Payment Failed - $${amount.toFixed(2)}`,
         html: `
@@ -818,7 +818,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <billing@email.colabwize.com>",
+        from: "ColabWize <billing@noreply.colabwize.com>",
         to,
         subject: `ColabWize Invoice Available - $${amount.toFixed(2)}`,
         html: `
@@ -882,7 +882,7 @@ export class EmailService {
         return false;
       }
       const { data: emailData, error } = await resend.emails.send({
-        from: "ColabWize <analytics@email.colabwize.com>",
+        from: "ColabWize <analytics@noreply.colabwize.com>",
         to,
         subject: title,
         html: `
@@ -964,7 +964,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <analytics@email.colabwize.com>",
+        from: "ColabWize <analytics@noreply.colabwize.com>",
         to,
         subject,
         html: `
@@ -1029,7 +1029,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <security@email.colabwize.com>",
+        from: "ColabWize <security@noreply.colabwize.com>",
         to,
         subject: "🔒 Two-Factor Authentication Enabled",
         html: `
@@ -1107,7 +1107,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <collaboration@email.colabwize.com>",
+        from: "ColabWize <collaboration@noreply.colabwize.com>",
         to,
         subject: title,
         html: `
@@ -1179,7 +1179,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <noreply@email.colabwize.com>",
+        from: "ColabWize <noreply@noreply.colabwize.com>",
         to,
         subject: "ColabWize Account Deletion Confirmation",
         html: `
@@ -1254,7 +1254,7 @@ export class EmailService {
         return false;
       }
       const { data: salesData, error: salesError } = await resend.emails.send({
-        from: "ColabWize <noreply@email.colabwize.com>",
+        from: "ColabWize <noreply@noreply.colabwize.com>",
         to: "sales@colabwize.com", // Replace with actual sales email
         subject: `New Institutional Plan Request - ${institutionName}`,
         html: `
@@ -1330,7 +1330,7 @@ export class EmailService {
       }
       const { data: confirmationData, error: confirmationError } =
         await resend.emails.send({
-          from: "ColabWize <noreply@email.colabwize.com>",
+          from: "ColabWize <noreply@noreply.colabwize.com>",
           to: contactEmail,
           subject: "ColabWize Institutional Plan Request Received",
           html: `
@@ -1401,7 +1401,7 @@ export class EmailService {
         return false;
       }
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <noreply@email.colabwize.com>",
+        from: "ColabWize <noreply@noreply.colabwize.com>",
         to,
         subject,
         html,
@@ -1455,7 +1455,7 @@ export class EmailService {
       const subject = `${scanTypeIcons[scanType]} ${scanTypeLabels[scanType]} Complete - ${projectName}`;
 
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <scans@email.colabwize.com>",
+        from: "ColabWize <scans@noreply.colabwize.com>",
         to,
         subject,
         html: `
@@ -1532,7 +1532,7 @@ export class EmailService {
             : `Your certificate will be available for ${retentionDays} days before automatic deletion.`;
 
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <certificates@email.colabwize.com>",
+        from: "ColabWize <certificates@noreply.colabwize.com>",
         to,
         subject: `🎓 Your Authorship Certificate is Ready - ${projectName}`,
         html: `
@@ -1608,7 +1608,7 @@ export class EmailService {
       const remaining = scansLimit - scansUsed;
 
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <alerts@email.colabwize.com>",
+        from: "ColabWize <alerts@noreply.colabwize.com>",
         to,
         subject: `⚠️ You've Used ${percentage}% of Your Monthly Scans`,
         html: `
@@ -1688,7 +1688,7 @@ export class EmailService {
       }
 
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <alerts@email.colabwize.com>",
+        from: "ColabWize <alerts@noreply.colabwize.com>",
         to,
         subject: `🚫 Monthly Scan Limit Reached - ${plan} Plan`,
         html: `
@@ -1778,7 +1778,7 @@ export class EmailService {
         : `Plan Changed to ${newPlan}`;
 
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <billing@email.colabwize.com>",
+        from: "ColabWize <billing@noreply.colabwize.com>",
         to,
         subject,
         html: `
@@ -1851,7 +1851,7 @@ export class EmailService {
       }
 
       const { data, error } = await resend.emails.send({
-        from: "ColabWize <certificates@email.colabwize.com>",
+        from: "ColabWize <certificates@noreply.colabwize.com>",
         to,
         subject: `⏰ ${certificateCount} Certificate${certificateCount > 1 ? "s" : ""} Expiring Soon`,
         html: `
@@ -1946,7 +1946,7 @@ export class EmailService {
         .join("");
 
       const { data, error } = await resend.emails.send({
-        from: "ColabWize Alerts <alerts@email.colabwize.com>",
+        from: "ColabWize Alerts <alerts@noreply.colabwize.com>",
         to,
         subject: `🔔 New Research Found: ${query}`,
         html: `

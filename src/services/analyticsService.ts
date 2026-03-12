@@ -204,6 +204,77 @@ export class AnalyticsService {
     }
   }
   /**
+   * Get usage trends (documents per week) for the last N weeks
+   */
+  static async getWeeklyUsageTrends(
+    userId: string,
+    weeks: number = 8
+  ): Promise<any[]> {
+    try {
+      const now = new Date();
+      // Start of current week (Sunday)
+      const currentStart = new Date(now);
+      currentStart.setDate(now.getDate() - now.getDay());
+      currentStart.setHours(0, 0, 0, 0);
+
+      const startDate = new Date(currentStart);
+      startDate.setDate(startDate.getDate() - ((weeks - 1) * 7));
+
+      const projects = await prisma.project.findMany({
+        where: {
+          user_id: userId,
+          workspace_id: null,
+          created_at: {
+            gte: startDate,
+          },
+        },
+        select: {
+          created_at: true,
+        },
+      });
+
+      // Group by week in memory
+      const weekMap = new Map<string, number>();
+
+      projects.forEach((p: any) => {
+        const date = new Date(p.created_at);
+        const day = date.getDay();
+        const diff = date.getDate() - day;
+        const d = new Date(date.setDate(diff));
+        d.setHours(0, 0, 0, 0);
+        
+        const key = d.toISOString().split('T')[0];
+        weekMap.set(key, (weekMap.get(key) || 0) + 1);
+      });
+
+      // Fill in all weeks
+      const trends = [];
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      
+      for (let i = 0; i < weeks; i++) {
+        const d = new Date(startDate);
+        d.setDate(startDate.getDate() + (i * 7));
+        d.setHours(0, 0, 0, 0);
+        const key = d.toISOString().split('T')[0];
+        
+        const day = d.getDate();
+        const month = months[d.getMonth()];
+        
+        trends.push({
+          date: key,
+          label: `${month} ${day}`,
+          documents: weekMap.get(key) || 0
+        });
+      }
+
+      return trends;
+    } catch (error: any) {
+      logger.error("Error getting weekly usage trends", { error: error.message });
+      return [];
+    }
+  }
+
+  /**
    * Get usage trends (documents per month)
    */
   static async getUsageTrends(
@@ -222,6 +293,7 @@ export class AnalyticsService {
       const projects = await prisma.project.findMany({
         where: {
           user_id: userId,
+          workspace_id: null,
           created_at: {
             gte: startDate,
           },
@@ -266,7 +338,10 @@ export class AnalyticsService {
   static async getYearlyTrends(userId: string): Promise<any[]> {
     try {
       const projects = await prisma.project.findMany({
-        where: { user_id: userId },
+        where: { 
+          user_id: userId,
+          workspace_id: null
+        },
         select: { created_at: true },
       });
 
@@ -291,7 +366,12 @@ export class AnalyticsService {
   static async getProductivityInsight(userId: string): Promise<any> {
     try {
       const activities = await prisma.authorshipActivity.findMany({
-        where: { user_id: userId },
+        where: { 
+          user_id: userId,
+          project: {
+            workspace_id: null
+          }
+        },
         select: { session_start: true, word_count: true },
       });
 

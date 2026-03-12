@@ -132,30 +132,49 @@ router.get("/dashboard", async (req: Request, res: Response) => {
 
     // Get the most recent scan results from the specific services
 
-    // Get the most recent originality scan
+    // Get the most recent originality scan (personal projects only)
     const latestOriginalityScan = await prisma.originalityScan.findFirst({
-      where: { user_id: userId },
+      where: { 
+        user_id: userId,
+        project: {
+          workspace_id: null
+        }
+      },
       orderBy: { scanned_at: "desc" },
       select: { overall_score: true, classification: true },
     });
 
-    // Get the most recent certificate
+    // Get the most recent certificate (personal projects only)
     const latestCertificate = await prisma.certificate.findFirst({
-      where: { user_id: userId },
+      where: { 
+        user_id: userId,
+        project: {
+          workspace_id: null
+        }
+      },
       orderBy: { created_at: "desc" },
       select: { status: true },
     });
 
-    // Get citation statistics
+    // Get citation statistics (personal projects only)
     const citationCount = await prisma.citation.count({
-      where: { user_id: userId },
+      where: { 
+        user_id: userId,
+        project: {
+          workspace_id: null
+        }
+      },
     });
 
     // Get upcoming deadlines
     const upcomingDeadlines = await prisma.project.findMany({
       where: {
         user_id: userId,
-        due_date: { not: null }
+        due_date: { not: null },
+        workspace_id: null,
+        status: {
+          notIn: ["completed", "archived"]
+        }
       },
       orderBy: { due_date: "asc" },
       take: 5,
@@ -167,11 +186,11 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       }
     });
 
-    // Get document creation trends (last 7 months for bar chart)
-    const trendData = await AnalyticsService.getUsageTrends(userId, 7);
+    // Get document creation trends (last 8 weeks for bar chart)
+    const trendData = await AnalyticsService.getWeeklyUsageTrends(userId, 8);
     const formattedTrendData = trendData.map((t: any) => ({
-      name: t.month_name,
-      documents: t.count
+      name: t.label, // Show the date label (e.g., "Oct 12")
+      documents: t.documents
     }));
 
     // Extract the actual values from the database records

@@ -126,7 +126,14 @@ router.get("/:id/overview", async (req: any, res) => {
       // 2. Tasks Counts (Grouped by status)
       prisma.workspaceTask.groupBy({
         by: ["status"],
-        where: { workspace_id: id },
+        where: {
+          workspace_id: id,
+          is_template: false,
+          OR: [
+            { is_recurring: false },
+            { parent_recurring_task_id: { not: null } }
+          ]
+        },
         _count: {
           status: true,
         },
@@ -138,9 +145,17 @@ router.get("/:id/overview", async (req: any, res) => {
           workspace_id: id,
           assignees: { some: { user_id: userId } },
           status: { not: "done" },
+          is_template: false,
+          OR: [
+            { is_recurring: false },
+            { parent_recurring_task_id: { not: null } }
+          ]
         },
-        orderBy: { due_date: "asc" },
-        take: 5,
+        orderBy: [
+          { due_date: "asc" },
+          { created_at: "desc" }
+        ],
+        take: 10,
         include: {
           project: { select: { title: true } },
           assignees: {

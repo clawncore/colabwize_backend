@@ -1625,20 +1625,34 @@ export class EditorService {
         contentChangedAtAll = currentContentStr !== previousContentStr;
 
         // Calculate Levenshtein distance for content difference if there is a change
+        // AND strings aren't too large (avoid O(N^2) on documents > 20k characters to prevent timeouts)
         if (contentChangedAtAll) {
-          const distance = this.calculateLevenshteinDistance(
-            previousContentStr,
-            currentContentStr,
-          );
           const maxLength = Math.max(
             previousContentStr.length,
             currentContentStr.length,
           );
 
-          // If more than 10% of content has changed, consider it significant
-          if (maxLength > 0) {
-            const changePercentage = (distance / maxLength) * 100;
-            contentChangedSignificantly = changePercentage > 10;
+          if (maxLength > 20000) {
+            // For very large documents, use a simpler heuristic (length difference)
+            // If length changed by more than 500 characters, consider it significant
+            const lengthDiff = Math.abs(previousContentStr.length - currentContentStr.length);
+            contentChangedSignificantly = lengthDiff > 500;
+            
+            logger.info("Large document detected, using length-based change detection", {
+              projectId,
+              maxLength,
+              lengthDiff
+            });
+          } else {
+            const distance = this.calculateLevenshteinDistance(
+              previousContentStr,
+              currentContentStr,
+            );
+            // If more than 10% of content has changed, consider it significant
+            if (maxLength > 0) {
+              const changePercentage = (distance / maxLength) * 100;
+              contentChangedSignificantly = changePercentage > 10;
+            }
           }
         }
       }
@@ -1671,31 +1685,23 @@ export class EditorService {
   }
 
   // Helper method to calculate Levenshtein distance between two strings
+  // Optimized for memory usage (O(min(M, N)) space)
   static calculateLevenshteinDistance(str1: string, str2: string): number {
-    const matrix = Array(str2.length + 1)
-      .fill(null)
-      .map(() => Array(str1.length + 1).fill(null));
+    if (str1.length < str2.length) [str1, str2] = [str2, str1];
+    if (str2.length === 0) return str1.length;
 
-    for (let i = 0; i <= str1.length; i++) {
-      matrix[0][i] = i;
-    }
-
-    for (let j = 0; j <= str2.length; j++) {
-      matrix[j][0] = j;
-    }
-
-    for (let j = 1; j <= str2.length; j++) {
-      for (let i = 1; i <= str1.length; i++) {
-        const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
-        matrix[j][i] = Math.min(
-          matrix[j][i - 1] + 1, // deletion
-          matrix[j - 1][i] + 1, // insertion
-          matrix[j - 1][i - 1] + indicator, // substitution
-        );
+    let prevRow = Array.from({ length: str2.length + 1 }, (_, i) => i);
+    for (let i = 0; i < str1.length; i++) {
+      let currRow = [i + 1];
+      for (let j = 0; j < str2.length; j++) {
+        const insertions = prevRow[j + 1] + 1;
+        const deletions = currRow[j] + 1;
+        const substitutions = prevRow[j] + (str1[i] === str2[j] ? 0 : 1);
+        currRow.push(Math.min(insertions, deletions, substitutions));
       }
+      prevRow = currRow;
     }
-
-    return matrix[str2.length][str1.length];
+    return prevRow[str2.length];
   }
 
   // Add the missing createDocumentVersion method

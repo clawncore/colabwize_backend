@@ -1,8 +1,0 @@
-﻿src/services/citationAudit/CitationPatternObserver.ts(37,9): error TS2353: Object literal may only specify known properties, and '"MIXED_STYLE"' does not exist in type 'Record<PatternType, RegExp>'.
-src/services/citationAudit/CitationPatternObserver.ts(108,17): error TS2322: Type '"MIXED_STYLE"' is not assignable to type 'PatternType'.
-src/services/citationAudit/ForensicAuditService.ts(14,3): error TS2305: Module '"../../types/citationAudit"' has no exported member 'AuditResponse'.
-src/services/citationAudit/ForensicAuditService.ts(16,3): error TS2305: Module '"../../types/citationAudit"' has no exported member 'AuditTier'.
-src/services/citationAudit/ForensicAuditService.ts(47,61): error TS2345: Argument of type 'SimpleCitationPair[]' is not assignable to parameter of type 'CitationPair[]'.
-  Type 'SimpleCitationPair' is not assignable to type 'CitationPair'.
-    Types of property 'inline' are incompatible.
-      Property 'patternType' is missing in type '{ text: string; start: number; end: number; context?: string | undefined; }' but required in type '{ text: string; start: number; end: number; patternType: string; context?: string | undefined; }'.

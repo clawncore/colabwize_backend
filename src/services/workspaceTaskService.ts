@@ -477,6 +477,10 @@ export class WorkspaceTaskService {
         where: {
           workspace_id: workspaceId,
           is_template: false,
+          OR: [
+            { is_recurring: false },
+            { parent_recurring_task_id: { not: null } }
+          ]
         },
         include: {
           assignees: {
@@ -713,6 +717,12 @@ export class WorkspaceTaskService {
         }
       }
 
+      // Fetch current task to check recurrence transition
+      const currentTask = await prisma.workspaceTask.findUnique({
+        where: { id: taskId },
+        select: { is_recurring: true }
+      });
+
       const updatedTask = await prisma.workspaceTask.update({
         where: { id: taskId },
         data: {
@@ -721,7 +731,11 @@ export class WorkspaceTaskService {
           status: data.status,
           priority: data.priority,
           due_date: data.due_date,
-          project_id: data.project_id, // Update project linking
+          project_id: data.project_id,
+          is_recurring: data.is_recurring,
+          recurrence_pattern: data.recurrence_pattern,
+          recurrence_end_date: data.recurrence_end_date,
+          recurrence_max_occurrences: data.recurrence_max_occurrences,
         },
         include: {
           assignees: {
@@ -737,6 +751,16 @@ export class WorkspaceTaskService {
           comments: true,
         },
       });
+
+      // Generate initial instances if task was updated to be recurring
+      if (updatedTask.is_recurring && (!currentTask?.is_recurring)) {
+        try {
+          await RecurringTaskService.generateTaskInstances(updatedTask.id);
+          logger.info(`Generated initial instances for recurring task ${updatedTask.id} after update`);
+        } catch (err) {
+          logger.error(`Failed to generate instances for updated recurring task:`, err);
+        }
+      }
 
       // Notify newly assigned users
       if (newlyAssignedUserIds.length > 0) {

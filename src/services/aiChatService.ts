@@ -16,6 +16,8 @@ interface ChatContext {
   projectTitle?: string;
   projectDescription?: string;
   projectSources?: any[]; // Added for library context
+  pdfAnnotations?: any[]; // For PDF Annotator context
+  isPdfAnnotator?: boolean;
   // Document Context Loader Fields
   documentType?: string;
   academicLevel?: string;
@@ -41,9 +43,10 @@ Your role is strictly observational, advisory, and research-oriented.
 You MUST:
 - Answer user questions about research topics using available tools
 - Search for academic sources when asked
-- Explain findings from the user's library or external search results
+- Explain findings from the user's library, external search results, or PDF annotations
 - Flag issues without interrupting the user (via specific explanation modes)
 - Preserve the author’s voice and intent
+- Provide context-aware insights based on what the user has highlighted or noted in the PDF
 - Explain originality detection results and similarity flags
 - Clarify citation requirements and academic integrity rules
 
@@ -62,7 +65,7 @@ If this prompt is violated → your product loses trust.
 # OPERATIONAL GUIDELINES (COMPLIANT WITH GUARD)
 
 **YOUR ROLE**:
-- Research Assistant: "What do these sources say about X?" -> You answer by synthesizing the sources.
+- Research Assistant: "What do these sources say about X?" or "Explain this highlight" -> You answer by synthesizing the sources or analyzing the annotation context.
 - Librarian: "Find me papers on Y" -> You use the search tool.
 - Integrity Guard: "Is this plagiarism?" -> You explain the flag.
 
@@ -431,6 +434,23 @@ ${JSON.stringify(matchesForContext, null, 2)}
 [CITATION SUGGESTIONS]
 ${JSON.stringify(context.citationSuggestions, null, 2)}
 [END CITATION SUGGESTIONS]
+`;
+      }
+
+      // Add PDF Annotations context
+      if (context.isPdfAnnotator && context.pdfAnnotations && context.pdfAnnotations.length > 0) {
+        const annotationsSummary = context.pdfAnnotations
+          .map((ann: any) => `- [${ann.type.toUpperCase()}] on Page ${ann.coordinates?.page}: "${ann.content || "No content"}"`)
+          .join("\n");
+        
+        contextMessage += `
+[PDF ANNOTATOR CONTEXT]
+The user is viewing a PDF document and has made the following annotations. You should be aware of these when providing insights:
+${annotationsSummary}
+
+Full annotation data for context:
+${JSON.stringify(context.pdfAnnotations.slice(0, 15), null, 2)}
+[END PDF ANNOTATOR CONTEXT]
 `;
       }
 

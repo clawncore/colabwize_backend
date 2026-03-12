@@ -62,6 +62,42 @@ router.get("/", async (req, res) => {
   }
 });
 
+// Mark notification(s) as read
+router.post("/read", async (req, res) => {
+  try {
+    logger.info("Notification read POST route called", {
+      url: req.url,
+      userId: (req as any).user?.id,
+      body: req.body,
+    });
+
+    // Create a mock request object that matches the Edge function signature
+    const fullUrl = `http://localhost:3001${req.url}`;
+
+    // Convert express headers to Headers-like object with get method
+    const headers = {
+      get: (name: string) => req.headers[name.toLowerCase()] || null,
+      has: (name: string) => !!req.headers[name.toLowerCase()],
+    };
+
+    const mockRequest = {
+      url: fullUrl,
+      headers,
+      json: () => Promise.resolve(req.body),
+      user: (req as any).user,
+      auth: (req as any).user ? { userId: (req as any).user.id } : undefined,
+    };
+
+    const response = await POST(mockRequest as any);
+    const data = await response.json();
+
+    return res.status(response.status).json(data);
+  } catch (error: any) {
+    logger.error("Notification read POST failed", { error: error.message });
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Create notification
 router.post("/", async (req, res) => {
   try {
