@@ -39,7 +39,7 @@ export async function sendEmail({
         subject,
         html,
         attachments,
-        reply_to: REPLY_TO,
+        replyTo: REPLY_TO,
       });
 
       if (error) {
