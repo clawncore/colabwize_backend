@@ -94,33 +94,14 @@ export async function POST_REQUEST_OTP(request: Request) {
       });
     }
 
-    // Determine OTP method
-    let method = "sms";
+    // Force OTP method to email
+    const method = "email";
 
-    // Use requested method if provided and valid contact info exists
-    if (deliveryMethod === "email") {
-      if (!prismaUser.email) {
-        return new Response(JSON.stringify({ error: "No email address found" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      method = "email";
-    } else if (deliveryMethod === "sms") {
-      if (!prismaUser.phone_number) {
-        return new Response(JSON.stringify({ error: "No phone number found" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      method = "sms"; // Explicitly requested SMS
-    } else {
-      // Fallback logic if no method specified
-      if (prismaUser.phone_number) {
-        method = "sms";
-      } else {
-        method = "email";
-      }
+    if (!prismaUser.email) {
+      return new Response(JSON.stringify({ error: "No email address found" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     // Import OTP service
@@ -130,7 +111,7 @@ export async function POST_REQUEST_OTP(request: Request) {
     const result = await OTPService.sendOTP(
       user.id,
       prismaUser.email,
-      prismaUser.phone_number || "",
+      "", // No phone number needed
       method,
       prismaUser.full_name || "",
       true // isProfileUpdate
@@ -146,7 +127,7 @@ export async function POST_REQUEST_OTP(request: Request) {
     return new Response(
       JSON.stringify({
         success: true,
-        message: `OTP sent successfully to your ${method}`,
+        message: `Verification code sent to your email`,
       }),
       {
         status: 200,
