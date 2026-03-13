@@ -10,7 +10,7 @@ router.post("/", async (req, res) => {
     try {
         const trackingData = req.body;
         // Fallback to userId from body if not found in auth token (e.g. for robust tracking)
-        const userId = (req as any).user?.user_id || trackingData.userId;
+        const userId = (req as any).user?.id || trackingData.userId;
 
         if (!userId) {
             // Ideally we should require auth, but if we want to track anonymous usage we'd need a guest user strategy
@@ -81,7 +81,7 @@ router.post("/", async (req, res) => {
 router.post("/analyze/:projectId", async (req, res) => {
     try {
         const { projectId } = req.params;
-        const userId = (req as any).user?.user_id;
+        const userId = (req as any).user?.id;
 
         if (!userId) {
             return res.status(401).json({ success: false, message: "Unauthorized" });
@@ -128,7 +128,7 @@ router.post("/analyze/:projectId", async (req, res) => {
 router.get("/patterns/:projectId", async (req, res) => {
     try {
         const { projectId } = req.params;
-        const userId = (req as any).user?.user_id;
+        const userId = (req as any).user?.id;
 
         if (!userId) {
             return res.status(401).json({ success: false, message: "Unauthorized" });

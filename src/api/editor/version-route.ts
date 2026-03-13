@@ -64,7 +64,7 @@ async function handlePOST_VERSION(request: Request & { user?: any }) {
       );
 
       return { shouldCreate: true, version };
-    });
+    }, { timeout: 30000 });
 
     if (!versionResult.shouldCreate) {
       // Return success but indicate no new version was created

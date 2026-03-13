@@ -1,6 +1,7 @@
-import { RRule, RRuleSet, rrulestr } from "rrule";
+import { RRule, rrulestr } from "rrule";
 import prisma from "../lib/prisma";
 import logger from "../monitoring/logger";
+import { getNotificationServer } from "../lib/notificationServer";
 
 export interface RecurrenceConfig {
   pattern: string; // "daily", "weekly", "monthly", "yearly", or RRULE string
@@ -146,7 +147,10 @@ export class RecurringTaskService {
       }
 
       // Calculate the range for generating instances
+      // We start from the task's due date to ensure we don't miss the first occurrence
+      // even if the time has passed for today.
       const now = new Date();
+      const startDate = parentTask.due_date && parentTask.due_date < now ? parentTask.due_date : now;
       const futureDate = new Date();
       futureDate.setDate(futureDate.getDate() + weeksAhead * 7);
 
@@ -171,7 +175,7 @@ export class RecurringTaskService {
       // Generate occurrences using RRULE
       const occurrences = this.getOccurrencesInRange(
         parentTask.recurrence_pattern,
-        now,
+        startDate,
         futureDate,
       );
 
@@ -207,7 +211,34 @@ export class RecurringTaskService {
               })),
             },
           },
+          include: {
+            assignees: {
+              include: {
+                user: {
+                  select: { id: true, full_name: true, email: true },
+                },
+              },
+            },
+            labels: true,
+          },
         });
+
+        // Broadcast the new instance to the workspace channel
+        try {
+          const notificationServer = getNotificationServer();
+          notificationServer.broadcastToChannel(
+            `workspace:${parentTask.workspace_id}`,
+            {
+              type: "TASK_CREATED",
+              task: instance,
+            },
+          );
+        } catch (eventError) {
+          logger.error(
+            "Failed to broadcast recurring task instance creation:",
+            eventError,
+          );
+        }
 
         createdInstances.push(instance);
       }

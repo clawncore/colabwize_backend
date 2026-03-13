@@ -537,6 +537,36 @@ router.get("/attachments/:id/stream", async (req: any, res) => {
   }
 });
 
+// GET /api/workspaces/tasks/attachments/:id/download - Download attachment
+router.get("/attachments/:id/download", async (req: any, res) => {
+  try {
+    const attachmentId = req.params.id;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const attachment = await TaskAttachmentService.getAttachmentById(attachmentId);
+    if (!attachment) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
+
+    const { data, mimeType } = await TaskAttachmentService.downloadAttachment(attachmentId);
+    
+    res.setHeader("Content-Type", mimeType || "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(attachment.name)}"`
+    );
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.send(data);
+  } catch (error: any) {
+    console.error("Error in Task Attachment Download GET:", error);
+    res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
 // GET /api/workspaces/tasks/attachments/:id/annotations - Get saved annotations
 router.get("/attachments/:id/annotations", async (req: any, res) => {
   try {
