@@ -95,6 +95,18 @@ export class TeamChatService {
               avatar_url: true,
             },
           },
+          parent: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  full_name: true,
+                  email: true,
+                  avatar_url: true,
+                },
+              },
+            },
+          },
         },
       });
 
@@ -215,6 +227,72 @@ export class TeamChatService {
   }
 
   /**
+   * Update a message content
+   */
+  static async updateMessage(messageId: string, userId: string, content: string) {
+    try {
+      // Check ownership
+      const existingMessage = await prisma.teamChatMessage.findUnique({
+        where: { id: messageId },
+      });
+
+      if (!existingMessage) {
+        throw new Error("Message not found");
+      }
+
+      if (existingMessage.user_id !== userId) {
+        throw new Error("Unauthorized");
+      }
+
+      const message = await prisma.teamChatMessage.update({
+        where: { id: messageId },
+        data: {
+          content,
+          updated_at: new Date(),
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              full_name: true,
+              email: true,
+              avatar_url: true,
+            },
+          },
+          parent: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  full_name: true,
+                  email: true,
+                  avatar_url: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // Broadcast to channel
+      try {
+        const channelName = `team-chat-${message.workspace_id || message.project_id}`;
+        getNotificationServer().broadcastToChannel(channelName, {
+          type: "MESSAGE_UPDATED",
+          message: message,
+        });
+      } catch (e) {
+        logger.error("Error broadcasting update:", e);
+      }
+
+      return message;
+    } catch (error) {
+      logger.error("Error updating chat message:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Delete a message (owner only or admin)
    */
   static async deleteMessage(messageId: string, userId: string) {
@@ -228,15 +306,24 @@ export class TeamChatService {
         throw new Error("Message not found");
       }
 
-      // Allow deletion if user is the sender OR valid admin checks could go here
       if (message.user_id !== userId) {
-        // Need to check workspace role if not sender, but for now strict ownership
         throw new Error("Unauthorized");
       }
 
       await prisma.teamChatMessage.delete({
         where: { id: messageId },
       });
+
+      // Broadcast to channel
+      try {
+        const channelName = `team-chat-${message.workspace_id || message.project_id}`;
+        getNotificationServer().broadcastToChannel(channelName, {
+          type: "MESSAGE_DELETED",
+          messageId: messageId,
+        });
+      } catch (e) {
+        logger.error("Error broadcasting delete:", e);
+      }
 
       return { success: true };
     } catch (error) {
