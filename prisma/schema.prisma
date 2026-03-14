@@ -692,6 +692,23 @@ model SupportTicket {
   @@map("support_tickets")
 }
 
+model SupportMessage {
+  id           String   @id @default(uuid())
+  sender_email String
+  subject      String
+  message_text String?  @db.Text
+  message_html String?  @db.Text
+  received_at  DateTime @default(now())
+  status       String   @default("open") // "open", "resolved"
+  thread_id    String?
+  source_alias String?
+  imap_uid     Int      @unique
+
+  @@index([thread_id])
+  @@index([status])
+  @@map("support_messages")
+}
+
 model FeatureRequest {
   id             String        @id @default(uuid())
   user_id        String?

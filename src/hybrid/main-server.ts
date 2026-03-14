@@ -22,6 +22,7 @@ import { scheduleVersionCleanupTask } from "../scheduledTasks/versionCleanupTask
 import { scheduleSearchAlertsTask } from "../scheduledTasks/checkSearchAlerts";
 import { scheduleVersionSchedulingTask } from "../scheduledTasks/versionSchedulingTask";
 import { scheduleTaskReminderTask } from "../scheduledTasks/taskReminderTask";
+import { scheduleInboxWorkerTask } from "../scheduledTasks/inboxWorker";
 import grammarRouter from "../api/grammar/index";
 // Import collaboration server
 import { HocuspocusCollaborationServer } from "./websockets/hocuspocus-server";
@@ -66,6 +67,7 @@ import researchRouter from "../api/research/index";
 import auditRouter from "../audit/index";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
+import adminRouter from "../api/admin/index";
 
 const app: Application = express();
 
@@ -75,6 +77,7 @@ scheduleCleanupTask();
 scheduleVersionCleanupTask();
 scheduleVersionSchedulingTask();
 scheduleTaskReminderTask();
+scheduleInboxWorkerTask();
 
 app.set("trust proxy", true);
 
@@ -340,6 +343,9 @@ app.use("/api/notifications", notificationsRouter);
 
 // Analytics API
 app.use("/api/analytics", authMiddleware, analyticsRouter);
+
+// Admin Platform API
+app.use("/api/admin", authMiddleware, adminRouter);
 
 // Subscription API
 app.use("/api/subscription", subscriptionRouter);

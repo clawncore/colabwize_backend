@@ -11,6 +11,7 @@ export async function sendEmail({
   to,
   subject,
   html,
+  text,
   attachments,
 }: EmailOptions) {
   const resend = await getResendClient();
@@ -38,6 +39,7 @@ export async function sendEmail({
         to,
         subject,
         html,
+        text: text || "This email requires an HTML viewer.",
         attachments,
         replyTo: REPLY_TO,
       });
