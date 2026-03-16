@@ -73,7 +73,7 @@
     "express-rate-limit": "^8.2.1",
     "formidable": "^3.5.4",
     "fs-extra": "^11.3.3",
-    "happy-dom": "9.20.3",
+    "happy-dom": "^20.0.2",
     "imapflow": "^1.2.13",
     "isomorphic-dompurify": "^3.3.0",
     "mailparser": "^3.9.4",
