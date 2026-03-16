@@ -4,8 +4,14 @@ import { sendEmail } from "../../services/email/baseMailer";
 import { SENDER_IDENTITIES, EmailSender } from "../../services/email/emailConfig";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
+import { processBroadcast } from "../../services/admin/broadcastService";
 
 const router: Router = express.Router();
+
+// Diagnostic route
+router.get("/health", (req, res) => {
+  res.json({ status: "active", router: "admin" });
+});
 
 // Base middleware for all admin routes
 router.use(isPlatformAdmin);
@@ -38,6 +44,17 @@ router.post("/email/send", async (req, res) => {
       text: fallbackText
     });
 
+    // Audit Log Entry
+    await prisma.emailLog.create({
+      data: {
+        recipient: to,
+        sender: senderAlias,
+        subject,
+        status: result.success ? "sent" : "failed",
+        error: result.success ? null : (result.error || "Unknown error")
+      }
+    });
+
     if (result.success) {
       return res.json({ success: true, message: "Email sent successfully", id: result.data?.id });
     } else {
@@ -62,10 +79,22 @@ router.post("/email/broadcast", async (req, res) => {
       return res.status(400).json({ error: "Invalid or missing required fields" });
     }
 
-    // In a real production scenario, this should be dispatched to a background queue
-    // (e.g., BullMQ) rather than blocking the HTTP request for bulk emailing.
-    // For MVP purposes, this provides scaffold capability.
-    res.status(202).json({ success: true, message: "Broadcast request received and queued" });
+    if (!Object.keys(SENDER_IDENTITIES).includes(senderAlias)) {
+      return res.status(400).json({ error: "Invalid sender alias" });
+    }
+
+    // Fire and forget: Process broadcast in background
+    processBroadcast({
+      userIds,
+      senderAlias: senderAlias as EmailSender,
+      subject,
+      message
+    }).catch(err => logger.error("Background Broadcast Error:", err));
+
+    res.status(202).json({ 
+      success: true, 
+      message: `Broadcast of ${userIds.length} emails has been initiated in the background.` 
+    });
   } catch (error: any) {
     logger.error("Admin Broadcast Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -204,15 +233,81 @@ router.patch("/inbox/:threadId/status", async (req, res) => {
  */
 router.get("/email/logs", async (req, res) => {
   try {
-    // Stub implementation: Returns basic mock framework since `Resend` fetching or
-    // DB email logging tables might not strictly exist yet in our architecture config.
-    const logs = [
-        { id: "1", to: "test1@example.com", subject: "Welcome", status: "delivered", delivered_at: new Date().toISOString() },
-        { id: "2", to: "test2@example.com", subject: "Update", status: "delivered", delivered_at: new Date().toISOString() }
-    ];
-    res.json(logs);
+    const limit = parseInt(req.query.limit as string) || 100;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    const logs = await prisma.emailLog.findMany({
+      take: limit,
+      skip: offset,
+      orderBy: { sent_at: "desc" }
+    });
+
+    const total = await prisma.emailLog.count();
+
+    res.json({ success: true, logs, total });
   } catch (error: any) {
     logger.error("Admin Log Fetch Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/analytics
+ * @desc    Fetch platform and email analytics
+ * @access  Admin Only
+ */
+router.get("/analytics", async (req, res) => {
+  try {
+    // 1. Email stats
+    const emailStats = await prisma.emailLog.groupBy({
+      by: ['status'],
+      _count: true
+    });
+
+    // 2. User Growth (Last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const userGrowth = await prisma.user.count({
+      where: { created_at: { gte: thirtyDaysAgo } }
+    });
+
+    const totalUsers = await prisma.user.count();
+
+    // 3. Plan Distribution
+    // This assumes we have a subscription model or user.plan field. 
+    // From our schema, it's subscription.plan
+    const paidUsers = await prisma.subscription.count({
+      where: { status: "active" }
+    });
+
+    const activeSupport = await prisma.supportMessage.count({
+      where: { status: "open" }
+    });
+
+    const blogPosts = await prisma.blogPost.count();
+
+    res.json({
+      success: true,
+      data: {
+        emails: emailStats,
+        growth: {
+          last30Days: userGrowth,
+          total: totalUsers
+        },
+        distribution: {
+          paid: paidUsers,
+          free: totalUsers - paidUsers
+        },
+        app: {
+          activeSupport,
+          blogPosts,
+          marketingReach: totalUsers // Representing reach as total users
+        }
+      }
+    });
+  } catch (error: any) {
+    logger.error("Admin Analytics Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
@@ -224,28 +319,160 @@ router.get("/email/logs", async (req, res) => {
  */
 router.get("/users", async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = parseInt(req.query.limit as string) || 100;
     const offset = parseInt(req.query.offset as string) || 0;
+    const plan = req.query.plan as string | undefined; // 'free' | 'paid' | 'all'
+    const dateFrom = req.query.dateFrom as string | undefined;
+    const dateTo = req.query.dateTo as string | undefined;
+    const search = req.query.search as string | undefined;
+
+    const where: any = {};
+
+    if (search) {
+      where.OR = [
+        { full_name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    if (dateFrom || dateTo) {
+      where.created_at = {};
+      if (dateFrom) where.created_at.gte = new Date(dateFrom);
+      if (dateTo) where.created_at.lte = new Date(dateTo);
+    }
+
+    if (plan === 'paid') {
+      where.subscription = { some: { status: 'active' } };
+    } else if (plan === 'free') {
+      where.subscription = { none: { status: 'active' } };
+    }
 
     const usersList = await prisma.user.findMany({
       take: limit,
       skip: offset,
+      where,
       select: {
         id: true,
         email: true,
         full_name: true,
         created_at: true,
-        updated_at: true,
-        settings: true
+        subscription: {
+          select: { plan: true, status: true },
+          orderBy: { created_at: 'desc' },
+          take: 1
+        }
       },
       orderBy: { created_at: "desc" }
     });
 
-    res.json({ users: usersList });
+    const total = await prisma.user.count({ where });
+
+    res.json({ users: usersList, total });
   } catch (error: any) {
+    console.error("ADMIN USER FETCH ERROR:", error);
     logger.error("Admin User Fetch Error:", error);
+    res.status(500).json({ success: false, error: error.message || "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/blogs
+ * @desc    Fetch all blog posts
+ * @access  Admin Only
+ */
+router.get("/blogs", async (req, res) => {
+  try {
+    const blogs = await prisma.blogPost.findMany({
+      orderBy: { created_at: "desc" }
+    });
+    res.json({ success: true, blogs });
+  } catch (error: any) {
+    logger.error("Admin Blogs Fetch Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   POST /api/admin/blogs
+ * @desc    Create a new blog post
+ * @access  Admin Only
+ */
+router.post("/blogs", async (req, res) => {
+  try {
+    const { title, excerpt, content, author, category, image, is_published } = req.body;
+
+    if (!title || !excerpt || !content || !author || !category) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const slug = title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
+
+    const blog = await prisma.blogPost.create({
+      data: {
+        title,
+        slug,
+        excerpt,
+        content,
+        author,
+        category,
+        image,
+        is_published: is_published || false,
+        author_id: (req as any).user?.id // Assuming user ID is attached by middleware
+      }
+    });
+
+    res.json({ success: true, blog });
+  } catch (error: any) {
+    logger.error("Admin Blog Create Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   PATCH /api/admin/blogs/:id
+ * @desc    Update a blog post
+ * @access  Admin Only
+ */
+router.patch("/blogs/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    if (updateData.title) {
+       updateData.slug = updateData.title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
+    }
+
+    const blog = await prisma.blogPost.update({
+      where: { id },
+      data: updateData
+    });
+
+    res.json({ success: true, blog });
+  } catch (error: any) {
+    logger.error("Admin Blog Update Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   DELETE /api/admin/blogs/:id
+ * @desc    Delete a blog post
+ * @access  Admin Only
+ */
+router.delete("/blogs/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await prisma.blogPost.delete({
+      where: { id }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    logger.error("Admin Blog Delete Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
 export default router;
+

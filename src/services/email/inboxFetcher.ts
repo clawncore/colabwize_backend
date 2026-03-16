@@ -1,153 +1,112 @@
-import { ImapFlow } from 'imapflow';
-import { simpleParser, ParsedMail } from 'mailparser';
-import { prisma } from '../../lib/prisma';
-import logger from '../../monitoring/logger';
-import { SENDER_IDENTITIES } from './emailConfig';
+import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
+import { PrismaClient } from "@prisma/client";
+import DOMPurify from "isomorphic-dompurify";
+import dotenv from "dotenv";
 
-// Extract the mapped aliases for reverse lookup
-const ALIAS_DOMAINS = Object.values(SENDER_IDENTITIES).map(identity => {
-  const match = identity.match(/<(.+)>/);
-  return match ? match[1].toLowerCase() : null;
-}).filter(Boolean) as string[];
+dotenv.config();
 
-export class InboxFetcher {
-  private client: ImapFlow;
+const prisma = new PrismaClient();
 
-  constructor() {
-    this.client = new ImapFlow({
-      host: process.env.IMAP_HOST || 'imap.titan.email',
-      port: parseInt(process.env.IMAP_PORT || '993', 10),
-      secure: true,
-      auth: {
-        user: process.env.IMAP_USER || '',
-        pass: process.env.IMAP_PASSWORD || ''
-      },
-      logger: false // Set to true for deep debugging
-    });
-  }
+export async function processIncomingSupportEmails() {
+  const client = new ImapFlow({
+    host: process.env.IMAP_HOST || "imap.titan.email",
+    port: parseInt(process.env.IMAP_PORT || "993"),
+    secure: true,
+    auth: {
+      user: process.env.IMAP_USER || "clawncore@colabwize.com",
+      pass: process.env.IMAP_PASSWORD || "",
+    },
+    logger: false,
+  });
 
-  public async processUnreadEmails() {
-    if (!process.env.IMAP_USER || !process.env.IMAP_PASSWORD) {
-      logger.warn("Support Inbox IMAP credentials missing. Skipping fetch.");
-      return;
-    }
+  try {
+    await client.connect();
+    let lock = await client.getMailboxLock("INBOX");
 
     try {
-      await this.client.connect();
-      
-      // Select and lock the INBOX
-      const lock = await this.client.getMailboxLock('INBOX');
-      
-      try {
-        // Fetch all unseen messages
-        for await (const message of this.client.fetch({ seen: false }, { uid: true, envelope: true, source: true })) {
-          // Process individual message
-          await this.parseAndStoreMessage(message);
-
-          // Mark as processed (seen)
-          await this.client.messageFlagsAdd({ uid: message.uid }, ['\\Seen']);
-        }
-      } finally {
-        lock.release();
-      }
-    } catch (error) {
-      logger.error("InboxFetcher encounter an error:", error);
-    } finally {
-      // Graceful logout strictly required to avoid connection pooling limits on Titan
-      if (this.client.usable) {
-         await this.client.logout();
-      }
-    }
-  }
-
-  private async parseAndStoreMessage(message: any) {
-    try {
-      // Ensure idempotency constraint manually before heavy parsing
-      const exists = await prisma.supportMessage.findUnique({
-        where: { imap_uid: message.uid }
+      // Search for unread messages
+      const messages = client.fetch({ seen: false }, {
+        uid: true,
+        envelope: true,
+        source: true,
+        bodyStructure: true,
       });
 
-      if (exists) {
-        return; 
-      }
+      for await (const message of messages) {
+        const uid = message.uid;
+        if (!message.source) continue;
 
-      // Parse full raw buffer into structured object using mailparser
-      const parsed: ParsedMail = await simpleParser(message.source);
-
-      const senderEmail = parsed.from?.value[0]?.address || 'unknown@domain.com';
-      let subject = parsed.subject || 'No Subject';
-      
-      // Attempt to identify which alias this was delivered/forwarded to
-      let sourceAlias = 'unknown';
-      let toAddresses: string[] = [];
-      if (parsed.to) {
-        const toField = Array.isArray(parsed.to) ? parsed.to : [parsed.to];
-        toAddresses = toField.flatMap(t => t.value.map(addr => addr.address?.toLowerCase() || ''));
-      }
-
-      const identifiedAlias = toAddresses.find(addr => ALIAS_DOMAINS.includes(addr));
-      
-      if (identifiedAlias) {
-        // Reverse lookup the key (HELP, SUPPORT, etc.)
-        const entries = Object.entries(SENDER_IDENTITIES);
-        for (const [key, identity] of entries) {
-           if (identity.toLowerCase().includes(identifiedAlias)) {
-             sourceAlias = key;
-             break;
-           }
-        }
-      }
-
-      // Extract raw body
-      const messageHtml = parsed.html || parsed.textAsHtml || '';
-      const messageText = parsed.text || '';
-
-      // Threading logic
-      let threadId = parsed.inReplyTo || parsed.messageId; 
-      
-      // Fallback pseudo-threading by exact subject stripped of Re: flags
-      if (!threadId && subject.toLowerCase().startsWith('re:')) {
-        const cleanSubject = subject.replace(/^(re:\s*)+/i, '').trim();
-        const existingThread = await prisma.supportMessage.findFirst({
-            where: { 
-              sender_email: senderEmail,
-              subject: { contains: cleanSubject } 
-            },
-            orderBy: { received_at: 'asc' }
+        // Check if already processed
+        const existing = await (prisma as any).supportMessage.findUnique({
+          where: { imap_uid: uid },
         });
-        if (existingThread && existingThread.thread_id) {
-           threadId = existingThread.thread_id;
+
+        if (existing) continue;
+
+        // Parse message
+        const parsed = await simpleParser(message.source);
+        const senderEmail = parsed.from?.value[0]?.address || "unknown@unknown.com";
+        const subject = parsed.subject || "(No Subject)";
+        const html = parsed.html || parsed.textAsHtml || "";
+        const text = parsed.text || "";
+        
+        // Sanitize
+        const sanitizedHtml = DOMPurify.sanitize(html as string);
+
+        // Detect source alias (help@, support@, etc.)
+        const toHeader: any = parsed.to;
+        let sourceAlias = "support@colabwize.com";
+        if (Array.isArray(toHeader)) {
+            const aliasMatch = toHeader.find((t: any) => t.value.some((v: any) => v.address?.includes("@colabwize.com")));
+            if (aliasMatch) sourceAlias = aliasMatch.value[0].address || sourceAlias;
         }
-      }
 
-      // Final fallback -> assign new UUID if absolutely no threading context exists
-      if (!threadId) {
-          threadId = `local-thread-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-      }
+        // Threading Logic
+        let threadId = (globalThis as any).crypto?.randomUUID?.() || Math.random().toString(36).substring(7);
+        const cleanSubject = subject.replace(/^Re:\s+/i, "").trim();
+        
+        if (subject.toLowerCase().startsWith("re:")) {
+            const previousMessage = await (prisma as any).supportMessage.findFirst({
+                where: {
+                    sender_email: senderEmail,
+                    subject: {
+                        contains: cleanSubject
+                    }
+                },
+                orderBy: { received_at: "desc" }
+            });
 
-      await prisma.supportMessage.create({
-        data: {
-          sender_email: senderEmail,
-          subject,
-          message_text: messageText,
-          message_html: messageHtml,
-          received_at: parsed.date || new Date(),
-          status: 'open',
-          thread_id: threadId,
-          source_alias: sourceAlias,
-          imap_uid: message.uid
+            if (previousMessage) {
+                threadId = previousMessage.thread_id;
+            }
         }
-      });
 
-      logger.info(`Successfully stored new support message via IMAP`, { uid: message.uid, sender: senderEmail });
+        // Store message
+        await (prisma as any).supportMessage.create({
+          data: {
+            sender_email: senderEmail,
+            subject: subject,
+            message_text: text,
+            message_html: sanitizedHtml,
+            received_at: parsed.date || new Date(),
+            status: "open",
+            thread_id: threadId,
+            source_alias: sourceAlias,
+            imap_uid: uid,
+          },
+        });
 
-    } catch (parseError) {
-       logger.error(`Error parsing message UID ${message.uid}`, parseError);
+        // Mark as seen
+        await client.messageFlagsAdd({ uid }, ["\\Seen"]);
+        console.log(`[InboxFetcher] Processed email from ${senderEmail} (UID: ${uid})`);
+      }
+    } finally {
+      lock.release();
     }
+
+    await client.logout();
+  } catch (err) {
+    console.error("[InboxFetcher] Error during IMAP fetch:", err);
   }
 }
-
-export const processIncomingSupportEmails = async () => {
-   const fetcher = new InboxFetcher();
-   await fetcher.processUnreadEmails();
-};

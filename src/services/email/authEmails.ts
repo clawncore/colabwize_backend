@@ -57,8 +57,8 @@ export async function sendWelcomeEmail(
       </div>
 
       <div style="margin-bottom: 15px;">
-        <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #334155;">🤖 Safe AI Integrity Assistant</h3>
-        <p style="margin: 0; font-size: 14px; color: #64748b;">Ensure responsible AI usage with real-time guidance and proper attribution.</p>
+        <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #334155;">🛡️ Defensible Writing Workspace</h3>
+        <p style="margin: 0; font-size: 14px; color: #64748b;">Draft your documents securely with full version history and playback capabilities.</p>
       </div>
 
       <div style="margin-bottom: 15px;">

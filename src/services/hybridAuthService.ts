@@ -68,6 +68,9 @@ export class HybridAuthService {
         },
       });
 
+      // Check for admin promotion
+      await this.promoteAdminIfEligible(data.email, data.id);
+
       // Create default free subscription
       await prisma.subscription.create({
         data: {
@@ -198,6 +201,9 @@ export class HybridAuthService {
             status: "active",
           },
         });
+
+        // Check for admin promotion during sync
+        await this.promoteAdminIfEligible(email, supabaseUser.id);
 
         return { success: true, user: newUser };
       } else {
@@ -349,6 +355,9 @@ export class HybridAuthService {
           status: "active",
         },
       });
+
+      // 5.5 Check for admin promotion
+      await this.promoteAdminIfEligible(email, userId);
 
       // 6. Generate and Send OTP
       const otpCode = this.generateOTP();
@@ -526,6 +535,34 @@ export class HybridAuthService {
     } catch (error: any) {
       logger.error("Update profile failed", { error: error.message });
       return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Promote user to admin if they are in the whitelist
+   */
+  private static async promoteAdminIfEligible(email: string, userId: string): Promise<void> {
+    const ADMIN_EMAILS = ["simbisai@colabwize.com", "craig@gmail.com"];
+    
+    if (ADMIN_EMAILS.includes(email.toLowerCase())) {
+      try {
+        const supabaseAdmin = await getSupabaseAdminClient();
+        if (!supabaseAdmin) return;
+
+        logger.info(`Promoting ${email} to admin role`, { userId });
+        
+        const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+          app_metadata: { role: "admin" }
+        });
+
+        if (error) {
+          logger.error(`Failed to promote ${email} to admin`, { error: error.message });
+        } else {
+          logger.info(`Successfully promoted ${email} to admin`);
+        }
+      } catch (error) {
+        logger.error(`Error during admin promotion for ${email}`, { error });
+      }
     }
   }
 }

@@ -11,6 +11,11 @@ export const SENDER_IDENTITIES = {
   HELP: "ColabWize Help <help@colabwize.com>",
   SUPPORT: "ColabWize Support <support@colabwize.com>",
   TEAM: "ColabWize Team <team@colabwize.com>",
+  MARKETING: "ColabWize Marketing <marketing@colabwize.com>",
+  INFO: "ColabWize Info <info@colabwize.com>",
+  PRESS: "ColabWize Press <press@colabwize.com>",
+  LEGAL: "ColabWize Legal <legal@colabwize.com>",
+  ENGINEERING: "ColabWize Engineering <engineering@colabwize.com>",
 } as const;
 
 export type EmailSender = keyof typeof SENDER_IDENTITIES;
