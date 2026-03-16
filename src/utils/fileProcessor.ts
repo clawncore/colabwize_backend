@@ -2,7 +2,7 @@ import logger from "../monitoring/logger";
 import * as mammoth from "mammoth";
 // Use the server version of generateJSON for Node.js environment
 // @ts-ignore
-import { generateJSON } from "@tiptap/html";
+import { generateJSON } from "@tiptap/html/server";
 
 // Import available extensions to preserve more formatting
 import Document from "@tiptap/extension-document";
