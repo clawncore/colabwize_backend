@@ -186,8 +186,11 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       }
     });
 
-    // Get document creation trends (last 8 weeks for bar chart)
-    const trendData = await AnalyticsService.getWeeklyUsageTrends(userId, 8);
+    // Get range from query params (default to 8 weeks)
+    const weeks = req.query.weeks ? parseInt(req.query.weeks as string) : 8;
+
+    // Get document creation trends (last N weeks for bar chart)
+    const trendData = await AnalyticsService.getWeeklyUsageTrends(userId, weeks);
     const formattedTrendData = trendData.map((t: any) => ({
       name: t.label, // Show the date label (e.g., "Oct 12")
       documents: t.documents

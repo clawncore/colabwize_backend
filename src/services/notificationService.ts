@@ -1303,3 +1303,33 @@ export async function sendInvoiceAvailableNotification(
     { invoiceId, amount, dueDate, downloadUrl },
   );
 }
+
+// Broadcast a generic notification to all workspace members (except the actor)
+export async function broadcastGenericNotification(
+  workspaceId: string,
+  actorId: string,
+  type: NotificationType,
+  title: string,
+  message: string,
+  data?: NotificationData,
+) {
+  try {
+    // 1. Get workspace members
+    const members = await prisma.workspaceMember.findMany({
+      where: { workspace_id: workspaceId },
+    });
+
+    if (members.length === 0) return;
+
+    // 2. Send notifications to everyone except the actor
+    const notificationPromises = members
+      .filter((member: any) => member.user_id !== actorId)
+      .map((member: any) =>
+        createNotification(member.user_id, type, title, message, data),
+      );
+
+    await Promise.all(notificationPromises);
+  } catch (error) {
+    console.error("Error broadcasting generic workspace notification:", error);
+  }
+}

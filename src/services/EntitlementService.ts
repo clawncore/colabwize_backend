@@ -53,7 +53,7 @@ export class EntitlementService {
             periodEnd.setDate(0);
             periodEnd.setHours(23, 59, 59, 999);
 
-            if (subscription && subscription.status === "active") {
+            if (subscription && ["active", "trialing", "on_trial", "past_due", "cancelled"].includes(subscription.status)) {
                 // Double check entitlement expiry if present
                 if (!subscription.entitlement_expires_at || new Date() < subscription.entitlement_expires_at) {
                     plan = subscription.plan;
@@ -327,7 +327,7 @@ export class EntitlementService {
         if (ent && (status === "running" || status === "failed")) {
             try {
                 const sub = await SubscriptionService.getUserSubscription(userId);
-                if (sub && ["active", "trialing"].includes(sub.status) && sub.plan !== "free") {
+                if (sub && ["active", "trialing", "on_trial", "past_due", "cancelled"].includes(sub.status) && sub.plan !== "free") {
                     logger.warn("Optimistic Allow: Entitlements rebuilding/failed for paid user.", { userId, feature });
                     return true;
                 }
@@ -340,7 +340,7 @@ export class EntitlementService {
         // SELF-HEALING: If user has an active paid subscription but entitlements say "free"
         try {
             const sub = await SubscriptionService.getUserSubscription(userId);
-            if (sub && ["active", "trialing"].includes(sub.status) && ent?.plan === "free" && sub.plan !== "free") {
+            if (sub && ["active", "trialing", "on_trial", "past_due", "cancelled"].includes(sub.status) && ent?.plan === "free" && sub.plan !== "free") {
                 logger.warn("Self-healing: Active subscription with free entitlements found. Rebuilding.", { userId, subPlan: sub.plan });
                 await this.rebuildEntitlements(userId);
                 ent = await this.getEntitlements(userId);

@@ -20,6 +20,16 @@ import { Typography } from "@tiptap/extension-typography";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import FontFamily from "@tiptap/extension-font-family";
+import { generateJSON } from "@tiptap/html";
+import { Window } from "happy-dom";
+
+// Initialize a DOM environment for Tiptap's generateJSON to work in Node.js
+const dom = new Window();
+(global as any).window = dom;
+(global as any).document = dom.document;
+(global as any).Node = dom.Node;
+(global as any).Element = dom.Element;
+(global as any).HTMLElement = dom.HTMLElement;
 
 // Custom Extensions (Synchronized with Frontend)
 import AuthorBlockExtension from "../../extensions/AuthorBlockExtension";
@@ -103,6 +113,7 @@ export class HocuspocusCollaborationServer {
       KeywordsExtension,
       ListExtension,
       MathExtension,
+      FigureExtension,
       PlaceholderMarkExtension,
       PricingTableExtension,
       QuoteBlockExtension,
@@ -164,15 +175,37 @@ export class HocuspocusCollaborationServer {
           const extensions = self.getExtensions();
 
           if (project && project.content) {
+            let content = project.content;
+
+            // Handle legacy HTML content (common in uploaded documents)
+            if (typeof content === "string") {
+              logger.info(
+                `[HP] Document ${projectId} content is HTML, generating JSON...`,
+              );
+              try {
+                content = generateJSON(content, extensions);
+                logger.info(
+                  `[HP] Successfully transformed HTML to JSON for document ${projectId}`,
+                );
+              } catch (convError) {
+                logger.error(
+                  `[HP] Failed to convert HTML to JSON for ${projectId}:`,
+                  convError,
+                );
+                // Fallback to empty doc if conversion fails
+                content = { type: "doc", content: [{ type: "paragraph" }] };
+              }
+            }
+
             const duration = Date.now() - startTime;
             logger.info(
               `[HP] Document ${projectId} loaded and transformed in ${duration}ms`,
               {
-                contentSize: JSON.stringify(project.content).length,
+                contentSize: JSON.stringify(content).length,
               },
             );
             return TiptapTransformer.extensions(extensions as any).toYdoc(
-              project.content,
+              content,
               "default",
             );
           } else if (project) {

@@ -179,7 +179,7 @@ export class SubscriptionService {
     // 2. Legacy Status Check (Fallback)
     // Allow active, trialing, on_trial, and past_due (grace period)
     if (
-      !["active", "trialing", "on_trial", "past_due"].includes(
+      !["active", "trialing", "on_trial", "past_due", "cancelled"].includes(
         subscription.status,
       )
     ) {
@@ -833,7 +833,7 @@ export class SubscriptionService {
       {
         id: "plus",
         name: "Plus",
-        price: 4.99,
+        price: 5.99,
         interval: "month",
         features: [
           "25 document scans per month",

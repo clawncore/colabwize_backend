@@ -9,6 +9,7 @@ import viewsRouter from "./views-route";
 import customFieldsRouter from "./custom-fields-route";
 import activityRouter from "./activity";
 import { WorkspaceActivityService } from "../../services/workspaceActivityService";
+import { broadcastGenericNotification } from "../../services/notificationService";
 
 const router = Router();
 
@@ -285,6 +286,32 @@ router.get("/:id/metrics", async (req: any, res) => {
     res.status(500).json({ error: "Failed to fetch metrics" });
   }
 });
+
+// POST /api/workspaces/:id/notify - Broadcast a notification to all workspace members
+router.post(
+  "/:id/notify",
+  checkWorkspaceRole("editor"),
+  async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { type, title, message, data } = req.body;
+      const userId = req.user.id;
+
+      if (!type || !title || !message) {
+        return res
+          .status(400)
+          .json({ error: "Type, title, and message are required" });
+      }
+
+      await broadcastGenericNotification(id, userId, type, title, message, data);
+
+      res.json({ success: true, message: "Workspace notification broadcasted" });
+    } catch (error) {
+      logger.error("Error broadcasting workspace notification", error);
+      res.status(500).json({ error: "Failed to broadcast notification" });
+    }
+  },
+);
 
 // POST /api/workspaces - Create a new workspace
 router.post("/", async (req: any, res) => {

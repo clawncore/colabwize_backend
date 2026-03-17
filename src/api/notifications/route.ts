@@ -87,7 +87,7 @@ export async function GET(request: Request & { user?: { id: string } }) {
   }
 }
 
-// POST /api/notifications/read - Mark notification as read
+// POST /api/notifications - Create notification or mark as read
 export async function POST(request: Request & { user?: { id: string } }) {
   try {
     // Get user from authentication middleware (attached by main-server.ts)
@@ -108,11 +108,51 @@ export async function POST(request: Request & { user?: { id: string } }) {
       console.warn("Failed to parse request body as JSON, using empty object");
     }
 
-    const { notificationId, markAllAsRead } = body as {
+    const {
+      notificationId,
+      markAllAsRead,
+      type,
+      title,
+      message,
+      data,
+      recipientId,
+    } = body as {
       notificationId?: string;
       markAllAsRead?: boolean;
+      type?: string;
+      title?: string;
+      message?: string;
+      data?: any;
+      recipientId?: string;
     };
 
+    // If title and message are provided, we're creating a notification
+    if (title && message) {
+      const targetUserId = recipientId || userId;
+
+      const {
+        createNotification,
+      } = require("../../services/notificationService");
+
+      const notification = await createNotification(
+        targetUserId,
+        (type as any) || "document_change",
+        title,
+        message,
+        data
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "Notification created",
+          notification,
+        }),
+        { status: 201, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Otherwise, handle marking as read (existing logic)
     if (markAllAsRead === true) {
       // Mark all notifications as read
       await markAllNotificationsAsRead(userId);
@@ -137,19 +177,19 @@ export async function POST(request: Request & { user?: { id: string } }) {
       return new Response(
         JSON.stringify({
           success: false,
-          message: "Missing notificationId or markAllAsRead parameter",
+          message: "Invalid request parameters",
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
   } catch (error) {
-    console.error("Error marking notification as read:", error);
+    console.error("Error in notification POST handler:", error);
     return new Response(
-      JSON.stringify({
-        success: false,
-        message: "Failed to mark notification as read",
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+        JSON.stringify({
+          success: false,
+          message: "Failed to process notification request",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
   }
 }

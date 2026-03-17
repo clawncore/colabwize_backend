@@ -190,25 +190,15 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     let status = "active";
     let subscriptionData = subResult === "TIMEOUT" ? null : subResult;
 
-    // Resolve Plan from Subscription (No extra DB call)
-    console.log("[SUBSCRIPTION_RESOLVE]", {
-      userId: user.id,
-      dbPlan: subscriptionData?.plan,
-      dbStatus: subscriptionData?.status,
-      isTimeout,
-    });
-
-    if (
-      subscriptionData &&
-      ["active", "trialing", "on_trial", "past_due"].includes(
-        subscriptionData.status,
-      )
-    ) {
-      plan = subscriptionData.plan;
-    } else if (isTimeout) {
-      status = "unknown"; // UI should show warning/cached state
+    // Resolve Plan from Subscription using central service logic
+    plan = await SubscriptionService.getActivePlan(user.id, subscriptionData);
+    
+    if (isTimeout && !subscriptionData) {
+      status = "unknown";
+    } else if (plan === "free") {
+      status = "inactive";
     } else {
-      status = "inactive"; // Valid response, but no active sub
+      status = "active";
     }
 
     // Normalize Plan ID for frontend consistency
@@ -935,14 +925,8 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
       })(),
     ]);
 
-    // Get plan info
-    const plan =
-      subscription &&
-      ["active", "trialing", "on_trial", "past_due"].includes(
-        subscription.status,
-      )
-        ? subscription.plan
-        : "free";
+    // Get plan info using central service logic
+    const plan = await SubscriptionService.getActivePlan(user.id, subscription);
     const limits = SubscriptionService.getPlanLimits(plan);
 
     // Build response matching professional SaaS pattern
@@ -955,7 +939,7 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
             : plan === "premium"
               ? "Premium"
               : plan.charAt(0).toUpperCase() + plan.slice(1),
-        price: plan === "free" ? 0 : plan === "plus" ? 4.99 : 12.99,
+        price: plan === "free" ? 0 : plan === "plus" ? 5.99 : 12.99,
         interval: subscription?.current_period_start ? "month" : undefined,
         status: subscription?.status || "active",
         renewsAt: subscription?.current_period_end || null,

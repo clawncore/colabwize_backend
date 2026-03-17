@@ -3,7 +3,6 @@ import express from "express";
 import { LemonSqueezyService } from "../../services/lemonSqueezyService";
 import { SubscriptionService } from "../../services/subscriptionService";
 import { CreditService } from "../../services/CreditService";
-import { EmailService } from "../../services/emailService";
 import logger from "../../monitoring/logger";
 import { prisma } from "../../lib/prisma";
 
@@ -35,7 +34,10 @@ router.post(
         return res.status(400).json({ error: "Missing body" });
       }
 
-      const isValid = await LemonSqueezyService.verifyWebhookSignature(rawBody, signature);
+      const isValid = await LemonSqueezyService.verifyWebhookSignature(
+        rawBody,
+        signature,
+      );
       if (!isValid) {
         logger.warn("Invalid webhook signature");
         return res.status(401).json({ error: "Invalid signature" });
@@ -54,10 +56,10 @@ router.post(
     processWebhookAsync(payload).catch((error) => {
       logger.error("Webhook async processing error", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
     });
-  }
+  },
 );
 
 /**
@@ -88,11 +90,8 @@ async function processWebhookAsync(payload: string): Promise<void> {
   try {
     const existingEvent = await prisma.webhookEvent.findFirst({
       where: {
-        OR: [
-          { event_id: eventId },
-          { event_id: webhookId }
-        ]
-      }
+        OR: [{ event_id: eventId }, { event_id: webhookId }],
+      },
     });
 
     if (existingEvent) {
@@ -153,13 +152,15 @@ async function processWebhookAsync(payload: string): Promise<void> {
         },
       });
     } catch (persistError: any) {
-      logger.error("Failed to persist webhook", { error: persistError.message });
+      logger.error("Failed to persist webhook", {
+        error: persistError.message,
+      });
     }
   } catch (processingError: any) {
     logger.error("Webhook processing failed", {
       eventName,
       error: processingError.message,
-      stack: processingError.stack
+      stack: processingError.stack,
     });
   }
 }
@@ -214,16 +215,21 @@ async function handleOrderCreated(event: any) {
         creditAmount,
         "PURCHASE",
         orderId,
-        `Purchase: ${plan || variantName}`
+        `Purchase: ${plan || variantName}`,
       );
 
-      logger.info("Credits granted", { userId, amount: creditAmount, plan, orderId });
+      logger.info("Credits granted", {
+        userId,
+        amount: creditAmount,
+        plan,
+        orderId,
+      });
     } catch (creditError: any) {
       logger.error("Failed to grant credits", {
         error: creditError.message,
         userId,
         plan,
-        orderId
+        orderId,
       });
     }
   }
@@ -239,17 +245,20 @@ async function handleOrderCreated(event: any) {
         currency: data.attributes.currency,
         status: data.attributes.status,
         receipt_url: data.attributes.urls?.receipt,
-        description: `One-time purchase: ${variantName || 'Credits'}`,
+        description: `One-time purchase: ${variantName || "Credits"}`,
         created_at: new Date(data.attributes.created_at),
       },
       update: {
         status: data.attributes.status,
         receipt_url: data.attributes.urls?.receipt,
-      }
+      },
     });
     logger.info("Payment history recorded for order", { orderId, userId });
   } catch (error: any) {
-    logger.error("Failed to record payment history", { error: error.message, orderId });
+    logger.error("Failed to record payment history", {
+      error: error.message,
+      orderId,
+    });
   }
 }
 
@@ -300,8 +309,12 @@ async function handleSubscriptionUpdated(event: any) {
     plan,
     status: data.attributes.status,
     variant_id: data.attributes.variant_id.toString(),
-    renews_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
-    ends_at: data.attributes.ends_at ? new Date(data.attributes.ends_at) : undefined,
+    renews_at: data.attributes.renews_at
+      ? new Date(data.attributes.renews_at)
+      : undefined,
+    ends_at: data.attributes.ends_at
+      ? new Date(data.attributes.ends_at)
+      : undefined,
     entitlement_expires_at: data.attributes.ends_at
       ? new Date(data.attributes.ends_at)
       : new Date(data.attributes.renews_at),
@@ -323,10 +336,21 @@ async function handleSubscriptionCancelled(event: any) {
     return;
   }
 
+  // Determine the plan to preserve during cancellation period
+  // We prefer the plan from customData, fallback to current plan in DB
+  let plan = customData?.plan;
+
+  if (!plan) {
+    const currentSub = await SubscriptionService.getUserSubscription(userId);
+    plan = currentSub?.plan || "free";
+  }
+
   await SubscriptionService.upsertSubscription(userId, {
-    plan: "free",
+    plan,
     status: "cancelled",
-    ends_at: data.attributes.ends_at ? new Date(data.attributes.ends_at) : undefined,
+    ends_at: data.attributes.ends_at
+      ? new Date(data.attributes.ends_at)
+      : undefined,
     entitlement_expires_at: data.attributes.ends_at
       ? new Date(data.attributes.ends_at)
       : new Date(),
@@ -353,7 +377,9 @@ async function handleSubscriptionResumed(event: any) {
     plan,
     status: "active",
     ends_at: undefined,
-    renews_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
+    renews_at: data.attributes.renews_at
+      ? new Date(data.attributes.renews_at)
+      : undefined,
     entitlement_expires_at: new Date(data.attributes.renews_at),
   });
 
@@ -443,7 +469,9 @@ async function handleSubscriptionPaymentSuccess(event: any) {
   await SubscriptionService.upsertSubscription(userId, {
     plan,
     status: "active",
-    renews_at: data.attributes.renews_at ? new Date(data.attributes.renews_at) : undefined,
+    renews_at: data.attributes.renews_at
+      ? new Date(data.attributes.renews_at)
+      : undefined,
     entitlement_expires_at: new Date(data.attributes.renews_at),
   });
 
@@ -467,11 +495,17 @@ async function handleSubscriptionPaymentSuccess(event: any) {
       update: {
         status: data.attributes.status,
         receipt_url: data.attributes.urls?.receipt,
-      }
+      },
     });
-    logger.info("Payment history recorded for subscription", { orderId, userId });
+    logger.info("Payment history recorded for subscription", {
+      orderId,
+      userId,
+    });
   } catch (error: any) {
-    logger.error("Failed to record subscription payment history", { error: error.message, userId });
+    logger.error("Failed to record subscription payment history", {
+      error: error.message,
+      userId,
+    });
   }
 }
 
@@ -502,11 +536,17 @@ async function handleRefundEvent(event: any, eventName: string) {
             userId,
             creditAmount,
             `REFUND_${orderId}`,
-            `Refund for ${plan}`
+            `Refund for ${plan}`,
           );
-          logger.info("Credits revoked due to refund", { userId, amount: creditAmount });
+          logger.info("Credits revoked due to refund", {
+            userId,
+            amount: creditAmount,
+          });
         } catch (error: any) {
-          logger.error("Failed to revoke credits", { error: error.message, userId });
+          logger.error("Failed to revoke credits", {
+            error: error.message,
+            userId,
+          });
         }
       }
     }

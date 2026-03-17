@@ -212,13 +212,11 @@ export class AnalyticsService {
   ): Promise<any[]> {
     try {
       const now = new Date();
-      // Start of current week (Sunday)
-      const currentStart = new Date(now);
-      currentStart.setDate(now.getDate() - now.getDay());
-      currentStart.setHours(0, 0, 0, 0);
+      now.setHours(23, 59, 59, 999); // End of today
 
-      const startDate = new Date(currentStart);
-      startDate.setDate(startDate.getDate() - ((weeks - 1) * 7));
+      const startDate = new Date(now);
+      startDate.setDate(now.getDate() - (weeks * 7) + 1);
+      startDate.setHours(0, 0, 0, 0);
 
       const projects = await prisma.project.findMany({
         where: {
@@ -226,6 +224,7 @@ export class AnalyticsService {
           workspace_id: null,
           created_at: {
             gte: startDate,
+            lte: now,
           },
         },
         select: {
@@ -233,37 +232,33 @@ export class AnalyticsService {
         },
       });
 
-      // Group by week in memory
-      const weekMap = new Map<string, number>();
-
-      projects.forEach((p: any) => {
-        const date = new Date(p.created_at);
-        const day = date.getDay();
-        const diff = date.getDate() - day;
-        const d = new Date(date.setDate(diff));
-        d.setHours(0, 0, 0, 0);
-        
-        const key = d.toISOString().split('T')[0];
-        weekMap.set(key, (weekMap.get(key) || 0) + 1);
-      });
-
-      // Fill in all weeks
+      // Fill in all weeks using a sliding window
       const trends = [];
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       
       for (let i = 0; i < weeks; i++) {
-        const d = new Date(startDate);
-        d.setDate(startDate.getDate() + (i * 7));
-        d.setHours(0, 0, 0, 0);
-        const key = d.toISOString().split('T')[0];
+        // Bin i is (weeks - 1 - i) weeks ago
+        // Last bin (i = weeks - 1) is the current week ending today
+        const binEnd = new Date(now);
+        binEnd.setDate(now.getDate() - ((weeks - 1 - i) * 7));
         
-        const day = d.getDate();
-        const month = months[d.getMonth()];
+        const binStart = new Date(binEnd);
+        binStart.setDate(binEnd.getDate() - 6);
+        binStart.setHours(0, 0, 0, 0);
+        binEnd.setHours(23, 59, 59, 999);
+
+        const count = projects.filter((p: any) => {
+          const d = new Date(p.created_at);
+          return d >= binStart && d <= binEnd;
+        }).length;
+
+        const day = binEnd.getDate();
+        const month = months[binEnd.getMonth()];
         
         trends.push({
-          date: key,
+          date: binEnd.toISOString().split('T')[0],
           label: `${month} ${day}`,
-          documents: weekMap.get(key) || 0
+          documents: count
         });
       }
 
