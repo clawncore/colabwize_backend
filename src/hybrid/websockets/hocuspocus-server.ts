@@ -5,8 +5,6 @@ import { getSupabaseClient } from "../../lib/supabase/client";
 // Tiptap Extensions
 import { TiptapTransformer } from "@hocuspocus/transformer";
 import StarterKit from "@tiptap/starter-kit";
-import Underline from "@tiptap/extension-underline";
-import Link from "@tiptap/extension-link";
 import { Table } from "@tiptap/extension-table";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
@@ -37,7 +35,6 @@ import AuthorExtension from "../../extensions/AuthorExtension";
 import CalloutBlockExtension from "../../extensions/CalloutBlockExtension";
 import CoverPageExtension from "../../extensions/CoverPageExtension";
 import CustomCodeBlockExtension from "../../extensions/CustomCodeBlockExtension";
-import FigureExtension from "../../extensions/FigureExtension";
 import KeywordsExtension from "../../extensions/KeywordsExtension";
 import ListExtension from "../../extensions/ListExtension";
 import PricingTableExtension from "../../extensions/PricingTableExtension";
@@ -84,8 +81,6 @@ export class HocuspocusCollaborationServer {
       StarterKit.configure({
         history: false, // Collaborative mode handles history via Yjs
       } as any),
-      Underline,
-      Link,
       Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
@@ -113,7 +108,6 @@ export class HocuspocusCollaborationServer {
       KeywordsExtension,
       ListExtension,
       MathExtension,
-      FigureExtension,
       PlaceholderMarkExtension,
       PricingTableExtension,
       QuoteBlockExtension,
