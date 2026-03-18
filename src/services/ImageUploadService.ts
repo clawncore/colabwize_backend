@@ -183,8 +183,7 @@ export class ImageUploadService {
             const filesToDelete: string[] = [];
 
             for (const file of files) {
-                // Skip folders
-                if (!file.id) continue;
+                if (!file.id || !file.created_at) continue;
 
                 const createdAt = new Date(file.created_at);
                 if (createdAt < cutoffDate) {

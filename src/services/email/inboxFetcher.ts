@@ -5,11 +5,36 @@ import logger from "../../monitoring/logger";
 import SecretsService from "../secrets-service";
 import { initializePrisma } from "../../lib/prisma-async";
 
+/**
+ * Categorize email based on keywords in subject or body
+ */
+function categorizeEmail(subject: string, body: string): { folder: string; priority: string } {
+  const content = (subject + " " + body).toLowerCase();
+  
+  if (/billing|invoice|payment|subscription|refund|charge|receipt|premium|plan/i.test(content)) {
+    return { folder: "Billing", priority: "high" };
+  }
+  
+  if (/security|password|login|auth|hacked|verify|2fa|suspicious|unauthorized|breach/i.test(content)) {
+    return { folder: "Security", priority: "high" };
+  }
+  
+  if (/contact|hello|inquiry|question|help|request/i.test(content)) {
+    return { folder: "Contact", priority: "medium" };
+  }
+  
+  if (/system|update|maintenance|feature|feedback|platform|error|bug/i.test(content)) {
+    return { folder: "Platform", priority: "medium" };
+  }
+  
+  return { folder: "Support", priority: "medium" };
+}
+
 export async function processIncomingSupportEmails() {
-  // Retrieve credentials from environment or Supabase Vault
+  // ... (previous lines)
   const imapUser = await SecretsService.getSecret("IMAP_USER") || "clawncore@colabwize.com";
   const imapPass = await SecretsService.getSecret("IMAP_PASSWORD");
-  const imapHost = await SecretsService.getSecret("IMAP_HOST") || "imap.titan.email";
+  const imapHost = await SecretsService.getSecret("IMAP_HOST") || "imap. titan.email";
   const imapPort = await SecretsService.getSecret("IMAP_PORT") || "993";
 
   if (!imapPass) {
@@ -27,79 +52,52 @@ export async function processIncomingSupportEmails() {
       user: imapUser,
       pass: imapPass,
     },
-    logger: console,
+    logger: false,
+    tls: { rejectUnauthorized: false },
+    connectionTimeout: 30000, 
+    greetingTimeout: 30000,
+  });
+
+  client.on("error", (err) => {
+    logger.error(`[InboxFetcher] IMAP Client Error: ${err.message}`, { error: err });
   });
 
   const prisma = await initializePrisma();
 
   try {
     await client.connect();
-    logger.info(`[InboxFetcher] Connected to ${imapHost}.`);
-
     let lock = await client.getMailboxLock("INBOX");
     try {
-      // Search for unread messages
-      const messages = client.fetch({ seen: false }, {
-        uid: true,
-        envelope: true,
-        source: true,
-        bodyStructure: true,
-      });
+      const messages = client.fetch({}, { uid: true, envelope: true, source: true });
 
       let processedCount = 0;
       for await (const message of messages) {
         const uid = message.uid;
         if (!message.source) continue;
 
-        // Check if already processed
-        const existing = await (prisma as any).supportMessage.findUnique({
-          where: { imap_uid: uid },
-        });
+        const existing = await (prisma as any).supportMessage.findUnique({ where: { imap_uid: uid } });
+        if (existing) continue;
 
-        if (existing) {
-            logger.debug(`[InboxFetcher] Message UID ${uid} already exists, skipping.`);
-            continue;
-        }
-
-        // Parse message
         const parsed = await simpleParser(message.source);
         const senderEmail = parsed.from?.value[0]?.address || "unknown@unknown.com";
         const subject = parsed.subject || "(No Subject)";
         const html = parsed.html || parsed.textAsHtml || "";
         const text = parsed.text || "";
         
-        // Sanitize
         const sanitizedHtml = DOMPurify.sanitize(html as string);
+        const { folder, priority } = categorizeEmail(subject, text);
 
-        // Detect source alias (help@, support@, etc.)
-        const toHeader: any = parsed.to;
-        let sourceAlias = "support@colabwize.com";
-        if (Array.isArray(toHeader)) {
-            const aliasMatch = toHeader.find((t: any) => t.value.some((v: any) => v.address?.includes("@colabwize.com")));
-            if (aliasMatch) sourceAlias = aliasMatch.value[0].address || sourceAlias;
-        }
-
-        // Threading Logic
         let threadId = (globalThis as any).crypto?.randomUUID?.() || Math.random().toString(36).substring(7);
         const cleanSubject = subject.replace(/^Re:\s+/i, "").trim();
         
         if (subject.toLowerCase().startsWith("re:")) {
             const previousMessage = await (prisma as any).supportMessage.findFirst({
-                where: {
-                    sender_email: senderEmail,
-                    subject: {
-                        contains: cleanSubject
-                    }
-                },
+                where: { sender_email: senderEmail, subject: { contains: cleanSubject } },
                 orderBy: { received_at: "desc" }
             });
-
-            if (previousMessage) {
-                threadId = previousMessage.thread_id;
-            }
+            if (previousMessage) threadId = previousMessage.thread_id;
         }
 
-        // Store message
         await (prisma as any).supportMessage.create({
           data: {
             sender_email: senderEmail,
@@ -109,14 +107,17 @@ export async function processIncomingSupportEmails() {
             received_at: parsed.date || new Date(),
             status: "open",
             thread_id: threadId,
-            source_alias: sourceAlias,
+            source_alias: imapUser,
             imap_uid: uid,
+            folder: folder,
+            priority: priority,
+            is_read: false
           },
         });
 
-        // Mark as seen
+        // Mark as seen on server
         await client.messageFlagsAdd({ uid }, ["\\Seen"]);
-        logger.info(`[InboxFetcher] Processed email from ${senderEmail} (UID: ${uid})`);
+        logger.info(`[InboxFetcher] Processed email from ${senderEmail} (UID: ${uid}) -> Folder: ${folder}`);
         processedCount++;
       }
       

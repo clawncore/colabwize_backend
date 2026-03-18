@@ -109,20 +109,35 @@ router.post("/email/broadcast", async (req, res) => {
 router.get("/inbox", async (req, res) => {
   try {
     const status = (req.query.status as string) || "open";
+    const folder = (req.query.folder as string);
 
-    // Grouping by thread ID to display only the latest message per thread
-    const messages = await prisma.$queryRaw`
-      SELECT t1.*
-      FROM support_messages t1
-      INNER JOIN (
-          SELECT thread_id, MAX(received_at) as max_date
-          FROM support_messages
-          WHERE status = ${status}
-          GROUP BY thread_id
-      ) t2 ON t1.thread_id = t2.thread_id AND t1.received_at = t2.max_date
-      ORDER BY t1.received_at DESC
-      LIMIT 100
-    `;
+    let messages;
+    
+    if (folder) {
+      // If a specific folder is requested, we filter by it
+      messages = await prisma.supportMessage.findMany({
+        where: { 
+          status,
+          folder
+        },
+        orderBy: { received_at: "desc" },
+        take: 100
+      });
+    } else {
+      // Original grouped thread logic for the main "All" view
+      messages = await prisma.$queryRaw`
+        SELECT t1.*
+        FROM support_messages t1
+        INNER JOIN (
+            SELECT thread_id, MAX(received_at) as max_date
+            FROM support_messages
+            WHERE status = ${status}
+            GROUP BY thread_id
+        ) t2 ON t1.thread_id = t2.thread_id AND t1.received_at = t2.max_date
+        ORDER BY t1.received_at DESC
+        LIMIT 100
+      `;
+    }
 
     res.json({ success: true, messages });
   } catch (error: any) {
@@ -222,6 +237,70 @@ router.patch("/inbox/:threadId/status", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Admin Thread Status Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   PATCH /api/admin/inbox/message/:id/read
+ * @desc    Mark a specific message as read/unread
+ * @access  Admin Only
+ */
+router.patch("/inbox/message/:id/read", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isRead } = req.body;
+
+    await prisma.supportMessage.update({
+      where: { id },
+      data: { is_read: isRead }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    logger.error("Admin Message Read Status Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   PATCH /api/admin/inbox/message/:id/folder
+ * @desc    Move a message to a specific folder
+ * @access  Admin Only
+ */
+router.patch("/inbox/message/:id/folder", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { folder } = req.body;
+
+    await prisma.supportMessage.update({
+      where: { id },
+      data: { folder }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    logger.error("Admin Message Folder Update Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/inbox/stats/folders
+ * @desc    Get unread counts for all folders
+ * @access  Admin Only
+ */
+router.get("/inbox/stats/folders", async (req, res) => {
+  try {
+    const counts = await prisma.supportMessage.groupBy({
+      by: ['folder'],
+      where: { is_read: false, status: 'open' },
+      _count: true
+    });
+
+    res.json({ success: true, counts });
+  } catch (error: any) {
+    logger.error("Admin Folder Stats Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
