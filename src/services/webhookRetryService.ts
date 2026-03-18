@@ -1,17 +1,6 @@
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 
-// Model for storing failed webhooks
-interface FailedWebhook {
-  id: string;
-  event_name: string;
-  payload: any;
-  retry_count: number;
-  last_error: string;
-  created_at: Date;
-  updated_at: Date;
-}
-
 /**
  * WebhookRetryService handles retrying failed webhooks with exponential backoff
  * and stores failed attempts in a dead letter queue for manual inspection

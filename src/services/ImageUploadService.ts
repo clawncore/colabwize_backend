@@ -183,8 +183,8 @@ export class ImageUploadService {
             const filesToDelete: string[] = [];
 
             for (const file of files) {
-                // Skip folders
-                if (!file.id) continue;
+                // Skip if metadata is missing
+                if (!file.created_at) continue;
 
                 const createdAt = new Date(file.created_at);
                 if (createdAt < cutoffDate) {
