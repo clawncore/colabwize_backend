@@ -326,13 +326,32 @@ router.get("/users", async (req, res) => {
     const dateTo = req.query.dateTo as string | undefined;
     const search = req.query.search as string | undefined;
 
-    const where: any = {};
+    const ADMIN_WHITELIST = ["simbisai@colabwize.com", "craig@colabwize.com"];
+
+    const where: any = {
+      AND: [
+        {
+          email: {
+            notIn: ADMIN_WHITELIST,
+          }
+        },
+        {
+          email: {
+            not: {
+              contains: "@colabwize.com"
+            }
+          }
+        }
+      ]
+    };
 
     if (search) {
-      where.OR = [
-        { full_name: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } }
-      ];
+      where.AND.push({
+        OR: [
+          { full_name: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } }
+        ]
+      });
     }
 
     if (dateFrom || dateTo) {
@@ -342,9 +361,18 @@ router.get("/users", async (req, res) => {
     }
 
     if (plan === 'paid') {
-      where.subscription = { some: { status: 'active' } };
+      where.AND.push({
+        subscription: {
+          status: 'active'
+        }
+      });
     } else if (plan === 'free') {
-      where.subscription = { none: { status: 'active' } };
+      where.AND.push({
+        OR: [
+          { subscription: null },
+          { subscription: { status: { not: 'active' } } }
+        ]
+      });
     }
 
     const usersList = await prisma.user.findMany({
@@ -357,9 +385,7 @@ router.get("/users", async (req, res) => {
         full_name: true,
         created_at: true,
         subscription: {
-          select: { plan: true, status: true },
-          orderBy: { created_at: 'desc' },
-          take: 1
+          select: { plan: true, status: true }
         }
       },
       orderBy: { created_at: "desc" }

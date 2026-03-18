@@ -1,34 +1,42 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
-import { PrismaClient } from "@prisma/client";
 import DOMPurify from "isomorphic-dompurify";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-const prisma = new PrismaClient();
+import logger from "../../monitoring/logger";
+import SecretsService from "../secrets-service";
+import { initializePrisma } from "../../lib/prisma-async";
 
 export async function processIncomingSupportEmails() {
-  if (!process.env.IMAP_PASSWORD) {
-    console.warn("[InboxFetcher] IMAP_PASSWORD not configured in environment. Skipping email fetch.");
+  // Retrieve credentials from environment or Supabase Vault
+  const imapUser = await SecretsService.getSecret("IMAP_USER") || "clawncore@colabwize.com";
+  const imapPass = await SecretsService.getSecret("IMAP_PASSWORD");
+  const imapHost = await SecretsService.getSecret("IMAP_HOST") || "imap.titan.email";
+  const imapPort = await SecretsService.getSecret("IMAP_PORT") || "993";
+
+  if (!imapPass) {
+    logger.warn("[InboxFetcher] IMAP_PASSWORD not configured (env or vault). Skipping email fetch.");
     return;
   }
 
+  logger.info(`[InboxFetcher] Starting sync attempt for ${imapUser} on ${imapHost}...`);
+
   const client = new ImapFlow({
-    host: process.env.IMAP_HOST || "imap.titan.email",
-    port: parseInt(process.env.IMAP_PORT || "993"),
+    host: imapHost,
+    port: parseInt(imapPort),
     secure: true,
     auth: {
-      user: process.env.IMAP_USER || "clawncore@colabwize.com",
-      pass: process.env.IMAP_PASSWORD || "",
+      user: imapUser,
+      pass: imapPass,
     },
     logger: false,
   });
 
+  const prisma = await initializePrisma();
+
   try {
     await client.connect();
-    let lock = await client.getMailboxLock("INBOX");
+    logger.info(`[InboxFetcher] Connected to ${imapHost}.`);
 
+    let lock = await client.getMailboxLock("INBOX");
     try {
       // Search for unread messages
       const messages = client.fetch({ seen: false }, {
@@ -38,6 +46,7 @@ export async function processIncomingSupportEmails() {
         bodyStructure: true,
       });
 
+      let processedCount = 0;
       for await (const message of messages) {
         const uid = message.uid;
         if (!message.source) continue;
@@ -47,7 +56,10 @@ export async function processIncomingSupportEmails() {
           where: { imap_uid: uid },
         });
 
-        if (existing) continue;
+        if (existing) {
+            logger.debug(`[InboxFetcher] Message UID ${uid} already exists, skipping.`);
+            continue;
+        }
 
         // Parse message
         const parsed = await simpleParser(message.source);
@@ -104,14 +116,25 @@ export async function processIncomingSupportEmails() {
 
         // Mark as seen
         await client.messageFlagsAdd({ uid }, ["\\Seen"]);
-        console.log(`[InboxFetcher] Processed email from ${senderEmail} (UID: ${uid})`);
+        logger.info(`[InboxFetcher] Processed email from ${senderEmail} (UID: ${uid})`);
+        processedCount++;
       }
+      
+      if (processedCount > 0) {
+          logger.info(`[InboxFetcher] Finished sync. Processed ${processedCount} new messages.`);
+      } else {
+          logger.debug("[InboxFetcher] Sync finished. No new messages found.");
+      }
+
     } finally {
       lock.release();
     }
 
     await client.logout();
-  } catch (err) {
-    console.error("[InboxFetcher] Error during IMAP fetch:", err);
+  } catch (err: any) {
+    logger.error("[InboxFetcher] Error during IMAP fetch:", {
+        message: err.message,
+        stack: err.stack
+    });
   }
 }

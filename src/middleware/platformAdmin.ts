@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from "express";
+import logger from "../monitoring/logger";
 
 const ADMIN_WHITELIST = [
   "simbisai@colabwize.com",
   "craig@colabwize.com",
 ];
+
 export const isPlatformAdmin = (req: Request, res: Response, next: NextFunction): void => {
   try {
     const user = (req as any).user;
@@ -24,15 +26,20 @@ export const isPlatformAdmin = (req: Request, res: Response, next: NextFunction)
     const userEmail = user.email ? user.email.toLowerCase() : "";
     const isWhitelisted = ADMIN_WHITELIST.includes(userEmail);
 
-    if (userRole === "admin" && isWhitelisted) {
-      console.log(`[ADMIN ACCESS GRANTED] ${userEmail}`);
+    const isAuthoritativeAdmin = isWhitelisted || userEmail.endsWith("@colabwize.com");
+
+    if (userRole === "admin" || isAuthoritativeAdmin) {
+      logger.info(`[ADMIN ACCESS GRANTED] ${userEmail} (Method: ${isAuthoritativeAdmin ? "Email Whitelist" : "Role"})`);
       next();
     } else {
-      console.log(`[ADMIN ACCESS DENIED] Email: ${userEmail}, Role: ${userRole}`);
-      res.status(403).json({ error: "Forbidden: Platform Administrator privileges required" });
+      logger.warn(`[ADMIN ACCESS DENIED] Email: ${userEmail}, Role: ${userRole}`);
+      res.status(403).json({ 
+        error: "Forbidden: Platform Administrator privileges required",
+        details: "Your account does not have the required administrator role or whitelist status."
+      });
     }
   } catch (error) {
-    console.error("Platform Admin Middleware Error:", error);
+    logger.error("Platform Admin Middleware Error:", error);
     res.status(500).json({ error: "Internal server error during authorization" });
   }
 };
