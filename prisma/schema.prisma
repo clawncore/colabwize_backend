@@ -571,18 +571,22 @@ model AIUsage {
 }
 
 model ChatSession {
-  id         String        @id @default(uuid())
-  user_id    String
-  project_id String?
-  title      String?       @default("New Chat")
-  created_at DateTime      @default(now())
-  updated_at DateTime      @updatedAt
-  messages   ChatMessage[]
-  project    Project?      @relation(fields: [project_id], references: [id])
-  user       User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id                String        @id @default(uuid())
+  user_id           String
+  project_id        String?
+  file_id           String?
+  external_paper_id String?
+  title             String?       @default("New Chat")
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+  messages          ChatMessage[]
+  project           Project?      @relation(fields: [project_id], references: [id])
+  user              User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([project_id])
+  @@index([file_id])
+  @@index([external_paper_id])
   @@map("chat_sessions")
 }
 
@@ -964,6 +968,20 @@ model WebhookEvent {
   @@index([event_id])
   @@index([provider])
   @@map("webhook_events")
+}
+
+model FailedWebhook {
+  id          String   @id @default(uuid())
+  event_name  String
+  payload     Json
+  retry_count Int      @default(0)
+  last_error  String?  @db.Text
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([event_name])
+  @@index([created_at])
+  @@map("failed_webhooks")
 }
 
 model UserEntitlement {

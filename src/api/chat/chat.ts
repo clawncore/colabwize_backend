@@ -74,13 +74,18 @@ router.post("/", async (req: Request, res: Response) => {
 router.post("/session", async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
-    const { projectId } = req.body;
+    const { projectId, fileId, externalPaperId } = req.body;
 
     if (!userId) {
       return sendErrorResponse(res, 401, "Unauthorized");
     }
 
-    const session = await AIChatService.createSession(userId, projectId);
+    const session = await AIChatService.createSession(
+      userId,
+      projectId,
+      fileId,
+      externalPaperId,
+    );
     return sendJsonResponse(res, 200, session);
   } catch (error: any) {
     return sendErrorResponse(res, 500, error.message);
@@ -94,12 +99,17 @@ router.post("/session", async (req: Request, res: Response) => {
 router.get("/sessions", async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
+    const { projectId, fileId, externalPaperId } = req.query;
 
     if (!userId) {
       return sendErrorResponse(res, 401, "Unauthorized");
     }
 
-    const sessions = await AIChatService.getUserSessions(userId);
+    const sessions = await AIChatService.getUserSessions(userId, {
+      projectId: projectId as string,
+      fileId: fileId as string,
+      externalPaperId: externalPaperId as string,
+    });
     return sendJsonResponse(res, 200, sessions);
   } catch (error: any) {
     return sendErrorResponse(res, 500, error.message);

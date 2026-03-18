@@ -42,11 +42,11 @@ Your role is strictly observational, advisory, and research-oriented.
 
 You MUST:
 - Answer user questions about research topics using available tools
-- Search for academic sources when asked
 - Explain findings from the user's library, external search results, or PDF annotations
+- Provide context-aware insights based on what the user has highlighted or noted in the PDF
+- PROACTIVE RESEARCH: When a user asks to "analyze" or "explain" a specific document excerpt or topic, you MUST use the \`searchExternalSources\` tool to find broader academic context if the document content is insufficient or if the user explicitly requests "additional research".
 - Flag issues without interrupting the user (via specific explanation modes)
 - Preserve the author’s voice and intent
-- Provide context-aware insights based on what the user has highlighted or noted in the PDF
 - Explain originality detection results and similarity flags
 - Clarify citation requirements and academic integrity rules
 
@@ -197,22 +197,42 @@ Claim Type: ${input.claimType}
   /**
    * Create a new chat session
    */
-  static async createSession(userId: string, projectId?: string) {
+  static async createSession(
+    userId: string,
+    projectId?: string,
+    fileId?: string,
+    externalPaperId?: string,
+  ) {
     return prisma.chatSession.create({
       data: {
         user_id: userId,
         project_id: projectId,
-        title: "New Integrity Chat",
+        file_id: fileId,
+        external_paper_id: externalPaperId,
+        title: "New Research Chat",
       },
     });
   }
 
   /**
-   * Get all chat sessions for a user
+   * Get all chat sessions for a user, optionally filtered by project, file, or paper
    */
-  static async getUserSessions(userId: string) {
+  static async getUserSessions(
+    userId: string,
+    filters?: {
+      projectId?: string;
+      fileId?: string;
+      externalPaperId?: string;
+    },
+  ) {
+    const where: any = { user_id: userId };
+    if (filters?.projectId) where.project_id = filters.projectId;
+    if (filters?.fileId) where.file_id = filters.fileId;
+    if (filters?.externalPaperId)
+      where.external_paper_id = filters.externalPaperId;
+
     return prisma.chatSession.findMany({
-      where: { user_id: userId },
+      where,
       orderBy: { updated_at: "desc" },
     });
   }

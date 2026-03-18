@@ -183,7 +183,12 @@ export class ImageUploadService {
             const filesToDelete: string[] = [];
 
             for (const file of files) {
+<<<<<<< HEAD
                 if (!file.id || !file.created_at) continue;
+=======
+                // Skip if metadata is missing
+                if (!file.created_at) continue;
+>>>>>>> origin/craig-update
 
                 const createdAt = new Date(file.created_at);
                 if (createdAt < cutoffDate) {
