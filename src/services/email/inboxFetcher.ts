@@ -27,7 +27,7 @@ export async function processIncomingSupportEmails() {
       user: imapUser,
       pass: imapPass,
     },
-    logger: false,
+    logger: console,
   });
 
   const prisma = await initializePrisma();
