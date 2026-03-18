@@ -34,7 +34,7 @@ router.post("/email/send", async (req, res) => {
     }
 
     // Determine fallback text to bypass raw HTML spam triggers if none is supplied natively
-    const fallbackText = message.replace(/<[^>]+>/g, ''); 
+    const fallbackText = message.replace(/<[^>]+>/g, '');
 
     const result = await sendEmail({
       from: senderAlias as EmailSender,
@@ -91,9 +91,9 @@ router.post("/email/broadcast", async (req, res) => {
       message
     }).catch(err => logger.error("Background Broadcast Error:", err));
 
-    res.status(202).json({ 
-      success: true, 
-      message: `Broadcast of ${userIds.length} emails has been initiated in the background.` 
+    res.status(202).json({
+      success: true,
+      message: `Broadcast of ${userIds.length} emails has been initiated in the background.`
     });
   } catch (error: any) {
     logger.error("Admin Broadcast Error:", error);
@@ -162,10 +162,10 @@ router.post("/inbox/reply", async (req, res) => {
     const { threadId, senderAlias, to, subject, message } = req.body;
 
     if (!threadId || !senderAlias || !to || !subject || !message) {
-       return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const fallbackText = message.replace(/<[^>]+>/g, ''); 
+    const fallbackText = message.replace(/<[^>]+>/g, '');
 
     // Send the email natively out through Resend
     const result = await sendEmail({
@@ -179,16 +179,16 @@ router.post("/inbox/reply", async (req, res) => {
     if (result.success) {
       // Append the admin's outbound reply into the SupportMessage table to maintain thread history
       await prisma.supportMessage.create({
-         data: {
-           sender_email: SENDER_IDENTITIES[senderAlias as EmailSender].replace(/.*<(.+)>/, '$1'),
-           subject,
-           message_html: message,
-           message_text: fallbackText,
-           status: 'open',
-           thread_id: threadId,
-           source_alias: senderAlias,
-           imap_uid: Math.floor(Math.random() * 1000000000) // Dummy UID for locally generated outbound msg
-         }
+        data: {
+          sender_email: SENDER_IDENTITIES[senderAlias as EmailSender].replace(/.*<(.+)>/, '$1'),
+          subject,
+          message_html: message,
+          message_text: fallbackText,
+          status: 'open',
+          thread_id: threadId,
+          source_alias: senderAlias,
+          imap_uid: Math.floor(Math.random() * 1000000000) // Dummy UID for locally generated outbound msg
+        }
       });
       return res.json({ success: true });
     } else {
@@ -206,24 +206,24 @@ router.post("/inbox/reply", async (req, res) => {
  * @access  Admin Only
  */
 router.patch("/inbox/:threadId/status", async (req, res) => {
-   try {
-     const { threadId } = req.params;
-     const { status } = req.body;
+  try {
+    const { threadId } = req.params;
+    const { status } = req.body;
 
-     if (status !== 'open' && status !== 'resolved') {
-       return res.status(400).json({ error: "Invalid status state" });
-     }
+    if (status !== 'open' && status !== 'resolved') {
+      return res.status(400).json({ error: "Invalid status state" });
+    }
 
-     await prisma.supportMessage.updateMany({
-        where: { thread_id: threadId },
-        data: { status }
-     });
+    await prisma.supportMessage.updateMany({
+      where: { thread_id: threadId },
+      data: { status }
+    });
 
-     res.json({ success: true });
-   } catch (error: any) {
-     logger.error("Admin Thread Status Error:", error);
-     res.status(500).json({ success: false, error: "Internal server error" });
-   }
+    res.json({ success: true });
+  } catch (error: any) {
+    logger.error("Admin Thread Status Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
 });
 
 /**
@@ -267,7 +267,7 @@ router.get("/analytics", async (req, res) => {
     // 2. User Growth (Last 30 days)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
+
     const userGrowth = await prisma.user.count({
       where: { created_at: { gte: thirtyDaysAgo } }
     });
@@ -465,7 +465,7 @@ router.patch("/blogs/:id", async (req, res) => {
     const updateData = req.body;
 
     if (updateData.title) {
-       updateData.slug = updateData.title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
+      updateData.slug = updateData.title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
     }
 
     const blog = await prisma.blogPost.update({
