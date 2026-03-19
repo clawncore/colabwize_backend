@@ -107,10 +107,10 @@ export function buildEmailHeader(): string {
  * Builds the minimal "CW" logo block for footers.
  */
 export function buildBrandedBlock(centered: boolean = false): string {
-  const containerStyle = centered 
-    ? "margin-bottom: 24px; text-align: center;" 
+  const containerStyle = centered
+    ? "margin-bottom: 24px; text-align: center;"
     : "margin-bottom: 24px; text-align: left;";
-    
+
   return `
     <div style="${containerStyle}">
       <img src="https://colabwize.com/images/Colabwize-logo.png" alt="ColabWize" style="height: 48px; width: auto; display: inline-block;">
@@ -123,7 +123,7 @@ export function buildBrandedBlock(centered: boolean = false): string {
  * Appended to every manual and broadcast email.
  */
 export function buildMandatoryFooter(recipientEmail?: string): string {
-  const unsubscribeLink = recipientEmail 
+  const unsubscribeLink = recipientEmail
     ? `https://colabwize.com/unsubscribe?email=${encodeURIComponent(recipientEmail)}`
     : `https://colabwize.com/unsubscribe`;
 
@@ -148,8 +148,8 @@ export function buildMandatoryFooter(recipientEmail?: string): string {
  * Supports optional name and title overrides for a more personal touch.
  */
 export function buildEmailSignature(
-  alias: EmailSender, 
-  overrideName?: string, 
+  alias: EmailSender,
+  overrideName?: string,
   overrideTitle?: string
 ): string {
   const profile = { ...ALIAS_SIGNATURES[alias] };
