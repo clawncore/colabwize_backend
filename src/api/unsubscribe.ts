@@ -152,14 +152,16 @@ router.post("/", async (req, res) => {
   }
 });
 
+import { sendEmail } from "../services/email/baseMailer";
+
 /**
  * @route   POST /api/unsubscribe/confirm
- * @desc    JSON endpoint for the React frontend to confirm unsubscribe
+ * @desc    JSON endpoint for the React frontend to confirm unsubscribe with survey feedback
  * @access  Public
  */
 router.post("/confirm", async (req, res) => {
   try {
-    const email = (req.body?.email || req.query.email) as string;
+    const { email, reasons, feedback } = req.body;
 
     if (!email) {
       return res.status(400).json({ success: false, error: "Missing email" });
@@ -172,17 +174,45 @@ router.post("/confirm", async (req, res) => {
       return res.json({ success: true, alreadyUnsubscribed: false });
     }
 
-    if (user.unsubscribed_from_marketing) {
-      return res.json({ success: true, alreadyUnsubscribed: true });
+    const alreadyUnsubscribed = user.unsubscribed_from_marketing;
+
+    // 1. Mark as unsubscribed in DB
+    if (!alreadyUnsubscribed) {
+      await prisma.user.update({
+        where: { email },
+        data: { unsubscribed_from_marketing: true }
+      });
+      logger.info(`[Unsubscribe] User opted out: ${email}`);
     }
 
-    await prisma.user.update({
-      where: { email },
-      data: { unsubscribed_from_marketing: true }
-    });
+    // 2. Forward feedback to Support Pipeline (support@colabwize.com)
+    if (reasons?.length > 0 || feedback?.trim()) {
+      const reasonText = reasons?.join(", ") || "No specific reason selected";
+      const messageBody = feedback?.trim() || "No additional comments";
 
-    logger.info(`[Unsubscribe] User opted out: ${email}`);
-    res.json({ success: true, alreadyUnsubscribed: false });
+      await sendEmail({
+        from: "MARKETING",
+        to: "support@colabwize.com",
+        subject: `Sad to see you go: Unsubscribe Feedback from ${email}`,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+            <h2 style="color: #111827;">New Unsubscribe Feedback</h2>
+            <p><strong>User:</strong> ${email}</p>
+            <p><strong>Reasons:</strong> ${reasonText}</p>
+            <div style="margin-top: 16px; padding: 16px; background: #f8fafc; border-radius: 8px;">
+              <strong>Comments:</strong><br/>
+              ${messageBody.replace(/\n/g, '<br/>')}
+            </div>
+            <p style="margin-top: 24px; font-size: 12px; color: #64748b;">This feedback was automatically forwarded from the Unsubscribe Page.</p>
+          </div>
+        `,
+        text: `New Unsubscribe Feedback\nUser: ${email}\nReasons: ${reasonText}\nComments: ${messageBody}`
+      });
+      
+      logger.info(`[Unsubscribe] Feedback sent to support for: ${email}`);
+    }
+
+    res.json({ success: true, alreadyUnsubscribed });
   } catch (error: any) {
     logger.error("Unsubscribe Confirm Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
