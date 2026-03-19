@@ -1,7 +1,10 @@
 import express, { Router } from "express";
+import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
 import { sendEmail } from "../../services/email/baseMailer";
 import { SENDER_IDENTITIES, EmailSender } from "../../services/email/emailConfig";
+import { buildEmailSignature, buildEmailHeader } from "../../services/email/emailSignatures";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { processBroadcast } from "../../services/admin/broadcastService";
@@ -23,7 +26,7 @@ router.use(isPlatformAdmin);
  */
 router.post("/email/send", async (req, res) => {
   try {
-    const { to, senderAlias, subject, message } = req.body;
+    const { to, senderAlias, subject, message, senderName, senderTitle } = req.body;
 
     if (!to || !senderAlias || !subject || !message) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -33,14 +36,20 @@ router.post("/email/send", async (req, res) => {
       return res.status(400).json({ error: "Invalid sender alias" });
     }
 
+    let finalMessage = message;
+    
+    const emailFooter = buildEmailSignature(senderAlias as EmailSender, senderName, senderTitle);
+    
+    finalMessage = finalMessage + emailFooter;
+
     // Determine fallback text to bypass raw HTML spam triggers if none is supplied natively
-    const fallbackText = message.replace(/<[^>]+>/g, '');
+    const fallbackText = finalMessage.replace(/<[^>]+>/g, '');
 
     const result = await sendEmail({
       from: senderAlias as EmailSender,
       to,
       subject,
-      html: message,
+      html: buildEmailHeader() + finalMessage,
       text: fallbackText
     });
 
@@ -67,13 +76,58 @@ router.post("/email/send", async (req, res) => {
 });
 
 /**
+ * @route   POST /api/admin/email/generate
+ * @desc    Generate a professional email draft using OpenAI
+ * @access  Admin Only
+ */
+router.post("/email/generate", async (req, res) => {
+  try {
+    const { prompt, currentMessage } = req.body;
+    
+    if (!prompt) {
+       return res.status(400).json({ error: "Missing prompt" });
+    }
+
+    let systemInstructions = `You are an expert corporate communications professional for 'ColabWize'. 
+    
+You must generate a beautifully formatted, responsive HTML email matching this exact structural template format:
+
+1. Wrap the entire email in a light gray background block container with padding (e.g., <div style="background-color: #f3f4f6; padding: 40px 20px; font-family: Arial, sans-serif; color: #1f2937;">).
+2. Inside, use a white container card with a subtle border-radius (e.g., <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 40px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">).
+3. At the very top inside the white card, ALWAYS insert the official logo exactly like this: <img src="https://colabwize.com/email_logo.png" alt="ColabWize Logo" style="max-height: 48px; margin-bottom: 24px; display: block;" />
+4. Below the logo, write a very large, bold headline (e.g., <h1 style="font-size: 28px; font-weight: 800; color: #000; margin-bottom: 24px; line-height: 1.2;">) summarizing the email's core purpose.
+5. Provide the body text cleanly formatted. If presenting data/logs, use bold labels and clean lines exactly like: "<strong>Location:</strong> Boardman Oregon<br><br>".
+6. Below the white container card, provide a footer in small gray text explaining "Please do not reply to this email. Emails sent to this address will not be answered."
+
+RETURN ONLY CLEAN HTML STRING TEXT formatting without Markdown wrappers like \`\`\`html or body tags. Do not include a subject line or variables in brackets. Output the final, ready-to-send professional HTML string.`;
+    let userInstructions = prompt;
+
+    if (currentMessage) {
+        systemInstructions += "\nThe user has provided an existing draft. You must comprehensively revise, correct, or enhance the existing draft according to their instructions.";
+        userInstructions = `Instruction: ${prompt}\n\nCurrent Draft:\n${currentMessage}`;
+    }
+
+    const { text } = await generateText({
+      model: openai("gpt-4o-mini"),
+      system: systemInstructions,
+      prompt: userInstructions,
+    });
+
+    res.json({ success: true, html: text });
+  } catch (error: any) {
+    logger.error("Admin AI Gen Error:", error);
+    res.status(500).json({ success: false, error: "AI Generation failed" });
+  }
+});
+
+/**
  * @route   POST /api/admin/email/broadcast
  * @desc    Send a broadcast email to multiple users
  * @access  Admin Only
  */
 router.post("/email/broadcast", async (req, res) => {
   try {
-    const { userIds, senderAlias, subject, message } = req.body;
+    const { userIds, senderAlias, subject, message, senderName, senderTitle } = req.body;
 
     if (!Array.isArray(userIds) || userIds.length === 0 || !senderAlias || !subject || !message) {
       return res.status(400).json({ error: "Invalid or missing required fields" });
@@ -83,12 +137,16 @@ router.post("/email/broadcast", async (req, res) => {
       return res.status(400).json({ error: "Invalid sender alias" });
     }
 
+    let finalMessage = message;
+
     // Fire and forget: Process broadcast in background
     processBroadcast({
       userIds,
       senderAlias: senderAlias as EmailSender,
       subject,
-      message
+      message: finalMessage,
+      senderName,
+      senderTitle
     }).catch(err => logger.error("Background Broadcast Error:", err));
 
     res.status(202).json({
@@ -166,14 +224,19 @@ router.post("/inbox/reply", async (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const fallbackText = message.replace(/<[^>]+>/g, '');
+    let finalMessage = message;
+    if (!finalMessage.includes("colabwize.com/email_logo.png")) {
+       finalMessage = `<img src="https://colabwize.com/email_logo.png" alt="ColabWize Logo" height="48" style="margin-bottom: 24px; display: block;" />` + finalMessage;
+    }
+
+    const fallbackText = finalMessage.replace(/<[^>]+>/g, '');
 
     // Send the email natively out through Resend
     const result = await sendEmail({
       from: senderAlias as EmailSender,
       to,
       subject,
-      html: message,
+      html: buildEmailHeader() + finalMessage,
       text: fallbackText
     });
 
@@ -256,6 +319,31 @@ router.patch("/inbox/message/:id/read", async (req, res) => {
  * @desc    Fetch email sending logs
  * @access  Admin Only
  */
+/**
+ * @route   GET /api/admin/email/unsubscribed
+ * @desc    Fetch all users who have opted out of marketing emails
+ * @access  Admin Only
+ */
+router.get("/email/unsubscribed", async (req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      where: { unsubscribed_from_marketing: true },
+      select: {
+        id: true,
+        email: true,
+        full_name: true,
+        created_at: true,
+      },
+      orderBy: { created_at: "desc" }
+    });
+
+    res.json({ success: true, users, total: users.length });
+  } catch (error: any) {
+    logger.error("Admin Unsubscribed Fetch Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
 router.get("/email/logs", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 100;

@@ -1,6 +1,7 @@
 import { prisma } from "../../lib/prisma";
 import { sendEmail } from "../email/baseMailer";
 import { EmailSender } from "../email/emailConfig";
+import { buildEmailSignature, buildEmailHeader } from "../email/emailSignatures";
 import logger from "../../monitoring/logger";
 
 interface BroadcastOptions {
@@ -8,6 +9,8 @@ interface BroadcastOptions {
   senderAlias: EmailSender;
   subject: string;
   message: string;
+  senderName?: string;
+  senderTitle?: string;
 }
 
 /**
@@ -15,15 +18,19 @@ interface BroadcastOptions {
  * and prevent blocking the main event loop.
  */
 export const processBroadcast = async (options: BroadcastOptions) => {
-  const { userIds, senderAlias, subject, message } = options;
+  const { userIds, senderAlias, subject, message, senderName, senderTitle } = options;
   const BATCH_SIZE = 50;
   const DELAY_MS = 1000; // 1 second between batches
 
   logger.info(`Starting broadcast to ${userIds.length} recipients...`);
 
   // Fetch candidate emails to avoid multiple circular queries
+  // STRICTLY filter out users who have opted out of marketing
   const recipients = await prisma.user.findMany({
-    where: { id: { in: userIds } },
+    where: { 
+      id: { in: userIds },
+      unsubscribed_from_marketing: false 
+    },
     select: { email: true }
   });
 
@@ -35,14 +42,23 @@ export const processBroadcast = async (options: BroadcastOptions) => {
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     const batch = recipients.slice(i, i + BATCH_SIZE);
     
-    // Process batch in parallel
     const sendPromises = batch.map(async (user: { email: string }) => {
       try {
+        const unsubscribeLink = `https://colabwize.com/unsubscribe?email=${encodeURIComponent(user.email)}`;
+        const emailFooter = buildEmailSignature(senderAlias, senderName, senderTitle) + `
+          <p style="margin: 10px 0 0 0; font-size: 10px; color: #9ca3af;">
+            If you no longer wish to receive communications, <a href="${unsubscribeLink}" style="color: #0ea5e9; text-decoration: underline;">Unsubscribe Here</a>.
+          </p>
+        `;
+
+        const finalHtml = buildEmailHeader() + message + emailFooter;
+        const fallbackText = finalHtml.replace(/<[^>]+>/g, '');
+
         const result = await sendEmail({
           from: senderAlias,
           to: user.email,
           subject,
-          html: message,
+          html: finalHtml,
           text: fallbackText
         });
 

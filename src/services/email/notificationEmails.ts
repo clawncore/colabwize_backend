@@ -77,7 +77,7 @@ export async function sendWorkspaceInvitation({
   `;
 
   const html = buildEmailHtml({
-    title: "You've Been Invited! 🚀",
+    title: "You've Been Invited!",
     content,
     ctaText: "Accept Invitation",
     ctaUrl: acceptUrl,
@@ -152,15 +152,9 @@ export async function sendScanCompletionEmail(
     citations: "Citation Confidence Audit",
   };
 
-  const scanTypeIcons = {
-    originality: "🔍",
-    "ai-detection": "🤖",
-    citations: "📚",
-  };
-
   const subject = `Scan complete: ${projectName}`;
 
-  const title = `${scanTypeIcons[scanType]} ${scanTypeLabels[scanType]} Complete!`;
+  const title = `${scanTypeLabels[scanType]} Complete!`;
 
   const content = `
     <p>Hello ${fullName || "there"},</p>
@@ -224,7 +218,7 @@ export async function sendCertificateReadyEmail(
   `;
 
   const html = buildEmailHtml({
-    title: "🎓 Your Authorship Certificate is Ready!",
+    title: "Your Authorship Certificate is Ready!",
     content,
     ctaText: "Download Certificate",
     ctaUrl: certificateUrl,
@@ -233,7 +227,7 @@ export async function sendCertificateReadyEmail(
   const { success } = await sendEmail({
     from: "NOTIFICATIONS",
     to,
-    subject: `🎓 Your Authorship Certificate is Ready - ${projectName}`,
+    subject: `Your Authorship Certificate is Ready - ${projectName}`,
     html,
     text: `Hello ${fullName || "there"},\n\nYour Authorship Certificate for "${projectName}" is ready.\n\nDownload: ${certificateUrl}\n\nColabWize Team`,
   });
@@ -314,7 +308,7 @@ export async function sendUsageLimitWarningEmail(
   `;
 
   const html = buildEmailHtml({
-    title: "⚠️ Approaching Your Scan Limit",
+    title: "Approaching Your Scan Limit",
     titleColor: "#ea580c",
     content,
     ctaText: "Upgrade Your Plan",
@@ -324,7 +318,7 @@ export async function sendUsageLimitWarningEmail(
   const { success } = await sendEmail({
     from: "NOTIFICATIONS",
     to,
-    subject: `⚠️ You've used ${percentage}% of your monthly scans`,
+    subject: `You've used ${percentage}% of your monthly scans`,
     html,
     text: `Hello ${fullName || "there"},\n\nYou've used ${percentage}% of your monthly scans. Only ${remaining} remaining.\n\nUpgrade Plan: ${upgradeUrl}\n\nColabWize Team`,
   });
@@ -359,7 +353,7 @@ export async function sendUsageLimitReachedEmail(
   `;
 
   const html = buildEmailHtml({
-    title: "🚫 Monthly Limit Reached",
+    title: "Monthly Limit Reached",
     titleColor: "#dc2626",
     content,
     ctaText: "Upgrade Now",
@@ -369,7 +363,7 @@ export async function sendUsageLimitReachedEmail(
   const { success } = await sendEmail({
     from: "NOTIFICATIONS",
     to,
-    subject: `🚫 Monthly Scan Limit Reached - ${plan} Plan`,
+    subject: `Monthly Scan Limit Reached - ${plan} Plan`,
     html,
     text: `Hello ${fullName || "there"},\n\nYou've reached your monthly scan limit. Upgrade now to continue scanning.\n\nUpgrade: ${upgradeUrl}\n\nColabWize Team`,
   });
@@ -422,7 +416,7 @@ export async function sendSearchAlertEmail(
   const { success } = await sendEmail({
     from: "NOTIFICATIONS",
     to,
-    subject: `🔔 New Research Found: ${query}`,
+    subject: `New Research Found: ${query}`,
     html,
     text: `Hello ${fullName || "there"},\n\nWe found ${matchCount} new research papers matching ${query}.\n\nView them in your dashboard: ${frontendUrl}/dashboard\n\nColabWize Team`,
   });
@@ -655,7 +649,7 @@ export async function sendCertificateExpirationWarningEmail(
   `;
 
   const html = buildEmailHtml({
-    title: "⏰ Certificates Expiring Soon",
+    title: "Certificates Expiring Soon",
     titleColor: "#ea580c",
     content,
     ctaText: "Download Certificates",
@@ -665,7 +659,7 @@ export async function sendCertificateExpirationWarningEmail(
   const { success } = await sendEmail({
     from: "NOTIFICATIONS",
     to,
-    subject: `⏰ ${certificateCount} Certificate${certificateCount > 1 ? "s" : ""} Expiring Soon`,
+    subject: `${certificateCount} Certificate${certificateCount > 1 ? "s" : ""} Expiring Soon`,
     html,
     text: `Hello ${fullName || "there"},\n\nYou have ${certificateCount} certificates expiring on ${expirationDate}.\n\nDownload them here: ${downloadUrl}\n\nColabWize Team`,
   });

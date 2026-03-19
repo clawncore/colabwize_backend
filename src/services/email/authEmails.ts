@@ -52,22 +52,22 @@ export async function sendWelcomeEmail(
       <h2 style="color: #1e40af; font-size: 18px; margin-top: 0;">Your Submission Shield Includes:</h2>
       
       <div style="margin-bottom: 15px;">
-        <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #334155;">🔍 Explainable Originality Map</h3>
+        <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #334155;">Explainable Originality Map</h3>
         <p style="margin: 0; font-size: 14px; color: #64748b;">See exactly where your content matches external sources.</p>
       </div>
 
       <div style="margin-bottom: 15px;">
-        <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #334155;">🛡️ Defensible Writing Workspace</h3>
+        <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #334155;">Defensible Writing Workspace</h3>
         <p style="margin: 0; font-size: 14px; color: #64748b;">Draft your documents securely with full version history and playback capabilities.</p>
       </div>
 
       <div style="margin-bottom: 15px;">
-        <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #334155;">📚 Citation Confidence Auditor</h3>
+        <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #334155;">Citation Confidence Auditor</h3>
         <p style="margin: 0; font-size: 14px; color: #64748b;">Verify citation quality and detect hallucinated references.</p>
       </div>
 
       <div>
-        <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #334155;">🎓 Authorship Certificates</h3>
+        <h3 style="margin: 0 0 5px 0; font-size: 16px; color: #334155;">Authorship Certificates</h3>
         <p style="margin: 0; font-size: 14px; color: #64748b;">Generate timestamped proof of your writing process.</p>
       </div>
     </div>
@@ -76,7 +76,7 @@ export async function sendWelcomeEmail(
   `;
 
   const html = buildEmailHtml({
-    title: "Welcome to ColabWize! 🚀",
+    title: "Welcome to ColabWize!",
     content,
     ctaText: "Go to Dashboard",
     ctaUrl: `${frontendUrl}/dashboard`,
@@ -85,7 +85,7 @@ export async function sendWelcomeEmail(
   const { success } = await sendEmail({
     from: "WELCOME",
     to,
-    subject: "🚀 Welcome to ColabWize - Let's Protect Your Work!",
+    subject: "Welcome to ColabWize - Let's Protect Your Work!",
     html,
     text: `Hello ${fullName || "there"},\n\nWelcome to ColabWize! Go to your dashboard to get started: ${frontendUrl}/dashboard\n\nColabWize Team`,
   });
@@ -156,7 +156,7 @@ export async function send2FAEnabledEmail(
   `;
 
   const html = buildEmailHtml({
-    title: "2FA Successfully Enabled",
+    title: "Two-Factor Authentication Successfully Enabled",
     content,
     ctaText: "Manage Security Settings",
     ctaUrl: `${frontendUrl}/dashboard/settings`,
@@ -166,7 +166,7 @@ export async function send2FAEnabledEmail(
   const { success } = await sendEmail({
     from: "SECURITY",
     to,
-    subject: "🔒 Two-Factor Authentication Enabled",
+    subject: "Two-Factor Authentication Enabled",
     html,
     text: `Hello ${fullName || "there"},\n\nTwo-factor authentication (2FA) is now active for your account.\n\nColabWize Security`,
   });

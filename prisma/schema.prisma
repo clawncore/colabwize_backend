@@ -93,6 +93,7 @@ model User {
   chat_reads                 TeamChatMessageRead[]
   push_notification_tokens   PushNotificationToken[]
   blog_posts               BlogPost[]
+  unsubscribed_from_marketing Boolean @default(false)
   
   @@index([email])
   @@map("users")
