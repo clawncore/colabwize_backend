@@ -107,13 +107,18 @@ export function buildEmailHeader(): string {
  * Builds the minimal "CW" logo block for footers.
  */
 export function buildBrandedBlock(centered: boolean = false): string {
-  const containerStyle = centered
-    ? "margin-bottom: 24px; text-align: center;"
-    : "margin-bottom: 24px; text-align: left;";
+  const alignment = centered ? "center" : "left";
+  const margin = centered ? "0 auto 24px auto" : "0 0 24px 0";
 
   return `
-    <div style="${containerStyle}">
-      <img src="https://colabwize.com/images/Colabwize-logo.png" alt="ColabWize" style="height: 48px; width: auto; display: inline-block;">
+    <div style="display: table; margin: ${margin}; text-align: left;">
+      <div style="display: table-cell; vertical-align: middle; padding-right: 20px;">
+        <img src="https://colabwize.com/images/Colabwize-logo.png" alt="ColabWize" style="height: 52px; width: auto; display: block;">
+      </div>
+      <div style="display: table-cell; vertical-align: middle; border-left: 1px solid #e5e7eb; padding-left: 20px;">
+        <h1 style="margin: 0; font-size: 22px; font-weight: 800; color: #111827; letter-spacing: -0.5px;">ColabWize</h1>
+        <p style="margin: 2px 0 0 0; font-size: 13px; color: #64748b; font-weight: 500;">A Platform for Original, Credible, and Human Work.</p>
+      </div>
     </div>
   `;
 }
@@ -128,16 +133,27 @@ export function buildMandatoryFooter(recipientEmail?: string): string {
     : `https://colabwize.com/unsubscribe`;
 
   return `
-    <div style="margin-top: 48px; text-align: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #9ca3af; line-height: 1.6;">
-      <!-- Footer Logo -->
+    <div style="margin-top: 64px; text-align: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #64748b; line-height: 1.6; padding: 40px 20px; border-top: 1px solid #f1f5f9;">
+      <!-- Footer Branding -->
       ${buildBrandedBlock(true)}
 
-      <p style="font-size: 11px; margin: 0;">
+      <div style="margin-bottom: 32px; font-size: 14px; max-width: 500px; margin-left: auto; margin-right: auto;">
+        <p style="margin: 0 0 12px 0;">If you have any questions, feedback, ideas or problems don't hesitate to <a href="https://colabwize.com/contact" style="color: #0ea5e9; text-decoration: underline;">contact us!</a></p>
+        <p style="margin: 0;">You can <a href="https://colabwize.com/dashboard/settings" style="color: #0ea5e9; text-decoration: underline;">manage</a> which email notifications you receive or <a href="${unsubscribeLink}" style="color: #0ea5e9; text-decoration: underline;">unsubscribe</a> from our communications.</p>
+      </div>
+
+      <div style="margin-bottom: 24px; font-size: 13px; font-weight: 500;">
+        Checkout: <a href="https://colabwize.com/resources/updates" style="color: #0ea5e9; text-decoration: none;">Updates</a>, 
+        <a href="https://colabwize.com/resources/newsletter" style="color: #0ea5e9; text-decoration: none;">Newsletter</a> or 
+        <a href="https://colabwize.com/contact" style="color: #0ea5e9; text-decoration: none;">Support</a>
+      </div>
+
+      <div style="margin-bottom: 32px;">
+        <a href="https://x.com/colabwize" style="color: #111827; text-decoration: none; font-weight: bold; font-size: 14px;">Follow us on X</a>
+      </div>
+
+      <p style="font-size: 11px; color: #9ca3af; margin: 0;">
         © ${new Date().getFullYear()} ColabWize. All rights reserved.
-      </p>
-      
-      <p style="font-size: 11px; margin: 4px 0 0 0;">
-        <a href="${unsubscribeLink}" style="color: #9ca3af; text-decoration: underline;">Unsubscribe</a> from these communications.
       </p>
     </div>
   `;

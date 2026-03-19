@@ -31,33 +31,37 @@ export const processBroadcast = async (options: BroadcastOptions) => {
       id: { in: userIds },
       unsubscribed_from_marketing: false 
     },
-    select: { email: true }
+    select: { email: true, full_name: true }
   });
 
   let successCount = 0;
   let failureCount = 0;
 
-  const fallbackText = message.replace(/<[^>]+>/g, '');
-
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     const batch = recipients.slice(i, i + BATCH_SIZE);
     
-    const sendPromises = batch.map(async (user: { email: string }) => {
+    const sendPromises = batch.map(async (user: { email: string; full_name: string | null }) => {
       try {
+        const userName = user.full_name || "there";
         const unsubscribeLink = `https://colabwize.com/unsubscribe?email=${encodeURIComponent(user.email)}`;
+        
+        // Personalize message and subject
+        const personalizedMessage = message.replace(/{{name}}|{{full_name}}/g, userName);
+        const personalizedSubject = subject.replace(/{{name}}|{{full_name}}/g, userName);
+
         const emailFooter = buildEmailSignature(senderAlias, senderName, senderTitle) + `
           <p style="margin: 10px 0 0 0; font-size: 10px; color: #9ca3af;">
             If you no longer wish to receive communications, <a href="${unsubscribeLink}" style="color: #0ea5e9; text-decoration: underline;">Unsubscribe Here</a>.
           </p>
         `;
 
-        const finalHtml = buildEmailHeader() + message + emailFooter;
+        const finalHtml = buildEmailHeader() + personalizedMessage + emailFooter;
         const fallbackText = finalHtml.replace(/<[^>]+>/g, '');
 
         const result = await sendEmail({
           from: senderAlias,
           to: user.email,
-          subject,
+          subject: personalizedSubject,
           html: finalHtml,
           text: fallbackText
         });
@@ -67,7 +71,7 @@ export const processBroadcast = async (options: BroadcastOptions) => {
           data: {
             recipient: user.email,
             sender: senderAlias,
-            subject,
+            subject: personalizedSubject,
             status: result.success ? "sent" : "failed",
             error: result.success ? null : (result.error || "Unknown error")
           }
