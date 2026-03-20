@@ -4,7 +4,7 @@ import { openai } from "@ai-sdk/openai";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
 import { sendEmail } from "../../services/email/baseMailer";
 import { SENDER_IDENTITIES, EmailSender } from "../../services/email/emailConfig";
-import { buildEmailSignature, buildEmailHeader } from "../../services/email/emailSignatures";
+import { wrapInPremiumLayout } from "../../services/email/emailLayout";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { processBroadcast } from "../../services/admin/broadcastService";
@@ -36,21 +36,12 @@ router.post("/email/send", async (req, res) => {
       return res.status(400).json({ error: "Invalid sender alias" });
     }
 
-    let finalMessage = message;
-    
-    const emailFooter = buildEmailSignature(senderAlias as EmailSender, senderName, senderTitle);
-    
-    finalMessage = finalMessage + emailFooter;
-
-    // Determine fallback text to bypass raw HTML spam triggers if none is supplied natively
-    const fallbackText = finalMessage.replace(/<[^>]+>/g, '');
-
     const result = await sendEmail({
       from: senderAlias as EmailSender,
       to,
       subject,
-      html: buildEmailHeader() + finalMessage,
-      text: fallbackText
+      html: wrapInPremiumLayout(message, senderAlias as EmailSender, senderName, senderTitle, to),
+      text: message.replace(/<[^>]+>/g, '') // Clean fallback text
     });
 
     // Audit Log Entry
@@ -90,16 +81,16 @@ router.post("/email/generate", async (req, res) => {
 
     let systemInstructions = `You are an expert corporate communications professional for 'ColabWize'. 
     
-You must generate a beautifully formatted, responsive HTML email matching this exact structural template format:
+You must generate a beautifully formatted, professional body for an email. 
+Note: The outer "card" layout, company branding, and signatures ARE ALREADY HANDLED. You should focus ONLY on the HTML content of the message itself.
 
-1. Wrap the entire email in a light gray background block container with padding (e.g., <div style="background-color: #f3f4f6; padding: 40px 20px; font-family: Arial, sans-serif; color: #1f2937;">).
-2. Inside, use a white container card with a subtle border-radius (e.g., <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 40px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">).
-3. At the very top inside the white card, ALWAYS insert the official logo exactly like this: <img src="https://colabwize.com/email_logo.png" alt="ColabWize Logo" style="max-height: 48px; margin-bottom: 24px; display: block;" />
-4. Below the logo, write a very large, bold headline (e.g., <h1 style="font-size: 28px; font-weight: 800; color: #000; margin-bottom: 24px; line-height: 1.2;">) summarizing the email's core purpose.
-5. Provide the body text cleanly formatted. If presenting data/logs, use bold labels and clean lines exactly like: "<strong>Location:</strong> Boardman Oregon<br><br>".
-6. Below the white container card, provide a footer in small gray text explaining "Please do not reply to this email. Emails sent to this address will not be answered."
+Guidelines:
+1. Use semantic HTML tags for structure: <h1> for titles, <p> for paragraphs, <ul>/<li> for lists.
+2. For specific data or logs, use bold labels and clean line breaks (e.g., "<strong>Location:</strong> Boardman Oregon<br><br>").
+3. You can include links using the <a> tag.
+4. If a button is needed, generate a centered div with a link styled like a button (e.g., <div style="margin: 30px 0; text-align: center;"><a href="#" style="background-color: #0ea5e9; color: white; padding: 12px 24px; text-decoration: none; border-radius: 12px; font-weight: bold; display: inline-block;">Button Text</a></div>).
 
-RETURN ONLY CLEAN HTML STRING TEXT formatting without Markdown wrappers like \`\`\`html or body tags. Do not include a subject line or variables in brackets. Output the final, ready-to-send professional HTML string.`;
+RETURN ONLY THE HTML CONTENT STRING. Do not include <html>, <head>, or <body> tags. Do not wrap in markdown code blocks like \`\`\`html. Output the final, ready-to-use professional body content.`;
     let userInstructions = prompt;
 
     if (currentMessage) {
@@ -224,19 +215,14 @@ router.post("/inbox/reply", async (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    let finalMessage = message;
-    if (!finalMessage.includes("colabwize.com/email_logo.png")) {
-       finalMessage = `<img src="https://colabwize.com/email_logo.png" alt="ColabWize Logo" height="48" style="margin-bottom: 24px; display: block;" />` + finalMessage;
-    }
-
-    const fallbackText = finalMessage.replace(/<[^>]+>/g, '');
+    const fallbackText = message.replace(/<[^>]+>/g, '');
 
     // Send the email natively out through Resend
     const result = await sendEmail({
       from: senderAlias as EmailSender,
       to,
       subject,
-      html: buildEmailHeader() + finalMessage,
+      html: wrapInPremiumLayout(message, senderAlias as EmailSender, undefined, undefined, to),
       text: fallbackText
     });
 

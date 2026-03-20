@@ -68,6 +68,7 @@ import auditRouter from "../audit/index";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
 import adminRouter from "../api/admin/index";
+import publicBlogsRouter from "../api/blogs/index";
 
 const app: Application = express();
 
@@ -386,6 +387,9 @@ app.use("/api/contact", contactRouter);
 
 // Waitlist API (Public)
 app.use("/api/waitlist", waitlistRouter);
+
+// Public Blog API (No auth required - serves published posts to the website)
+app.use("/api/blogs", publicBlogsRouter);
 
 // Recycle Bin API (Authentication required)
 app.use("/api/recyclebin", authMiddleware, recyclebinRouter);

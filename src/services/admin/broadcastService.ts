@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma";
 import { sendEmail } from "../email/baseMailer";
 import { EmailSender } from "../email/emailConfig";
 import { buildEmailSignature, buildEmailHeader } from "../email/emailSignatures";
+import { wrapInPremiumLayout } from "../email/emailLayout";
 import logger from "../../monitoring/logger";
 
 interface BroadcastOptions {
@@ -49,14 +50,8 @@ export const processBroadcast = async (options: BroadcastOptions) => {
         const personalizedMessage = message.replace(/{{name}}|{{full_name}}/g, userName);
         const personalizedSubject = subject.replace(/{{name}}|{{full_name}}/g, userName);
 
-        const emailFooter = buildEmailSignature(senderAlias, senderName, senderTitle) + `
-          <p style="margin: 10px 0 0 0; font-size: 10px; color: #9ca3af;">
-            If you no longer wish to receive communications, <a href="${unsubscribeLink}" style="color: #0ea5e9; text-decoration: underline;">Unsubscribe Here</a>.
-          </p>
-        `;
-
-        const finalHtml = buildEmailHeader() + personalizedMessage + emailFooter;
-        const fallbackText = finalHtml.replace(/<[^>]+>/g, '');
+        const finalHtml = wrapInPremiumLayout(personalizedMessage, senderAlias, senderName, senderTitle, user.email);
+        const fallbackText = personalizedMessage.replace(/<[^>]+>/g, '');
 
         const result = await sendEmail({
           from: senderAlias,
