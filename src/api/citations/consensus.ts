@@ -3,6 +3,7 @@ import { ConsensusAnalysisService } from "../../services/consensusAnalysisServic
 import { authenticateExpressRequest as authenticate } from "../../middleware/auth";
 import logger from "../../monitoring/logger";
 import { initializePrisma } from "../../lib/prisma-async";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
 
@@ -14,6 +15,16 @@ router.post("/:projectId/consensus", authenticate, async (req, res) => {
     try {
         const { projectId } = req.params;
         const { claim, citationIds } = req.body;
+        const userId = (req as any).user?.id;
+
+        if (!userId) {
+            return res.status(401).json({ success: false, error: "Authentication required" });
+        }
+
+        const hasAccess = await checkProjectAccess(projectId as string, userId);
+        if (!hasAccess) {
+            return res.status(403).json({ success: false, error: "Access denied" });
+        }
 
         if (!claim) {
             return res.status(400).json({
@@ -82,6 +93,16 @@ router.post("/:projectId/consensus", authenticate, async (req, res) => {
 router.get("/:projectId/consensus-topics", authenticate, async (req, res) => {
     try {
         const { projectId } = req.params;
+        const userId = (req as any).user?.id;
+
+        if (!userId) {
+            return res.status(401).json({ success: false, error: "Authentication required" });
+        }
+
+        const hasAccess = await checkProjectAccess(projectId as string, userId);
+        if (!hasAccess) {
+            return res.status(403).json({ success: false, error: "Access denied" });
+        }
 
         const topics = await ConsensusAnalysisService.extractConsensusTopics(projectId as string);
 

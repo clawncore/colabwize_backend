@@ -3,8 +3,8 @@ import { MissingLinkService } from "../../services/missingLinkService";
 import logger from "../../monitoring/logger";
 import rateLimit from "express-rate-limit";
 import { prisma } from "../../lib/prisma";
-import { checkUsageLimit } from "../../middleware/usageMiddleware";
 import { sendJsonResponse, sendErrorResponse } from "../../lib/api-response";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
 
@@ -39,11 +39,16 @@ router.post(
         return sendErrorResponse(res, 400, "projectId is required");
       }
 
+      const hasAccess = await checkProjectAccess(projectId as string, userId);
+      if (!hasAccess) {
+        return sendErrorResponse(res, 403, "Access denied");
+      }
+
       if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
         return sendErrorResponse(
           res,
           400,
-          "keywords must be a non-empty array"
+          "keywords must be a non-empty array",
         );
       }
 
@@ -58,7 +63,7 @@ router.post(
       const suggestions = await MissingLinkService.suggestPapers(
         keywords,
         field || "default",
-        3 // Always return 3 suggestions
+        3, // Always return 3 suggestions
       );
 
       return sendJsonResponse(res, 200, {
@@ -71,10 +76,10 @@ router.post(
       return sendErrorResponse(
         res,
         500,
-        error.message || "Failed to find missing link suggestions"
+        error.message || "Failed to find missing link suggestions",
       );
     }
-  }
+  },
 );
 
 /**
@@ -147,7 +152,7 @@ router.get("/summary", async (req: Request, res: Response) => {
     return sendErrorResponse(
       res,
       500,
-      error.message || "Failed to get citation summary"
+      error.message || "Failed to get citation summary",
     );
   }
 });

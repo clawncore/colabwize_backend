@@ -523,13 +523,18 @@ const startServer = async () => {
     // Set up WebSocket multiplexing
     server.on("upgrade", (request, socket, head) => {
       const pathname = request.url ? url.parse(request.url).pathname : "";
+      console.log(`[HP-DIAG] Upgrade requested for pathname: ${pathname}`);
 
       if (pathname === "/collaboration" && collaborationServerInstance) {
+        logger.info("[HP-DIAG][MainServer] Routing to collaboration server");
         collaborationServerInstance.handleUpgrade(request, socket, head);
       } else if (pathname === "/notifications" && notificationServerInstance) {
+        logger.info("[HP-DIAG][MainServer] Routing to notification server");
         notificationServerInstance.handleUpgrade(request, socket, head);
       } else {
-        // Fallback or legacy (if any)
+        logger.warn(
+          `[HP-DIAG][MainServer] No handler for upgrade request: ${pathname}`,
+        );
         socket.destroy();
       }
     });

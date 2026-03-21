@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { withHybridAuth } from "../../middleware/hybridAuth";
 import { EditorService } from "../../services/editorService";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 // Get project content
 export async function GET(request: Request) {
@@ -196,6 +197,16 @@ async function handleGET_VERSIONS(request: Request & { user?: any }) {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    // Verify user has access to project
+    const hasAccess = await checkProjectAccess(projectId, userId);
+
+    if (!hasAccess) {
+      return new Response(
+        JSON.stringify({ error: "Project not found or access denied" }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      );
     }
 
     const versions = await EditorService.getDocumentVersions(projectId, userId);
@@ -419,13 +430,10 @@ async function handleDELETE_VERSION(request: Request & { user?: any }) {
       });
     }
 
-    // Verify the project belongs to this user
-    const project = await prisma.project.findFirst({
-      where: { id: projectId, user_id: userId },
-      select: { id: true },
-    });
+    // Verify the project belongs to this user or user has access
+    const hasAccess = await checkProjectAccess(projectId, userId);
 
-    if (!project) {
+    if (!hasAccess) {
       return new Response(
         JSON.stringify({ error: "Project not found or access denied" }),
         {

@@ -1,7 +1,14 @@
-import { Server } from "@hocuspocus/server";
+import {
+  Hocuspocus,
+  onLoadDocumentPayload,
+  onStoreDocumentPayload,
+  onDisconnectPayload,
+  onAwarenessUpdatePayload,
+} from "@hocuspocus/server";
+import { WebSocketServer } from "ws";
 import logger from "../../monitoring/logger";
 import { prisma } from "../../lib/prisma";
-import { getSupabaseClient } from "../../lib/supabase/client";
+import { AuthService } from "../supabase/auth-service";
 // Tiptap Extensions
 import { TiptapTransformer } from "@hocuspocus/transformer";
 import StarterKit from "@tiptap/starter-kit";
@@ -30,28 +37,28 @@ const dom = new Window();
 (global as any).HTMLElement = dom.HTMLElement;
 
 // Custom Extensions (Synchronized with Frontend)
-import AuthorBlockExtension from "../../extensions/AuthorBlockExtension";
-import AuthorExtension from "../../extensions/AuthorExtension";
-import CalloutBlockExtension from "../../extensions/CalloutBlockExtension";
-import CoverPageExtension from "../../extensions/CoverPageExtension";
-import CustomCodeBlockExtension from "../../extensions/CustomCodeBlockExtension";
-import KeywordsExtension from "../../extensions/KeywordsExtension";
-import ListExtension from "../../extensions/ListExtension";
-import PricingTableExtension from "../../extensions/PricingTableExtension";
-import QuoteBlockExtension from "../../extensions/QuoteBlockExtension";
-import SectionExtension from "../../extensions/SectionExtension";
-import VisualElementExtension from "../../extensions/VisualElementExtension";
-import HighlightExtension from "../../extensions/HighlightExtension";
-import CitationNode from "../../extensions/CitationNode";
-import GrammarExtension from "../../extensions/GrammarExtension";
-import AITrackingExtension from "../../extensions/AITrackingExtension";
-import MathExtension from "../../extensions/MathExtension";
-import PlaceholderMarkExtension from "../../extensions/PlaceholderMarkExtension";
-import EnhancedFigureNode from "../../extensions/EnhancedFigureNode";
-import ImageExtension from "../../extensions/ImageExtension";
-import AuthorshipExtension from "../../extensions/AuthorshipExtension";
-import BibliographyEntry from "../../extensions/BibliographyNode";
-import ColumnLayoutExtension from "../../extensions/ColumnLayoutExtension";
+import { AuthorBlockExtension } from "../../extensions/AuthorBlockExtension";
+import { AuthorExtension } from "../../extensions/AuthorExtension";
+import { CalloutBlockExtension } from "../../extensions/CalloutBlockExtension";
+import { CoverPageExtension } from "../../extensions/CoverPageExtension";
+import { CustomCodeBlockExtension } from "../../extensions/CustomCodeBlockExtension";
+import { KeywordsExtension } from "../../extensions/KeywordsExtension";
+import { ListExtension } from "../../extensions/ListExtension";
+import { PricingTableExtension } from "../../extensions/PricingTableExtension";
+import { QuoteBlockExtension } from "../../extensions/QuoteBlockExtension";
+import { SectionExtension } from "../../extensions/SectionExtension";
+import { VisualElementExtension } from "../../extensions/VisualElementExtension";
+import { HighlightExtension } from "../../extensions/HighlightExtension";
+import { CitationNode } from "../../extensions/CitationNode";
+import { GrammarExtension } from "../../extensions/GrammarExtension";
+import { AITrackingExtension } from "../../extensions/AITrackingExtension";
+import { MathExtension } from "../../extensions/MathExtension";
+import { PlaceholderMarkExtension } from "../../extensions/PlaceholderMarkExtension";
+import { EnhancedFigureNode } from "../../extensions/EnhancedFigureNode";
+import { ImageExtension } from "../../extensions/ImageExtension";
+import { AuthorshipExtension } from "../../extensions/AuthorshipExtension";
+import { BibliographyEntry } from "../../extensions/BibliographyNode";
+import { ColumnLayoutExtension } from "../../extensions/ColumnLayoutExtension";
 
 interface onAuthenticatePayload {
   token: string;
@@ -71,7 +78,8 @@ interface onAuthenticatePayload {
 const lastStoredContentHashes = new Map<string, string>();
 
 export class HocuspocusCollaborationServer {
-  private server: Server;
+  private server: Hocuspocus;
+  private wss: WebSocketServer;
   private port: number;
   private updateQueue = new Map<string, any>();
   private isProcessingQueue = false;
@@ -140,7 +148,15 @@ export class HocuspocusCollaborationServer {
   constructor(port?: number) {
     const self = this;
     this.port = port || 9081;
-    this.server = new Server({
+    this.wss = new WebSocketServer({ noServer: true });
+    logger.info(
+      "[HP-DIAG][HP] HocuspocusCollaborationServer initialized with WebSocketServer({ noServer: true })",
+    );
+    this.wss.on("error", (error) => {
+      logger.error("[HP-DIAG][HP] WSS Global Error:", error);
+    });
+
+    this.server = new Hocuspocus({
       // Only bind port if not multiplexing (handled by main server)
       port: port ? this.port : undefined,
       debounce: 1000,
@@ -148,7 +164,7 @@ export class HocuspocusCollaborationServer {
       timeout: 30000,
       unloadImmediately: false,
       stopOnSignals: true,
-      async onLoadDocument(data) {
+      async onLoadDocument(data: onLoadDocumentPayload) {
         if (!data.documentName.startsWith("project-")) return null;
 
         const projectId = data.documentName.replace("project-", "");
@@ -219,7 +235,7 @@ export class HocuspocusCollaborationServer {
         }
         return null;
       },
-      async onStoreDocument(data) {
+      async onStoreDocument(data: onStoreDocumentPayload) {
         const { document, documentName } = data;
         try {
           if (!documentName.startsWith("project-")) return;
@@ -323,10 +339,20 @@ export class HocuspocusCollaborationServer {
       },
       async onAuthenticate(data: onAuthenticatePayload) {
         const { token, documentName, parameters } = data;
+
+        logger.info(
+          `[HP-DIAG][HP] Authenticating for document: ${documentName}`,
+          {
+            hasToken: !!token,
+            tokenType: typeof token,
+            tokenLength: token?.length,
+            parameters: parameters ? Object.keys(parameters) : "none",
+          },
+        );
         const authStartTime = Date.now();
 
         // Log the authentication attempt
-        logger.info("[HP] WebSocket connection attempt", {
+        logger.info("[HP-DIAG][HP] WebSocket connection attempt", {
           documentName,
           documentNameType: typeof documentName,
           documentNameLength: documentName?.length,
@@ -527,23 +553,18 @@ export class HocuspocusCollaborationServer {
 
           let userRecord: any;
           try {
-            // We only need the regular supabase client for token verification
-            logger.info("Using supabase client for token verification");
+            logger.info("Using AuthService.supabase for token verification");
 
-            // Use the regular supabase client to verify the user token
-            // The admin client should not be used for token verification
-            const supabase = await getSupabaseClient();
-            const supabaseUrl = await (supabase as any).supabaseUrl; // Hacky way to see what URL it's using
+            const supabaseClient = await AuthService.supabase;
 
             logger.info("Attempting Supabase getUser verification", {
-              url: supabaseUrl,
               tokenPreview: authToken
                 ? `${authToken.substring(0, 10)}...`
                 : "NONE",
               tokenLength: authToken?.length,
             });
 
-            const result = await supabase.auth.getUser(authToken);
+            const result = await supabaseClient.auth.getUser(authToken);
             const { data: userData, error } = result;
 
             if (error || !userData?.user) {
@@ -552,7 +573,6 @@ export class HocuspocusCollaborationServer {
                 error: error?.message,
                 errorCode: error?.code,
                 errorStatus: error?.status,
-                supabaseUrl,
                 tokenExpired: error?.message?.includes("token is expired"),
                 timestamp: new Date().toISOString(),
               });
@@ -749,7 +769,7 @@ export class HocuspocusCollaborationServer {
         }
       },
 
-      async onDisconnect(data) {
+      async onDisconnect(data: onDisconnectPayload) {
         const { documentName, socketId, context } = data;
         logger.info("Client disconnected", {
           documentName,
@@ -801,7 +821,7 @@ export class HocuspocusCollaborationServer {
         }
       },
 
-      async onAwarenessUpdate(data) {
+      async onAwarenessUpdate(data: onAwarenessUpdatePayload) {
         const { documentName, added, updated, removed } = data;
         logger.debug("Awareness updated", {
           documentName,
@@ -848,9 +868,44 @@ export class HocuspocusCollaborationServer {
   }
 
   public handleUpgrade(request: any, socket: any, head: any) {
-    this.server.webSocketServer.handleUpgrade(request, socket, head, (ws) => {
-      this.server.hocuspocus.handleConnection(ws, request);
+    const url = request.url;
+    logger.info(`[HP-DIAG][HP] handleUpgrade called for URL: ${url}`, {
+      headers: request.headers,
+      socketWritable: socket.writable,
+      socketReadable: socket.readable,
+      headLength: head?.length,
     });
+
+    socket.on("error", (err: any) => {
+      logger.error(
+        `[HP-DIAG][HP] Socket Error during upgrade for ${url}:`,
+        err,
+      );
+    });
+
+    try {
+      this.wss.handleUpgrade(request, socket, head, (ws: any) => {
+        logger.info(
+          `[HP-DIAG][HP] WebSocket upgrade successful for URL: ${request.url}`,
+        );
+
+        // Add raw listeners to debug silent failures
+        ws.on("message", (msg: any) => {
+          logger.info(`[HP-DIAG] Raw WS message received: ${msg.length} bytes`);
+        });
+        ws.on("close", (code: number, reason: Buffer) => {
+          logger.info(
+            `[HP-DIAG] Raw WS closed: ${code} ${reason?.toString() || ""}`,
+          );
+        });
+
+        // Use any to bypass TS error for handleConnection parameters if needed
+        (this.server as any).handleConnection(ws, request, {});
+      });
+    } catch (err) {
+      logger.error(`[HP-DIAG][HP] Exception in handleUpgrade for ${url}:`, err);
+      socket.destroy();
+    }
   }
 
   getServerInstance() {

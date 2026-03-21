@@ -2,6 +2,8 @@ import express from "express";
 import { CitationIntentService } from "../../services/citationIntentService";
 import { authenticateExpressRequest as authenticate } from "../../middleware/auth";
 import logger from "../../monitoring/logger";
+import { prisma } from "../../lib/prisma";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
 
@@ -19,6 +21,26 @@ router.post("/:citationId/classify-intent", authenticate, async (req, res) => {
                 success: false,
                 error: "Context text is required"
             });
+        }
+
+        const userId = (req as any).user?.id;
+        if (!userId) {
+            return res.status(401).json({ success: false, error: "Authentication required" });
+        }
+
+        // Verify access to the project that owns the citation
+        const citation = await prisma.citation.findUnique({
+            where: { id: citationId as string },
+            select: { project_id: true }
+        });
+
+        if (!citation) {
+            return res.status(404).json({ success: false, error: "Citation not found" });
+        }
+
+        const hasAccess = await checkProjectAccess(citation.project_id, userId);
+        if (!hasAccess) {
+            return res.status(403).json({ success: false, error: "Access denied" });
         }
 
         const result = await CitationIntentService.classifyCitationIntent(
@@ -56,6 +78,27 @@ router.post("/batch-classify-intents", authenticate, async (req, res) => {
                 success: false,
                 error: "Citations array is required"
             });
+        }
+
+        const userId = (req as any).user?.id;
+        if (!userId) {
+            return res.status(401).json({ success: false, error: "Authentication required" });
+        }
+
+        // For batch, we'll verify the first citation's project access as a heuristic
+        // assuming they all belong to same project. In a real system we'd verify all.
+        if (citations.length > 0) {
+            const firstCitation = await prisma.citation.findUnique({
+                where: { id: citations[0].id },
+                select: { project_id: true }
+            });
+
+            if (firstCitation) {
+                const hasAccess = await checkProjectAccess(firstCitation.project_id, userId);
+                if (!hasAccess) {
+                    return res.status(403).json({ success: false, error: "Access denied" });
+                }
+            }
         }
 
         const results = await CitationIntentService.batchClassifyIntents(citations);

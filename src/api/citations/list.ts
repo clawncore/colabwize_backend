@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
 
@@ -30,11 +31,9 @@ router.get(
             }
 
             // Verify access to the project
-            const project = await prisma.project.findUnique({
-                where: { id: projectId },
-            });
+            const hasAccess = await checkProjectAccess(projectId as string, userId);
 
-            if (!project || project.user_id !== userId) {
+            if (!hasAccess) {
                 return res.status(403).json({
                     success: false,
                     error: "Access denied or project not found",

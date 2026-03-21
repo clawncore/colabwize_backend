@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { OpenAIService } from "../../services/openaiService";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
 
@@ -23,6 +24,15 @@ router.post(
 
             const { projectId } = req.params;
             const { force = false } = req.body;
+
+            // Verify access to the project
+            const hasAccess = await checkProjectAccess(projectId as string, userId);
+            if (!hasAccess) {
+                return res.status(403).json({
+                    success: false,
+                    error: "Access denied or project not found",
+                });
+            }
 
             // 1. Fetch citations with abstracts
             const citations = await prisma.citation.findMany({

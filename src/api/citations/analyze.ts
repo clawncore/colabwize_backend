@@ -3,6 +3,7 @@ import express, { Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { OpenAIService } from "../../services/openaiService";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
 
@@ -24,13 +25,22 @@ router.post(
 
             const { projectId, citationId } = req.params;
 
+            // Verify access to the project
+            const hasAccess = await checkProjectAccess(projectId as string, userId);
+            if (!hasAccess) {
+                return res.status(403).json({
+                    success: false,
+                    error: "Access denied or project not found",
+                });
+            }
+
             const citation = await prisma.citation.findUnique({
                 where: { id: citationId },
-                select: { id: true, abstract: true, title: true }
+                select: { id: true, abstract: true, title: true, project_id: true }
             });
 
-            if (!citation) {
-                return res.status(404).json({ success: false, error: "Citation not found" });
+            if (!citation || citation.project_id !== projectId) {
+                return res.status(404).json({ success: false, error: "Citation not found in this project" });
             }
 
             if (!citation.abstract) {

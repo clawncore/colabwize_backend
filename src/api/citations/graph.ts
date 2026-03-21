@@ -2,6 +2,7 @@ import express from "express";
 import { AnalysisGraphService } from "../../services/analysisGraphService";
 import { authenticateExpressRequest as authenticate } from "../../middleware/auth";
 import logger from "../../monitoring/logger";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
 
@@ -12,8 +13,16 @@ const router = express.Router();
 router.get("/:projectId/graph", authenticate, async (req, res) => {
     try {
         const { projectId } = req.params;
+        const userId = (req as any).user?.id;
 
-        // In production, verify user owns projectProject
+        if (!userId) {
+            return res.status(401).json({ success: false, error: "Authentication required" });
+        }
+
+        const hasAccess = await checkProjectAccess(projectId as string, userId);
+        if (!hasAccess) {
+            return res.status(403).json({ success: false, error: "Access denied" });
+        }
 
         const graphData = await AnalysisGraphService.getProjectGraph(projectId as string);
 
