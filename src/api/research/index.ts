@@ -1,6 +1,8 @@
 import express, { Request, Response } from "express";
 import { initializePrisma } from "../../lib/prisma-async";
 import logger from "../../monitoring/logger";
+import { PaperDiscoveryService } from "../../services/paperDiscoveryService";
+import { OpenAIService } from "../../services/openaiService";
 
 const router = express.Router();
 
@@ -302,6 +304,183 @@ Please answer based on the provided context. If the context doesn't contain enou
   } catch (error: any) {
     logger.error("Failed to process project chat", { error: error.message });
     return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/research/library
+ * Get user's saved papers
+ */
+router.get("/library", async (req: Request, res: Response) => {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user || !user.id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const library = await PaperDiscoveryService.getUserLibrary(user.id);
+    return res.json({ success: true, data: library });
+  } catch (error: any) {
+    logger.error("Failed to fetch research library", { error: error.message });
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/research/library/save
+ * Save a paper to the library
+ */
+router.post("/library/save", async (req: Request, res: Response) => {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user || !user.id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const { paper, notes } = req.body;
+    if (!paper || (!paper.externalId && !paper.paperId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid paper data" });
+    }
+
+    // Ensure externalId is present (PaperDiscoveryService expects it)
+    const paperToSave = {
+      ...paper,
+      externalId: paper.externalId || paper.paperId,
+    };
+
+    const saved = await PaperDiscoveryService.savePaperToLibrary(
+      user.id,
+      paperToSave,
+      notes,
+    );
+    return res.json({ success: true, data: saved });
+  } catch (error: any) {
+    logger.error("Failed to save paper to library", { error: error.message });
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal server error" });
+  }
+});
+
+/**
+ * DELETE /api/research/library/:paperId
+ * Remove a paper from the library
+ */
+router.delete("/library/:paperId", async (req: Request, res: Response) => {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user || !user.id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const { paperId } = req.params;
+    await PaperDiscoveryService.removePaperFromLibrary(user.id, paperId as string);
+    return res.json({ success: true, message: "Paper removed" });
+  } catch (error: any) {
+    logger.error("Failed to remove paper from library", {
+      error: error.message,
+    });
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal server error" });
+  }
+});
+
+/**
+ * GET /api/research/:paperId
+ * Get details for a specific paper
+ */
+router.get("/:paperId", async (req: Request, res: Response) => {
+  try {
+    const { paperId } = req.params;
+    const details = await PaperDiscoveryService.getPaperDetails(paperId as string);
+
+    if (!details) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Paper not found" });
+    }
+
+    return res.json({ success: true, data: details });
+  } catch (error: any) {
+    logger.error("Failed to fetch paper details", { error: error.message });
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/research/analyze
+ * AI Analysis of research papers
+ */
+router.post("/analyze", async (req: Request, res: Response) => {
+  try {
+    const { papers } = req.body;
+    if (!papers || !Array.isArray(papers) || papers.length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid papers data" });
+    }
+
+    const paper = papers[0]; // Analyze the first one for now as per FE usage
+    if (!paper.abstract) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Paper has no abstract to analyze" });
+    }
+
+    const prompt = `
+Analyze the following academic paper abstract.
+Identify the Research Gap, Methodology, Main Findings, and Limitations.
+Return ONLY a valid JSON object with these keys: "Research Gap", "Methodology", "Main Findings", "Limitations".
+Do not include any other text or markdown formatting.
+
+Paper Title: ${paper.title}
+Abstract: ${paper.abstract}
+`;
+
+    const rawAnalysis = await OpenAIService.generateCompletion(prompt, {
+      maxTokens: 1000,
+      temperature: 0.3,
+    });
+
+    let analysis;
+    try {
+      // Clean up potential markdown formatting from AI
+      const cleanJson = rawAnalysis
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+      analysis = JSON.parse(cleanJson);
+    } catch (e) {
+      logger.error("Failed to parse AI research analysis JSON", {
+        rawAnalysis,
+      });
+      analysis = {
+        "Research Gap": "Analysis failed to parse",
+        Methodology: "Analysis failed to parse",
+        "Main Findings": "Analysis failed to parse",
+        Limitations: "Analysis failed to parse",
+      };
+    }
+
+    // Wrap in an object keyed by paper externalId to match frontend expectation
+    return res.json({
+      success: true,
+      data: {
+        [paper.externalId || paper.id]: analysis,
+      },
+    });
+  } catch (error: any) {
+    logger.error("Failed to analyze research paper", { error: error.message });
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal server error" });
   }
 });
 

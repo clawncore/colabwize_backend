@@ -1,9 +1,12 @@
 import express, { Request, Response } from "express";
-import rateLimit from "express-rate-limit";
 import { CitationConfidenceService } from "../../services/citationConfidenceService";
 import logger from "../../monitoring/logger";
-import { checkUsageLimit, incrementFeatureUsage } from "../../middleware/usageMiddleware";
+import {
+  checkUsageLimit,
+  incrementFeatureUsage,
+} from "../../middleware/usageMiddleware";
 import { getSafeString } from "../../utils/requestHelpers";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
 
@@ -13,7 +16,7 @@ const router = express.Router();
  */
 router.get(
   "/confidence/:projectId",
-  checkUsageLimit("citation_check"),  // Changed from "scan" to "citation_check"
+  checkUsageLimit("citation_check"), // Changed from "scan" to "citation_check"
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
@@ -34,10 +37,18 @@ router.get(
         });
       }
 
+      const hasAccess = await checkProjectAccess(projectId as string, userId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          error: "Access denied or project not found",
+        });
+      }
+
       const analysis = await CitationConfidenceService.analyzeProjectCitations(
         projectId as string,
         userId,
-        getSafeString(field) || "default"
+        getSafeString(field) || "default",
       );
 
       logger.info("Citation confidence analysis retrieved", {
@@ -46,14 +57,8 @@ router.get(
         totalCitations: analysis.totalCitations,
         overallScore: analysis.overallConfidence.overall,
       });
-
-      return res.status(200).json({
-        success: true,
-        data: analysis,
-      });
-
       // Increment usage counter after successful analysis
-      await incrementFeatureUsage("scan")(req, res, () => { });
+      await incrementFeatureUsage("scan")(req, res, () => {});
 
       return res.status(200).json({
         success: true,
@@ -70,7 +75,8 @@ router.get(
         error: error.message || "Failed to analyze citation confidence",
       });
     }
-  });
+  },
+);
 
 /**
  * GET /api/citations/recency/:projectId
@@ -99,10 +105,18 @@ router.get(
         });
       }
 
+      const hasAccess = await checkProjectAccess(projectId as string, userId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          error: "Access denied",
+        });
+      }
+
       const analysis = await CitationConfidenceService.analyzeProjectCitations(
         projectId as string,
         userId,
-        getSafeString(field) || "default"
+        getSafeString(field) || "default",
       );
 
       return res.status(200).json({
@@ -128,7 +142,8 @@ router.get(
         error: error.message || "Failed to analyze citation recency",
       });
     }
-  });
+  },
+);
 
 /**
  * POST /api/citations/verify-single
@@ -141,35 +156,42 @@ router.post(
     try {
       const { title, doi } = req.body;
       if (!title) {
-        return res.status(400).json({ success: false, error: "Title is required" });
+        return res
+          .status(400)
+          .json({ success: false, error: "Title is required" });
       }
 
-      const result = await CitationConfidenceService.verifySingleCitation({ title, doi });
+      const result = await CitationConfidenceService.verifySingleCitation({
+        title,
+        doi,
+      });
       return res.status(200).json({ success: true, data: result });
     } catch (error: any) {
       logger.error("Error confirming citation", { error: error.message });
-      return res.status(500).json({ success: false, error: "Verification failed" });
+      return res
+        .status(500)
+        .json({ success: false, error: "Verification failed" });
     }
-  }
+  },
 );
 
 /**
  * POST /api/citations/auto-fix
  * Find correct metadata for fuzzy citation
  */
-router.post(
-  "/auto-fix",
-  async (req: Request, res: Response) => {
-    try {
-      const { query } = req.body;
-      if (!query) return res.status(400).json({ success: false, error: "Query is required" });
+router.post("/auto-fix", async (req: Request, res: Response) => {
+  try {
+    const { query } = req.body;
+    if (!query)
+      return res
+        .status(400)
+        .json({ success: false, error: "Query is required" });
 
-      const result = await CitationConfidenceService.findCitationMetadata(query);
-      return res.status(200).json({ success: true, data: result });
-    } catch (error: any) {
-      return res.status(500).json({ success: false, error: "Auto-fix failed" });
-    }
+    const result = await CitationConfidenceService.findCitationMetadata(query);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: "Auto-fix failed" });
   }
-);
+});
 
 export default router;

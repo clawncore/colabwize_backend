@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import { ForensicAuditService, SimpleCitationPair } from "../../services/citationAudit/ForensicAuditService";
 import logger from "../../monitoring/logger";
 import { authenticateExpressRequest as authenticate } from "../../middleware/auth";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 import { CitationFlag, VerificationResult, AuditReport } from "../../types/citationAudit";
 
 const router = express.Router();
@@ -19,6 +20,16 @@ router.post("/forensic-audit", authenticate, async (req: Request, res: Response)
                 success: false,
                 error: "Pairs array is required"
             });
+        }
+
+        const userId = (req as any).user?.id;
+        if (!userId) {
+            return res.status(401).json({ success: false, error: "Authentication required" });
+        }
+
+        const hasAccess = await checkProjectAccess(projectId as string, userId);
+        if (!hasAccess) {
+            return res.status(403).json({ success: false, error: "Access denied" });
         }
 
         logger.info(`Starting forensic audit for ${pairs.length} pairs`, { projectId });

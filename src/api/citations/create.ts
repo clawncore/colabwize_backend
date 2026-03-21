@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import { CitationConfidenceService } from "../../services/citationConfidenceService";
 import logger from "../../monitoring/logger";
-import { checkUsageLimit } from "../../middleware/usageMiddleware";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
 
@@ -23,7 +23,17 @@ router.post(
       }
 
       const { projectId } = req.params;
-      const { title, author, year, type, doi, url, source, abstract, formatted_citations } = req.body as any;
+      const {
+        title,
+        author,
+        year,
+        type,
+        doi,
+        url,
+        source,
+        abstract,
+        formatted_citations,
+      } = req.body as any;
 
       if (!projectId) {
         return res.status(400).json({
@@ -36,6 +46,16 @@ router.post(
         return res.status(400).json({
           success: false,
           error: "Title, author, and year are required",
+        });
+      }
+
+      // Verify access to the project
+      const hasAccess = await checkProjectAccess(projectId as string, userId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          error:
+            "Access denied: You don't have permission to add citations to this project",
         });
       }
 
@@ -52,7 +72,7 @@ router.post(
           source,
           abstract,
           formatted_citations,
-        }
+        },
       );
 
       return res.status(201).json({
@@ -70,7 +90,7 @@ router.post(
         error: error.message || "Failed to add citation",
       });
     }
-  }
+  },
 );
 
 export default router;

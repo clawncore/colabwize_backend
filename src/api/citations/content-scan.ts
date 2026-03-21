@@ -6,6 +6,7 @@ import {
   incrementFeatureUsage,
 } from "../../middleware/usageMiddleware";
 import { prisma } from "../../lib/prisma";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
 
@@ -39,11 +40,9 @@ router.post(
 
       // If projectId is provided but no content, fetch from project
       if (!textToScan && projectId) {
-        const project = await prisma.project.findUnique({
-          where: { id: projectId },
-        });
+        const hasAccess = await checkProjectAccess(projectId, userId);
 
-        if (!project || project.user_id !== userId) {
+        if (!hasAccess) {
           return res.status(404).json({
             success: false,
             error: "Project not found or access denied",

@@ -11,20 +11,23 @@ import { v4 as uuidv4 } from "uuid";
 import { SecretsService } from "../../services/secrets-service";
 import { prisma } from "../../lib/prisma";
 import { PaperRecommendationService } from "../../services/paperRecommendationService";
+import { sendJsonResponse, sendErrorResponse } from "../../lib/api-response";
 
 // POST /api/pdf/upload
 export async function UPLOAD_PDF(req: Request, res: Response) {
   try {
     const file = (req as any).file;
     if (!file) {
-      return res.status(400).json({ error: "No file uploaded" });
+      return sendErrorResponse(res, 400, "No file uploaded");
     }
 
     let userId = (req as any).user?.id;
     if (!userId) {
-      return res
-        .status(401)
-        .json({ error: "Unauthorized: no user found in request" });
+      return sendErrorResponse(
+        res,
+        401,
+        "Unauthorized: no user found in request",
+      );
     }
     console.log("2. Final User ID:", userId);
 
@@ -37,10 +40,12 @@ export async function UPLOAD_PDF(req: Request, res: Response) {
 
     // 1. Check if user can access PDF chat at all
     if (plan === "free") {
-      return res.status(403).json({
-        error: "PDF_CHAT_LOCKED",
-        message: "PDF Chat is only available on Plus and Premium plans.",
-      });
+      return sendErrorResponse(
+        res,
+        403,
+        "PDF_CHAT_LOCKED",
+        "PDF Chat is only available on Plus and Premium plans.",
+      );
     }
 
     // 2. Check document count limit
@@ -50,22 +55,20 @@ export async function UPLOAD_PDF(req: Request, res: Response) {
 
     const countLimit = plan === "premium" ? 30 : 10;
     if (pdfCount >= countLimit) {
-      return res.status(403).json({
-        error: "PDF_LIMIT_REACHED",
+      return sendErrorResponse(res, 403, "PDF_LIMIT_REACHED", {
         message: `You have reached the limit of ${countLimit} PDFs for your ${plan} plan.`,
         limit: countLimit,
-      });
+      } as any);
     }
 
     // 3. Check file size limit
     const sizeLimitMB = plan === "premium" ? 100 : 50;
     const sizeLimitBytes = sizeLimitMB * 1024 * 1024;
     if (file.size > sizeLimitBytes) {
-      return res.status(403).json({
-        error: "FILE_SIZE_EXCEEDED",
+      return sendErrorResponse(res, 403, "FILE_SIZE_EXCEEDED", {
         message: `File size exceeds the ${sizeLimitMB}MB limit for your ${plan} plan.`,
         limit: sizeLimitMB,
-      });
+      } as any);
     }
     // --- End Subscription Limits Check ---
 
@@ -79,9 +82,7 @@ export async function UPLOAD_PDF(req: Request, res: Response) {
     const client = await getSupabaseAdminClient();
     if (!client) {
       console.error("Admin client is null!");
-      return res
-        .status(500)
-        .json({ error: "Database admin client not configured" });
+      return sendErrorResponse(res, 500, "Database admin client not configured");
     }
     console.log("4. Admin client obtained");
 
@@ -156,10 +157,13 @@ export async function UPLOAD_PDF(req: Request, res: Response) {
       data: { status: "ready", updated_at: new Date() },
     });
 
-    res.json({ documentId, message: "PDF processed successfully" });
+    sendJsonResponse(res, 200, {
+      documentId,
+      message: "PDF processed successfully",
+    });
   } catch (error: any) {
     console.error("Upload error:", error);
-    res.status(500).json({ error: error.message });
+    sendErrorResponse(res, 500, error.message);
   }
 }
 
@@ -168,7 +172,7 @@ export async function CHAT_PDF(req: Request, res: Response) {
   try {
     const { documentId, message } = req.body;
     if (!documentId || !message) {
-      return res.status(400).json({ error: "Missing documentId or message" });
+      return sendErrorResponse(res, 400, "Missing documentId or message");
     }
 
     // 1. Retrieve relevant chunks from the vector store
@@ -176,7 +180,7 @@ export async function CHAT_PDF(req: Request, res: Response) {
 
     // Strict RAG: return early if no relevant context found in the document
     if (docs.length === 0) {
-      return res.json({
+      return sendJsonResponse(res, 200, {
         answer:
           "I checked the document but couldn't find any relevant information to answer your question. Try rephrasing or asking about a different part of the document.",
         sources: [],
@@ -215,10 +219,13 @@ ${context}`;
         ? response.content
         : JSON.stringify(response.content);
 
-    res.json({ answer, sources: docs.map((d) => d.pageContent) });
+    sendJsonResponse(res, 200, {
+      answer,
+      sources: docs.map((d) => d.pageContent),
+    });
   } catch (error: any) {
     console.error("Chat error:", error);
-    res.status(500).json({ error: error.message });
+    sendErrorResponse(res, 500, error.message);
   }
 }
 
@@ -228,7 +235,7 @@ export async function GET_PDFS(req: Request, res: Response) {
     const userId = (req as any).user?.id;
 
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendErrorResponse(res, 401, "Unauthorized");
     }
 
     const pdfs = await prisma.pdfDocument.findMany({
@@ -236,10 +243,10 @@ export async function GET_PDFS(req: Request, res: Response) {
       orderBy: { created_at: "desc" },
     });
 
-    res.json(pdfs);
+    sendJsonResponse(res, 200, pdfs);
   } catch (error: any) {
     console.error("Get PDFs error:", error);
-    res.status(500).json({ error: error.message });
+    sendErrorResponse(res, 500, error.message);
   }
 }
 
@@ -253,13 +260,13 @@ export async function GET_PDF(req: Request, res: Response) {
     });
 
     if (!pdf) {
-      return res.status(404).json({ error: "Document not found" });
+      return sendErrorResponse(res, 404, "Document not found");
     }
 
-    res.json(pdf);
+    sendJsonResponse(res, 200, pdf);
   } catch (error: any) {
     console.error("Get PDF error:", error);
-    res.status(500).json({ error: error.message });
+    sendErrorResponse(res, 500, error.message);
   }
 }
 
@@ -270,7 +277,7 @@ export async function GET_PDF_DOWNLOAD(req: Request, res: Response) {
     const userId = (req as any).user?.id;
 
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendErrorResponse(res, 401, "Unauthorized");
     }
 
     // Verify ownership
@@ -279,14 +286,12 @@ export async function GET_PDF_DOWNLOAD(req: Request, res: Response) {
     });
 
     if (!pdf) {
-      return res
-        .status(404)
-        .json({ error: "Document not found or access denied" });
+      return sendErrorResponse(res, 404, "Document not found or access denied");
     }
 
     const client = await getSupabaseAdminClient();
     if (!client) {
-      return res.status(500).json({ error: "Storage client not available" });
+      return sendErrorResponse(res, 500, "Storage client not available");
     }
 
     const storagePath = `${userId}/${id}.pdf`;
@@ -298,7 +303,7 @@ export async function GET_PDF_DOWNLOAD(req: Request, res: Response) {
 
     if (error) {
       console.error("Download error:", error);
-      return res.status(500).json({ error: "Failed to retrieve file" });
+      return sendErrorResponse(res, 500, "Failed to retrieve file");
     }
 
     // Convert Blob/File to Buffer
@@ -310,7 +315,7 @@ export async function GET_PDF_DOWNLOAD(req: Request, res: Response) {
     res.send(buffer);
   } catch (error: any) {
     console.error("Download PDF error:", error);
-    res.status(500).json({ error: error.message });
+    sendErrorResponse(res, 500, error.message);
   }
 }
 
@@ -321,7 +326,7 @@ export async function GET_PDF_RELATED(req: Request, res: Response) {
     const userId = (req as any).user?.id;
 
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendErrorResponse(res, 401, "Unauthorized");
     }
 
     // 1. Get PDF Metadata
@@ -330,7 +335,7 @@ export async function GET_PDF_RELATED(req: Request, res: Response) {
     });
 
     if (!pdf) {
-      return res.status(404).json({ error: "Document not found" });
+      return sendErrorResponse(res, 404, "Document not found");
     }
 
     // 2. Generate search query from filename (remove .pdf, special chars)
@@ -342,9 +347,9 @@ export async function GET_PDF_RELATED(req: Request, res: Response) {
       maxResults: 6,
     });
 
-    res.json(papers);
+    sendJsonResponse(res, 200, papers);
   } catch (error: any) {
     console.error("Get Related Papers error:", error);
-    res.status(500).json({ error: error.message });
+    sendErrorResponse(res, 500, error.message);
   }
 }

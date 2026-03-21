@@ -1,9 +1,9 @@
 import express, { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
 import logger from "../../monitoring/logger";
+import { prisma } from "../../lib/prisma";
+import { checkProjectAccess } from "../../lib/auth-helpers";
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 /**
  * PUT /api/citations/:projectId/:citationId
@@ -60,6 +60,29 @@ router.put("/:projectId/:citationId", async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         error: "Project ID and Citation ID are required",
+      });
+    }
+
+    // Verify access to the project
+    const hasAccess = await checkProjectAccess(projectId as string, userId);
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        error:
+          "Access denied: You don't have permission to edit citations in this project",
+      });
+    }
+
+    // Verify citation belongs to this project
+    const existingCitation = await prisma.citation.findUnique({
+      where: { id: citationId as string },
+      select: { project_id: true },
+    });
+
+    if (!existingCitation || existingCitation.project_id !== projectId) {
+      return res.status(404).json({
+        success: false,
+        error: "Citation not found in this project",
       });
     }
 
