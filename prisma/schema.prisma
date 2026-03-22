@@ -395,6 +395,7 @@ model Project {
   document_versions   DocumentVersion[]
   version_schedules   VersionSchedule[]
   tasks               WorkspaceTask[] // Tasks linked to this research project
+  ydoc                  Bytes?               // Hocuspocus Y.Doc binary state
 
   @@index([user_id])
   @@index([created_at])

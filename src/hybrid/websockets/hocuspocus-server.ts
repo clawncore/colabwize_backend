@@ -9,6 +9,7 @@ import { WebSocketServer } from "ws";
 import logger from "../../monitoring/logger";
 import { prisma } from "../../lib/prisma";
 import { AuthService } from "../supabase/auth-service";
+import * as Y from "yjs";
 // Tiptap Extensions
 import { TiptapTransformer } from "@hocuspocus/transformer";
 import StarterKit from "@tiptap/starter-kit";
@@ -177,14 +178,19 @@ export class HocuspocusCollaborationServer {
 
           const project = await prisma.project.findUnique({
             where: { id: projectId },
-            select: { content: true },
+            select: { content: true, ydoc: true },
           });
 
           // Define extensions locally for the static context if needed,
           // or use instance bound method if Hocuspocus allows it (which it does via constructor closure)
           const extensions = self.getExtensions();
 
-          if (project && project.content) {
+          if (project?.ydoc) {
+             logger.info(`[HP] Loading binary document state for ${projectId}`);
+             const ydoc = new Y.Doc();
+             Y.applyUpdate(ydoc, new Uint8Array(project.ydoc));
+             return ydoc;
+          } else if (project && project.content) {
             let content = project.content;
 
             // Handle legacy HTML content (common in uploaded documents)
@@ -308,11 +314,14 @@ export class HocuspocusCollaborationServer {
                 );
               }
 
-              // Update the project with new content and updated word count
+              const stateVector = Y.encodeStateAsUpdate(document);
+
+              // Update the project with new content, accurate binary Yjs state, and updated word count
               await tx.project.update({
                 where: { id: projectId },
                 data: {
                   content: content,
+                  ydoc: Buffer.from(stateVector),
                   word_count: wordCount,
                   updated_at: new Date(),
                 },
