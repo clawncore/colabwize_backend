@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "commonjs",
+    "module": "NodeNext",
     "lib": [
-      "ES2023"
+      "ESNext"
     ],
     "outDir": "./dist",
     "rootDir": "./src",
@@ -11,17 +11,11 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node",
+    "moduleResolution": "NodeNext",
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@tiptap/*": [
-        "node_modules/@tiptap/*"
-      ],
-      "@hocuspocus/*": [
-        "node_modules/@hocuspocus/*"
-      ]
     },
     "types": [
       "node"
