@@ -86,7 +86,7 @@ router.get(
       }
 
       // We'll import exportService dynamically to avoid circular dependencies if any
-      const { ExportService } = await import("../../services/exportService");
+      const { ExportService } = await import("../../services/exportService.js");
 
       // Set headers for file download based on format
 

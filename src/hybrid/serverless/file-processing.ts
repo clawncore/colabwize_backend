@@ -171,7 +171,7 @@ async function generatePDFExport(fileData: any, userId: string) {
       // Limit: 2 Free, then Charge
       if (exportCount >= 2) {
         // Check Credit Balance
-        const { CreditService } = await import("../../services/CreditService");
+        const { CreditService } = await import("../../services/CreditService.js");
         const balance = await CreditService.getBalance(userId);
 
         // Charge 1 Credit (Int schema doesn't support 0.5)
@@ -221,7 +221,7 @@ async function generatePDFExport(fileData: any, userId: string) {
     // Generate PDF using ExportService
     // Normalize content (resolve images, fix tables)
     const { ContentNormalizer } =
-      await import("../../services/contentNormalizer");
+      await import("../../services/contentNormalizer.js");
     const normalizedContent = await ContentNormalizer.normalizeContent(
       project.content,
     );
@@ -250,7 +250,7 @@ async function generatePDFExport(fileData: any, userId: string) {
 
     // Upload the file to Supabase Storage
     const { SupabaseStorageService } =
-      await import("../../services/supabaseStorageService");
+      await import("../../services/supabaseStorageService.js");
 
     // Upload file
     const uploadResult = await SupabaseStorageService.uploadFile(
@@ -378,7 +378,7 @@ async function generateDOCXExport(fileData: any, userId: string) {
     // Generate DOCX using ExportService
     // Normalize content (resolve images, fix tables)
     const { ContentNormalizer } =
-      await import("../../services/contentNormalizer");
+      await import("../../services/contentNormalizer.js");
     const normalizedContent = await ContentNormalizer.normalizeContent(
       project.content,
     );
@@ -407,7 +407,7 @@ async function generateDOCXExport(fileData: any, userId: string) {
 
     // Upload the file to Supabase Storage
     const { SupabaseStorageService } =
-      await import("../../services/supabaseStorageService");
+      await import("../../services/supabaseStorageService.js");
 
     // Upload file
     const uploadResult = await SupabaseStorageService.uploadFile(
@@ -530,7 +530,7 @@ async function generateTXTExport(fileData: any, userId: string) {
     // Generate TXT using ExportService
     // Normalize content for TXT as well (though less critical, good for consistency)
     const { ContentNormalizer } =
-      await import("../../services/contentNormalizer");
+      await import("../../services/contentNormalizer.js");
     const normalizedContent = await ContentNormalizer.normalizeContent(
       project.content,
     );
@@ -554,7 +554,7 @@ async function generateTXTExport(fileData: any, userId: string) {
 
     // Upload the file to Supabase Storage
     const { SupabaseStorageService } =
-      await import("../../services/supabaseStorageService");
+      await import("../../services/supabaseStorageService.js");
 
     // Upload file
     const uploadResult = await SupabaseStorageService.uploadFile(
@@ -698,7 +698,7 @@ async function generateLaTeXExport(fileData: any, userId: string) {
 
     // Upload the file to Supabase Storage
     const { SupabaseStorageService } =
-      await import("../../services/supabaseStorageService");
+      await import("../../services/supabaseStorageService.js");
 
     // Upload file
     const uploadResult = await SupabaseStorageService.uploadFile(
@@ -819,7 +819,7 @@ async function generateRTFExport(fileData: any, userId: string) {
     }
 
     const { ContentNormalizer } =
-      await import("../../services/contentNormalizer");
+      await import("../../services/contentNormalizer.js");
     const normalizedContent = await ContentNormalizer.normalizeContent(
       project.content,
     );
@@ -843,7 +843,7 @@ async function generateRTFExport(fileData: any, userId: string) {
 
     // Upload the file to Supabase Storage
     const { SupabaseStorageService } =
-      await import("../../services/supabaseStorageService");
+      await import("../../services/supabaseStorageService.js");
 
     // Upload file
     const uploadResult = await SupabaseStorageService.uploadFile(

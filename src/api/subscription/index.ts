@@ -588,7 +588,7 @@ router.get(
 
       // Import the service dynamically to avoid circular dependencies
       const { CertificateRetentionService } =
-        await import("../../services/certificateRetentionService");
+        await import("../../services/certificateRetentionService.js");
       const retentionInfo = await CertificateRetentionService.getRetentionInfo(
         user.id,
       );

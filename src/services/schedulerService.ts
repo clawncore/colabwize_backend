@@ -1,4 +1,4 @@
-import WebhookRetryService from "./webhookRetryService";
+import WebhookRetryService from "./webhookRetryService.js";
 import logger from "../monitoring/logger";
 
 /**
@@ -82,7 +82,7 @@ class SchedulerService {
       logger.info("Cleaning up old failed webhooks");
 
       // Import prisma here to avoid circular dependencies
-      const { prisma } = await import("../lib/prisma");
+      const { prisma } = await import("../lib/prisma.js");
 
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - 30);

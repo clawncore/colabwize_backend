@@ -70,19 +70,19 @@ export class PaperDiscoveryService {
         // Source 1: OpenAlex (Original)
         this.openAlexSearch(query, offset, limitPerSource),
         // Source 2: ArXiv (Preprints)
-        import("./arxivService").then((m) =>
+        import("./arxivService.js").then((m) =>
           m.ArxivService.searchPapers(query, limitPerSource),
         ),
         // Source 3: Semantic Scholar (Covers ScienceDirect, Wiley, IEEE, etc.)
-        import("./semanticScholarService").then((m) =>
+        import("./semanticScholarService.js").then((m) =>
           m.SemanticScholarService.searchPapers(query, limitPerSource),
         ),
         // Source 4: PubMed (Medical)
-        import("./pubmedService").then((m) =>
+        import("./pubmedService.js").then((m) =>
           m.PubmedService.searchPapers(query, limitPerSource),
         ),
         // Source 5: Google Scholar (via SerpApi)
-        import("./searchService").then((m) =>
+        import("./searchService.js").then((m) =>
           m.SearchService.scholarSearch(
             "system_fallback",
             query,
@@ -91,7 +91,7 @@ export class PaperDiscoveryService {
           ),
         ),
         // Source 6: CrossRef (Validation & Metadata)
-        import("./crossRefService").then((m) =>
+        import("./crossRefService.js").then((m) =>
           m.CrossRefService.searchPapers(query, limitPerSource),
         ),
       ];

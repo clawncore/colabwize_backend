@@ -573,7 +573,7 @@ export const downloadCertificate = async (req: Request, res: Response) => {
 
     // Import dynamically to avoid circular dependencies if any
     const { SupabaseStorageService } =
-      await import("../../services/supabaseStorageService");
+      await import("../../services/supabaseStorageService.js");
 
     // Get signed URL (valid for 60 seconds)
     const signedUrl = await SupabaseStorageService.createSignedUrl(

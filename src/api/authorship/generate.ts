@@ -91,7 +91,7 @@ export const generateCertificate = async (req: Request, res: Response) => {
     // WRAP EVERYTHING in try/catch for timeout mapping
     try {
       // Generate Certificate HTML (reuse for both PDF and preview)
-      const stats = await import("../../services/authorshipReportService").then(
+      const stats = await import("../../services/authorshipReportService.js").then(
         (m) =>
           m.AuthorshipReportService.generateAuthorshipReport(projectId, user.id)
       );
@@ -133,7 +133,7 @@ export const generateCertificate = async (req: Request, res: Response) => {
       // Upload PDF to Supabase
       const fileName = `certificate-${projectId}-${randomUUID()}.pdf`;
       const { path: pdfPath } =
-        await import("../../services/supabaseStorageService").then((m) =>
+        await import("../../services/supabaseStorageService.js").then((m) =>
           m.SupabaseStorageService.uploadFile(
             buffer,
             fileName,
@@ -153,7 +153,7 @@ export const generateCertificate = async (req: Request, res: Response) => {
       // Upload Preview Image to Supabase
       const previewFileName = `preview-${projectId}-${randomUUID()}.png`;
       const { publicUrl: previewPublicUrl } =
-        await import("../../services/supabaseStorageService").then((m) =>
+        await import("../../services/supabaseStorageService.js").then((m) =>
           m.SupabaseStorageService.uploadFile(
             previewBuffer,
             previewFileName,

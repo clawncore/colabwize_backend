@@ -407,7 +407,7 @@ export class PublicationService {
     userId: string,
   ): Promise<Partial<DocumentMetadata>> {
     try {
-      const { prisma } = await import("../lib/prisma");
+      const { prisma } = await import("../lib/prisma.js");
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: {

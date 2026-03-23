@@ -102,7 +102,7 @@ export const incrementFeatureUsage = (feature: string) => {
         // UsageService.trackUsage calls EntitlementService.consumeEntitlement.
 
         // Strategy: We won't call SubscriptionService.incrementUsage. We will manually track usage for history/emails.
-        const { prisma } = await import("../lib/prisma"); // Ensure prisma available
+        const { prisma } = await import("../lib/prisma.js"); // Ensure prisma available
         // Basic history tracking (copying logic from UsageService roughly)
         // ... Or better: Update SubscriptionService.incrementUsage to NOT consume entitlement? 
         // No, I can't easily change that without side effects.

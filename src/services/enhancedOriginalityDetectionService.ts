@@ -132,7 +132,7 @@ class EnhancedTransformerService {
 }
 
 // AcademicDatabaseService moved to ./academicDatabaseService.ts
-import { AcademicDatabaseService } from "./academicDatabaseService";
+import { AcademicDatabaseService } from "./academicDatabaseService.js";
 
 export class EnhancedOriginalityDetectionService {
   // Classification thresholds (per blueprint)
@@ -770,7 +770,7 @@ Classify similarity as one of:
 Explain classification in one sentence.
 Return JSON: { "classification": "...", "explanation": "..." }`;
 
-      const response = await import("./openaiService").then(m => m.OpenAIService.generateCompletion(
+      const response = await import("./openaiService.js").then(m => m.OpenAIService.generateCompletion(
         [
           { role: "system", content: this.FORENSIC_SYSTEM_PROMPT },
           { role: "user", content: prompt }
@@ -808,7 +808,7 @@ Return JSON: { "classification": "...", "explanation": "..." }`;
 
 Return JSON: { "level": "Low" | "Moderate" | "High", "reason": "One sentence reason" }`;
 
-      const response = await import("./openaiService").then(m => m.OpenAIService.generateCompletion(
+      const response = await import("./openaiService.js").then(m => m.OpenAIService.generateCompletion(
         [
           { role: "system", content: this.FORENSIC_SYSTEM_PROMPT },
           { role: "user", content: prompt }
@@ -844,7 +844,7 @@ Suggest general corrective strategies WITHOUT rewriting the text.
 Keep it advisory, not intrusive.`;
 
     try {
-      return await import("./openaiService").then(m => m.OpenAIService.generateCompletion(
+      return await import("./openaiService.js").then(m => m.OpenAIService.generateCompletion(
         [
           { role: "system", content: this.FORENSIC_SYSTEM_PROMPT },
           { role: "user", content: prompt }

@@ -208,7 +208,7 @@ export class TeamChatService {
       // Broadcast to custom WebSocket for real-time chat sync
       try {
         const { getNotificationServer } =
-          await import("../lib/notificationServer");
+          await import("../lib/notificationServer.js");
         const channelName = `team-chat-${filter.workspaceId || filter.projectId}`;
         getNotificationServer().broadcastToChannel(channelName, {
           type: "NEW_MESSAGE",
