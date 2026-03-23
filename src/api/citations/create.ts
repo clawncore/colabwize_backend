@@ -1,4 +1,3 @@
-
 import express, { Request, Response } from "express";
 import { CitationConfidenceService } from "../../services/citationConfidenceService";
 import logger from "../../monitoring/logger";
