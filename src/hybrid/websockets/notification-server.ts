@@ -247,7 +247,7 @@ export class NotificationServer {
       case "message_read":
         if (ws.isAuthenticated && message.messageId) {
           try {
-            const { TeamChatService } = await import("../../services/teamChatService");
+            const { TeamChatService } = await import("../../services/teamChatService.js");
             await TeamChatService.markMessageAsRead(message.messageId, ws.userId!);
           } catch (err) {
             logger.error("Error handling message_read event", { err });
@@ -599,7 +599,7 @@ export class NotificationServer {
 
   private async updateUserPresence(userId: string, status: string) {
     try {
-      const { TeamChatService } = await import("../../services/teamChatService");
+      const { TeamChatService } = await import("../../services/teamChatService.js");
       await TeamChatService.updatePresence(userId, status);
       
       this.broadcastToChannel("global-presence", {

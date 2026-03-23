@@ -105,7 +105,7 @@ export async function POST_REQUEST_OTP(request: Request) {
     }
 
     // Import OTP service
-    const { OTPService } = await import("../../services/otpService");
+    const { OTPService } = await import("../../services/otpService.js");
 
     // Send OTP for profile update
     const result = await OTPService.sendOTP(
@@ -600,7 +600,7 @@ export async function updateProfileWithOTP(request: Request) {
 
     // Verify the OTP if provided
     if (otp) {
-      const { OTPService } = await import("../../services/otpService");
+      const { OTPService } = await import("../../services/otpService.js");
       const isVerified = await OTPService.verifyOTP(user.id, otp);
 
       if (!isVerified) {
@@ -901,7 +901,7 @@ export async function confirm2FA(request: Request) {
 
     // Send success email
     // Dynamically import to avoid circular dependencies if any (though EmailService is safe)
-    const { EmailService } = await import("../../services/emailService");
+    const { EmailService } = await import("../../services/emailService.js");
     await EmailService.send2FAEnabledEmail(user.email, user.full_name || "User");
 
     return new Response(

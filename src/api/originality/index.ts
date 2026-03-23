@@ -543,7 +543,7 @@ router.post(
       logger.info("Starting text humanization", { userId, length: content.length });
 
       // Import dynamically to avoid circular issues
-      const { HumanizerService } = await import("../../services/humanizerService");
+      const { HumanizerService } = await import("../../services/humanizerService.js");
 
       const result = await HumanizerService.humanizeText(content);
 
@@ -623,7 +623,7 @@ router.post(
       }
 
       // Dynamic import to handle circular deps if any
-      const { HumanizerService } = await import("../../services/humanizerService");
+      const { HumanizerService } = await import("../../services/humanizerService.js");
       const result = await HumanizerService.rewriteSelection(selection, context);
 
       // EntitlementService already consumed above.

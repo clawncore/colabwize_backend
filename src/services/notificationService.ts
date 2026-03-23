@@ -232,7 +232,7 @@ async function canUserReceiveNotification(
     // This performs granular checking by using the actual plan definitions from subscriptionService
 
     // Import plan definitions
-    const { plans } = await import("./subscriptionService");
+    const { plans } = await import("./subscriptionService.js");
 
     // Get the plan details
     const planDetails = plans[planId as keyof typeof plans];

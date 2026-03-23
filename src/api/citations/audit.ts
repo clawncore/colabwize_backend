@@ -25,7 +25,7 @@ router.post("/audit", async (req: Request, res: Response) => {
         // or just trust the custom middleware if it was mounted (it wasn't).
         // Let's implement quick token verification or use the service.
         // Assuming we need to verify token similar to generate.ts
-        const { getSupabaseClient } = await import("../../lib/supabase/client");
+        const { getSupabaseClient } = await import("../../lib/supabase/client.js");
         const token = authHeader.substring(7);
         let userId: string;
 
@@ -45,7 +45,7 @@ router.post("/audit", async (req: Request, res: Response) => {
         // User rule: "Citation audit consumes credits based on document length"
         const docWordCount = wordCount || 1000;
 
-        const { SubscriptionService } = await import("../../services/subscriptionService");
+        const { SubscriptionService } = await import("../../services/subscriptionService.js");
 
         // Check if user has enough balance/limit roughly
         // Check if user has enough balance/limit roughly
@@ -228,7 +228,7 @@ router.post("/audit", async (req: Request, res: Response) => {
                     });
 
                     // Import services
-                    const { CitationMatcher } = await import("../../services/citationAudit/citationMatcher");
+                    const { CitationMatcher } = await import("../../services/citationAudit/citationMatcher.js");
 
                     // Match inline citations to reference entries
                     const citationPairs = CitationMatcher.matchCitations(
@@ -238,7 +238,7 @@ router.post("/audit", async (req: Request, res: Response) => {
                     );
 
                     console.log("\n🔗 Citation Pairs Matched:", citationPairs.length);
-                    citationPairs.forEach((pair, i) => {
+                    citationPairs.forEach((pair: any, i: number) => {
                         console.log(`\n  Pair ${i + 1}:`);
                         console.log(`    Inline: "${pair.inline.text}"`);
                         if (pair.reference) {
@@ -253,7 +253,7 @@ router.post("/audit", async (req: Request, res: Response) => {
 
                     // External verification using free public APIs (CrossRef, arXiv, PubMed)
                     console.log("\n🔍 STARTING VERIFICATION...");
-                    const { ExternalVerificationService } = await import("../../services/citationAudit/externalVerification");
+                    const { ExternalVerificationService } = await import("../../services/citationAudit/externalVerification.js");
                     verificationResults = await ExternalVerificationService.verifyCitationPairs(citationPairs);
 
                     // Map reference index back to verification results

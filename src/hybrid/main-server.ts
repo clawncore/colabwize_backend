@@ -481,7 +481,7 @@ const startServer = async () => {
 
     // Initialize the task scheduler for leaderboard updates
     try {
-      const scheduler = await import("../tasks/scheduler");
+      const scheduler = await import("../tasks/scheduler.js");
       logger.info("Task scheduler initialized successfully");
     } catch (error) {
       logger.error("Failed to initialize task scheduler:", error);
@@ -490,8 +490,8 @@ const startServer = async () => {
     // Initialize the version scheduler
     try {
       const versionScheduler =
-        await import("../services/versionSchedulerService");
-      versionScheduler.default.start();
+        await import("../services/versionSchedulerService.js");
+      (versionScheduler.default as any).start();
       logger.info("Version scheduler initialized successfully");
     } catch (error) {
       logger.error("Failed to initialize version scheduler:", error);
@@ -501,7 +501,7 @@ const startServer = async () => {
     let notificationServerInstance: any;
     try {
       const { NotificationServer } =
-        await import("./websockets/notification-server");
+        await import("./websockets/notification-server.js");
       notificationServerInstance = new NotificationServer(8082); // Keep port for service reference if needed
       logger.info("Notification WebSocket server initialized (multiplexed)");
     } catch (error) {

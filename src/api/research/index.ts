@@ -170,9 +170,9 @@ router.post("/chat-project", async (req: Request, res: Response) => {
 
     // Import services dynamically to avoid circular dependencies
     const { VectorStoreService } =
-      await import("../../services/vectorStoreService");
+      await import("../../services/vectorStoreService.js");
     const { ChatOpenAI } = await import("@langchain/openai");
-    const { SecretsService } = await import("../../services/secrets-service");
+    const { SecretsService } = await import("../../services/secrets-service.js");
 
     // Search for relevant context in project — wrap in try/catch
     // because the vector collection may not exist yet for this project
@@ -229,7 +229,7 @@ router.post("/chat-project", async (req: Request, res: Response) => {
           : fallbackContext;
 
       const { ChatOpenAI } = await import("@langchain/openai");
-      const { SecretsService } = await import("../../services/secrets-service");
+      const { SecretsService } = await import("../../services/secrets-service.js");
       const apiKey = await SecretsService.getOpenAiApiKey();
       if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 

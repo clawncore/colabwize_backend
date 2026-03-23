@@ -85,7 +85,7 @@ router.post(
 
       // Perform enhanced scan with academic database integration + Copyleaks
       // Use OriginalityMapService to orchestrate both
-      const { OriginalityMapService } = await import("../../services/originalityMapService");
+      const { OriginalityMapService } = await import("../../services/originalityMapService.js");
       const result = await OriginalityMapService.startScan(
         projectId,
         userId,

@@ -1,4 +1,4 @@
-import { prisma } from "../lib/prisma";
+import { prisma } from "../lib/prisma.js";
 import logger from "../monitoring/logger";
 
 /**
@@ -84,7 +84,7 @@ export class SurveyService {
     userId: string,
     surveyData: any
   ): Promise<void> {
-    const { SecretsService } = await import("./secrets-service");
+    const { SecretsService } = await import("./secrets-service.js");
     const webhookUrl = await SecretsService.getSignupSurveyWebhookUrl();
 
     if (!webhookUrl) return;
