@@ -19,30 +19,51 @@ export async function verifyRecaptcha(
   minScore: number = 0.5
 ): Promise<RecaptchaResponse> {
   try {
-    const secretKey = process.env.RC_SECRET;
+    const v3Secret = process.env.RC_SECRET;
+    const v2Secret = process.env.RC_V2_SECRET;
     
-    if (!secretKey) {
-      console.warn("[reCAPTCHA] RC_SECRET not set. Bypassing verification.");
-      return { success: true, message: "Bypassed (no key)" };
+    if (!v3Secret && !v2Secret) {
+      console.warn("[reCAPTCHA] No secret keys set. Bypassing verification.");
+      return { success: true, message: "Bypassed (no keys)" };
     }
 
-    const verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${token}`;
-    const response = await fetch(verifyUrl, { method: "POST" });
-    const data = (await response.json()) as RecaptchaResponse;
+    // Try verifying with the primary v3 secret first
+    let verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${v3Secret || v2Secret}&response=${token}`;
+    let response = await fetch(verifyUrl, { method: "POST" });
+    let data = (await response.json()) as RecaptchaResponse;
+
+    // If it failed and we have a second key, try that too (one might be v2, one v3)
+    if (!data.success && v3Secret && v2Secret) {
+      console.log("[reCAPTCHA] Primary key failed, trying secondary key...");
+      verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${v2Secret}&response=${token}`;
+      response = await fetch(verifyUrl, { method: "POST" });
+      data = (await response.json()) as RecaptchaResponse;
+    }
 
     console.log("[reCAPTCHA] Verify result:", {
       success: data.success,
       score: data.score,
       action: data.action,
+      type: data.score !== undefined ? "v3" : "v2",
     });
 
-    if (!data.success || (data.score !== undefined && data.score < minScore)) {
+    if (!data.success) {
+      return {
+        success: false,
+        message: "reCAPTCHA verification failed. Please try again.",
+      };
+    }
+
+    // For v3, also check the score
+    if (data.score !== undefined && data.score < minScore) {
       return {
         success: false,
         score: data.score,
-        message: "Automated activity detected. Please try again.",
+        message: "Low security score detected. Please complete the manual challenge.",
       };
     }
+
+    return { success: true, score: data.score };
 
     return { success: true, score: data.score };
   } catch (error) {

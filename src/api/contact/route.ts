@@ -14,26 +14,21 @@ export async function POST(request: Request) {
     const message = getSafeString(body.message);
     const token = getSafeString(body.token);
 
-    // reCAPTCHA verification - token is required
-    if (!token) {
-      return new Response(
-        JSON.stringify({
-          error: "reCAPTCHA token is required for security verification.",
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    const recaptchaResult = await verifyRecaptcha(token);
-    if (!recaptchaResult.success) {
-      return new Response(
-        JSON.stringify({
-          error:
-            recaptchaResult.message ||
-            "Automated activity detected. Please try again.",
-        }),
-        { status: 403, headers: { "Content-Type": "application/json" } }
-      );
+    // reCAPTCHA verification - fail-open if token is missing (for Brave/Ad-blockers)
+    if (token) {
+      const recaptchaResult = await verifyRecaptcha(token);
+      if (!recaptchaResult.success) {
+        return new Response(
+          JSON.stringify({
+            error:
+              recaptchaResult.message ||
+              "Automated activity detected. Please try again.",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    } else {
+      console.warn("[reCAPTCHA] Token missing in contact form, bypassing (fail-open).");
     }
 
     // Validate required fields
