@@ -1,6 +1,7 @@
 import { Router, type Router as ExpressRouter } from "express";
 import { FeedbackService } from "../../services/feedbackService";
 import { authenticateExpressRequest } from "../../middleware/auth";
+import { verifyRecaptcha } from "../../utils/recaptcha";
 import logger from "../../monitoring/logger";
 
 const router: ExpressRouter = Router();
@@ -8,7 +9,20 @@ const router: ExpressRouter = Router();
 // Create a new feedback item (public endpoint for feature requests)
 router.post("/public", async (req, res) => {
   try {
-    const feedbackData = req.body;
+    const { token, ...feedbackData } = req.body;
+
+    // reCAPTCHA verification
+    if (token) {
+      const recaptchaResult = await verifyRecaptcha(token);
+      if (!recaptchaResult.success) {
+        return res.status(403).json({
+          success: false,
+          message:
+            recaptchaResult.message ||
+            "Automated activity detected. Please try again.",
+        });
+      }
+    }
 
     // Validate required fields
     if (

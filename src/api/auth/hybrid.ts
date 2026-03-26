@@ -283,6 +283,36 @@ router.post("/verify-otp", async (req, res) => {
 });
 
 
+import { verifyRecaptcha } from "../../utils/recaptcha";
+
+/**
+ * POST /api/auth/hybrid/verify-recaptcha
+ * Verify reCAPTCHA v3 token from frontend before login/signup
+ */
+router.post("/verify-recaptcha", async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ success: false, message: "Token required" });
+    }
+
+    const result = await verifyRecaptcha(token);
+
+    if (!result.success) {
+      return res.status(403).json({
+        success: false,
+        message: result.message || "Automated activity detected. Please try again or contact support.",
+      });
+    }
+
+    return res.status(200).json({ success: true, message: "Verified", score: result.score });
+  } catch (error) {
+    console.error("[reCAPTCHA] Verification endpoint error:", error);
+    return res.status(200).json({ success: true, message: "Bypassed (error)" });
+  }
+});
+
+
 /**
  * POST /api/auth/hybrid/resend-verification
  */
