@@ -2,6 +2,7 @@ import { Router, type Router as ExpressRouter } from "express";
 import { FeatureRequestService } from "../../services/featureRequestService";
 import logger from "../../monitoring/logger";
 import { authenticateExpressRequest } from "../../middleware/auth";
+import { verifyRecaptcha } from "../../utils/recaptcha";
 import { getSafeString } from "../../utils/requestHelpers";
 
 const router: ExpressRouter = Router();
@@ -9,7 +10,20 @@ const router: ExpressRouter = Router();
 // Create a new feature request (public endpoint)
 router.post("/simple", async (req, res) => {
   try {
-    const requestData = req.body;
+    const { token, ...requestData } = req.body;
+
+    // reCAPTCHA verification
+    if (token) {
+      const recaptchaResult = await verifyRecaptcha(token);
+      if (!recaptchaResult.success) {
+        return res.status(403).json({
+          success: false,
+          message:
+            recaptchaResult.message ||
+            "Automated activity detected. Please try again.",
+        });
+      }
+    }
 
     // Validate required fields
     if (!requestData.title || !requestData.description) {

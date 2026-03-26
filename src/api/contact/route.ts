@@ -1,6 +1,8 @@
 import { ContactService } from "../../services/contactService";
 import { getSafeString } from "../../utils/requestHelpers";
 
+import { verifyRecaptcha } from "../../utils/recaptcha";
+
 // POST /api/contact - Handle contact form submission
 export async function POST(request: Request) {
   try {
@@ -10,6 +12,29 @@ export async function POST(request: Request) {
     const email = getSafeString(body.email);
     const subject = getSafeString(body.subject);
     const message = getSafeString(body.message);
+    const token = getSafeString(body.token);
+
+    // reCAPTCHA verification - token is required
+    if (!token) {
+      return new Response(
+        JSON.stringify({
+          error: "reCAPTCHA token is required for security verification.",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const recaptchaResult = await verifyRecaptcha(token);
+    if (!recaptchaResult.success) {
+      return new Response(
+        JSON.stringify({
+          error:
+            recaptchaResult.message ||
+            "Automated activity detected. Please try again.",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     // Validate required fields
     if (!name || !email || !subject || !message) {

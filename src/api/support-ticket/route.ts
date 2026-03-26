@@ -2,6 +2,7 @@ import { Router, type Router as ExpressRouter } from "express";
 import { SupportTicketService } from "../../services/supportTicketService";
 import logger from "../../monitoring/logger";
 import { authenticateExpressRequest } from "../../middleware/auth";
+import { verifyRecaptcha } from "../../utils/recaptcha";
 
 const router: ExpressRouter = Router();
 
@@ -10,7 +11,20 @@ router.post("/", authenticateExpressRequest, async (req, res) => {
   try {
     // User ID will be attached by the authentication middleware in main-server.ts
     const userId = (req as any).user?.id;
-    const ticketData = req.body;
+    const { token, ...ticketData } = req.body;
+
+    // reCAPTCHA verification
+    if (token) {
+      const recaptchaResult = await verifyRecaptcha(token);
+      if (!recaptchaResult.success) {
+        return res.status(403).json({
+          success: false,
+          message:
+            recaptchaResult.message ||
+            "Automated activity detected. Please try again.",
+        });
+      }
+    }
 
     // Validate required fields
     if (!ticketData.subject || !ticketData.message) {
