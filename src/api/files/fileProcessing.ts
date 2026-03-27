@@ -31,11 +31,21 @@ router.post(
       // Call the serverless function
       const response = await fileProcessing(mockRequest as any);
 
-      // Extract the response data
-      const responseText = await response.text();
-      const responseData = JSON.parse(responseText);
+      // Handle different response types based on headers
+      const contentType = response.headers.get("Content-Type") || "";
 
-      res.status(response.status).json(responseData);
+      if (contentType.includes("application/json")) {
+        const responseData = await response.json();
+        res.status(response.status).json(responseData);
+      } else {
+        // Pass headers forward (like Content-Disposition for attachments)
+        response.headers.forEach((value, key) => {
+          res.setHeader(key, value);
+        });
+        // Send binary buffer directly
+        const arrayBuffer = await response.arrayBuffer();
+        res.status(response.status).end(Buffer.from(arrayBuffer));
+      }
     } catch (error: any) {
       logger.error("File processing API error", {
         error: error.message,

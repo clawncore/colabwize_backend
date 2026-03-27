@@ -45,7 +45,6 @@ model User {
   certificates          Certificate[]
   chat_sessions         ChatSession[]
   citations             Citation[]
-  exports               Export[]
   feature_requests      FeatureRequest[]
   feature_votes         FeatureVote[]
   feedback_comments     FeedbackComment[]
@@ -382,7 +381,6 @@ model Project {
   team_chat_messages    TeamChatMessage[]
   chat_sessions         ChatSession[]
   citations             Citation[]
-  exports               Export[]
   files                 File[]
   originality_scans     OriginalityScan[]
   user                  User                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
@@ -536,25 +534,6 @@ model File {
   @@map("files")
 }
 
-model Export {
-  id           String   @id @default(uuid())
-  user_id      String
-  project_id   String
-  file_name    String
-  file_size    Int
-  file_type    String
-  download_url String
-  status       String
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
-  project      Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@index([user_id])
-  @@index([project_id])
-  @@index([status])
-  @@map("exports")
-}
 
 model AIUsage {
   id            String   @id @default(uuid())

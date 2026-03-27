@@ -4,7 +4,8 @@ import path from 'path';
 import { DOMParser } from 'xmldom';
 import CSL from 'citeproc';
 import { PrismaClient } from '@prisma/client';
-import { CitationCacheManager } from './citationCacheManager';
+import { CitationCacheManager } from './citationCacheManager.js';
+import { normalizeToCSL } from '../utils/cslNormalization.js';
 
 const prisma = new PrismaClient();
 
@@ -53,12 +54,7 @@ export class CitationEngine {
             if (itemsOrStyle) {
                 // Pre-load items
                 itemsOrStyle.forEach(item => {
-                    const csl = item.csl_data || {
-                        id: item.ref_key || item.id || "unknown",
-                        title: item.raw_reference_text || "Unknown",
-                        _is_dummy: !item.csl_data,
-                        raw_text: item.raw_reference_text
-                    };
+                    const csl = normalizeToCSL(item);
                     if (item.id) this.items.set(item.id, csl);
                     if (item.csl_data?.id) this.items.set(item.csl_data.id, csl);
                     if (item.ref_key) this.items.set(item.ref_key, csl);
@@ -157,16 +153,7 @@ export class CitationEngine {
         // We initialize with ALL citations in the project so the processor has access to everything
         // But specifically ensure requested IDs are present
         citations.forEach(c => {
-            const csl = c.csl_data || {
-                id: c.ref_key || c.id || "unknown",
-                title: c.raw_reference_text || "Unknown",
-                type: "article-journal",
-                author: [{ literal: "Unknown Author" }],
-                issued: { "date-parts": [[new Date().getFullYear()]] },
-                _is_dummy: true,
-                raw_text: c.raw_reference_text
-            };
-
+            const csl = normalizeToCSL(c);
             if (c.id) this.items.set(c.id, csl);
             if (c.csl_data?.id) this.items.set(c.csl_data.id, csl);
             if (c.ref_key) this.items.set(c.ref_key, csl);
@@ -446,5 +433,12 @@ export class CitationEngine {
         CitationCacheManager.setCluster(cacheKey, JSON.stringify(result));
 
         return result;
+    }
+
+    /**
+     * Get all items in CSL-JSON format for Pandoc
+     */
+    public getAllItems(): any[] {
+        return Array.from(this.items.values());
     }
 }

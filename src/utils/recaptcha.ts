@@ -19,6 +19,12 @@ export async function verifyRecaptcha(
   minScore: number = 0.5
 ): Promise<RecaptchaResponse> {
   try {
+    // Bypass in development
+    if (process.env.NODE_ENV === "development" || process.env.SKIP_RECAPTCHA === "true") {
+      console.log("[reCAPTCHA] Bypassing verification in development mode.");
+      return { success: true, message: "Bypassed (development)" };
+    }
+
     const v3Secret = process.env.RC_SECRET;
     const v2Secret = process.env.RC_V2_SECRET;
     
