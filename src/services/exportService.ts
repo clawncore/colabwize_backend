@@ -1,10 +1,15 @@
 import logger from "../monitoring/logger";
 import { PandocExportService } from "./pandocExportService";
+import { prisma } from "../lib/prisma";
 
 interface ExportOptions {
   format: "pdf" | "docx" | "txt" | "latex" | "rtf";
   htmlContent?: string;
   metadata?: any;
+  includeCitations?: boolean;
+  includeComments?: boolean;
+  citationStyle?: "apa" | "mla" | "chicago" | "ieee" | "harvard" | string;
+  journalTemplate?: string;
 }
 
 interface ExportResult {
@@ -28,14 +33,45 @@ export class ExportService {
         format: options.format,
       });
 
-      if (!options.htmlContent) {
-        throw new Error("htmlContent is required for simplified export");
+      let htmlContent = options.htmlContent;
+
+      // If htmlContent is not provided, fetch it from the database (Backward compatibility)
+      if (!htmlContent && projectId) {
+        const project = await prisma.project.findFirst({
+          where: { id: projectId, user_id: userId },
+        });
+        
+        if (!project) {
+          throw new Error("Project not found or access denied");
+        }
+        
+        // Handle Tiptap JSON content if stored as JSON
+        const content = project.content as any;
+        if (content && typeof content === "object") {
+          // If it's TipTap JSON, we'd ideally convert to HTML here
+          // For now, if we're in a simplified path, we might just use a placeholder
+          // or assume it's already HTML if it's a string.
+          if (content.type === "doc") {
+            const { generateHTML } = await import("@tiptap/html");
+            const { default: StarterKit } = await import("@tiptap/starter-kit");
+            // Add other extensions if needed
+            htmlContent = generateHTML(content, [StarterKit]);
+          } else {
+            htmlContent = JSON.stringify(content);
+          }
+        } else {
+          htmlContent = content?.toString() || "";
+        }
+      }
+
+      if (!htmlContent) {
+        throw new Error("htmlContent is required for export and could not be resolved from database");
       }
 
       return await PandocExportService.exportProject({}, {
         format: options.format,
-        htmlContent: options.htmlContent,
-        metadata: options.metadata
+        htmlContent: htmlContent,
+        metadata: options.metadata || { title: "Exported Document" }
       });
     } catch (error: any) {
       logger.error("Error in direct project export", {
@@ -45,6 +81,27 @@ export class ExportService {
         error: error.message,
       });
       throw new Error(`Failed to export project: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create a ZIP archive for user data export
+   */
+  static async createZipArchive(data: any): Promise<Buffer> {
+    try {
+      const AdmZip = await import("adm-zip");
+      const zip = new AdmZip.default();
+      
+      // Add data as a JSON file
+      const content = JSON.stringify(data, null, 2);
+      zip.addFile("data-export.json", Buffer.from(content, "utf8"));
+      
+      // We could add more files here if needed
+      
+      return zip.toBuffer();
+    } catch (error: any) {
+      logger.error("Error creating ZIP archive", { error: error.message });
+      throw new Error(`Failed to create ZIP archive: ${error.message}`);
     }
   }
 
