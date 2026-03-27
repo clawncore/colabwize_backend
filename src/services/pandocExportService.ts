@@ -6,7 +6,22 @@ import os from "os";
 import logger from "../monitoring/logger";
 
 const execAsync = promisify(exec);
-const PANDOC_PATH = "/home/clawncore/Desktop/colabwize/backend/bin/bin/pandoc";
+
+// Dynamic Pandoc path resolution
+const getPandocPath = async () => {
+  // 1. Check environment variable
+  if (process.env.PANDOC_PATH) return process.env.PANDOC_PATH;
+
+  // 2. Check project-relative bin directory
+  const relativePath = path.join(process.cwd(), "bin", "bin", "pandoc");
+  try {
+    await fs.access(relativePath);
+    return relativePath;
+  } catch {
+    // 3. Fallback to system path
+    return "pandoc";
+  }
+};
 
 export interface PandocExportOptions {
   format: "pdf" | "docx" | "txt" | "latex" | "rtf" | "html";
@@ -40,8 +55,10 @@ export class PandocExportService {
       const htmlPath = path.join(tempDir, "input.html");
       await fs.writeFile(htmlPath, htmlContent);
       
+      const pandocPath = await getPandocPath();
+      
       // Standard direct HTML to DOCX command using Pandoc standalone mode
-      const pandocCmd = `"${PANDOC_PATH}" "${htmlPath}" -f html -s -o "${outputPath}"`;
+      const pandocCmd = `"${pandocPath}" "${htmlPath}" -f html -s -o "${outputPath}"`;
       
       await execAsync(pandocCmd);
       const buffer = await fs.readFile(outputPath);
