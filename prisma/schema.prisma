@@ -93,6 +93,17 @@ model User {
   push_notification_tokens   PushNotificationToken[]
   blog_posts               BlogPost[]
   
+  // Zotero Integration
+  zotero_user_id           String?
+  zotero_api_key           String?
+  zotero_auto_sync         Boolean?              @default(false)
+  
+  // Mendeley Integration
+  mendeley_access_token    String?
+  mendeley_refresh_token   String?
+  mendeley_token_expires_at DateTime?
+  mendeley_auto_sync       Boolean?              @default(false)
+  
   @@index([email])
   @@map("users")
 }
@@ -387,6 +398,7 @@ model Project {
   real_time_activities  RealTimeActivity[]
   source_interactions   SourceInteraction[]
   workspace_id        String?
+  linked_library      String?                // Can be 'zotero', 'mendeley', or null
   workspace           Workspace?             @relation(fields: [workspace_id], references: [id])
   collaborators       CollaboratorPresence[]
   share_settings      DocumentShareSettings?
@@ -421,7 +433,7 @@ model Citation {
   formatted_citations Json?
   themes         Json?    // Array of themes like ["Gap", "Method", "Result"]
   matrix_notes   String?  // Qualitative notes for the Literature Matrix
-  is_reliable    Boolean  @default(true)
+  vault_verified  Boolean  @default(true)
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
   project        Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)

@@ -2,6 +2,8 @@ import express, { Request, Response } from "express";
 import { CitationConfidenceService } from "../../services/citationConfidenceService";
 import logger from "../../monitoring/logger";
 import { checkProjectAccess } from "../../lib/auth-helpers";
+import { prisma } from "../../lib/prisma";
+import { ZoteroService } from "../../services/zoteroService";
 
 const router = express.Router();
 
@@ -74,6 +76,46 @@ router.post(
           formatted_citations,
         },
       );
+
+      // --- NEW: Master Engine Sync Hook (Research Vault) ---
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { zotero_api_key: true, zotero_user_id: true, zotero_auto_sync: true }
+        });
+
+        if (user?.zotero_auto_sync && user.zotero_api_key && user.zotero_user_id) {
+          console.log(`[Master-Engine] Auto-vaulting citation: "${title}"`);
+          
+          const vaultItemData = {
+            itemType: "journalArticle",
+            title: title,
+            creators: author.split(",").map((a: string) => ({
+              creatorType: "author",
+              name: a.trim()
+            })),
+            date: year.toString(),
+            DOI: doi,
+            url: url,
+            abstractNote: abstract,
+            libraryCatalog: "ColabWize Master Vault"
+          };
+
+          await ZoteroService.createItem(
+            user.zotero_user_id,
+            user.zotero_api_key,
+            vaultItemData
+          );
+        }
+      } catch (syncError: any) {
+        // We don't want to fail the citation creation if master sync fails, 
+        // just log it.
+        logger.error("[Master-Engine] Auto-vault failed", {
+          error: syncError.message,
+          userId,
+          title
+        });
+      }
 
       return res.status(201).json({
         success: true,

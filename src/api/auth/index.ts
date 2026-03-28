@@ -2,6 +2,8 @@ import express from "express";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import hybridRouter from "./hybrid";
 import twoFactorRouter from "./2fa";
+import zoteroRouter from "./zotero";
+import mendeleyRouter from "./mendeley";
 import { prisma } from "../../lib/prisma"; // For validation
 
 const router = express.Router();
@@ -9,6 +11,8 @@ const router = express.Router();
 // Mount hybrid auth routes
 router.use("/hybrid", hybridRouter);
 router.use("/2fa", twoFactorRouter);
+router.use("/zotero", zoteroRouter);
+router.use("/mendeley", mendeleyRouter);
 
 // Removed legacy routes (register, verify-otp, resend-otp, login)
 // as we have migrated to Supabase Hybrid Auth.

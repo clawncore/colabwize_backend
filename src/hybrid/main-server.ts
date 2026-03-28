@@ -69,6 +69,8 @@ import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
 import adminRouter from "../api/admin/index";
 import publicBlogsRouter from "../api/blogs/index";
+import zoteroRouter from "../api/zotero/index";
+import mendeleyRouter from "../api/mendeley/index";
 
 const app: Application = express();
 
@@ -423,6 +425,9 @@ app.use("/api/research", authMiddleware, researchRouter);
 
 // Apply auth middleware to notification routes
 app.use("/api/notifications", authMiddleware);
+
+app.use("/api/zotero", authMiddleware, zoteroRouter);
+app.use("/api/mendeley", authMiddleware, mendeleyRouter);
 
 // 404 handler
 app.use((req, res) => {

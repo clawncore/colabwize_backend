@@ -48,7 +48,6 @@ export class ExportService {
         // Handle Tiptap JSON content if stored as JSON
         const content = project.content as any;
         if (content && typeof content === "object") {
-          // If it's TipTap JSON, we'd ideally convert to HTML here
           // For now, if we're in a simplified path, we might just use a placeholder
           // or assume it's already HTML if it's a string.
           if (content.type === "doc") {

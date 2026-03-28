@@ -27,6 +27,7 @@ export class DocumentUploadService {
     description: string,
     file: Express.Multer.File,
     workspaceId?: string,
+    linkedLibrary?: string | null,
   ) {
     // Extract text/html from the uploaded document
     const { content: extractedContent, format } =
@@ -65,6 +66,7 @@ export class DocumentUploadService {
         file_path: file.path,
         file_type: file.mimetype,
         workspace_id: workspaceId || null,
+        linked_library: linkedLibrary || null,
       },
       include: {
         originality_scans: true,
@@ -152,6 +154,7 @@ export class DocumentUploadService {
         word_count: true,
         file_path: true,
         file_type: true,
+        linked_library: true,
         created_at: true,
         updated_at: true,
         originality_scans: {
@@ -321,6 +324,7 @@ export class DocumentUploadService {
     content: any,
     outline: any = null,
     workspaceId?: string,
+    linkedLibrary?: string | null,
   ) {
     // Create project record in the database
     const project = await (prisma.project as any).create({
@@ -338,6 +342,7 @@ export class DocumentUploadService {
         },
         outline: outline,
         workspace_id: workspaceId || null,
+        linked_library: linkedLibrary || null,
       },
       include: {
         originality_scans: true,

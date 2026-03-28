@@ -213,6 +213,7 @@ export async function GET(request: Request) {
         institution: true,
         location: true,
         two_factor_enabled: true,
+        zotero_auto_sync: true,
         created_at: true,
         updated_at: true,
       },
@@ -266,6 +267,7 @@ export async function PUT(request: Request) {
     const bio = getSafeString(body.bio);
     const institution = getSafeString(body.institution);
     const location = getSafeString(body.location);
+    const zotero_auto_sync = body.zotero_auto_sync === true;
 
     // Get user from authorization header
     const authHeader = request.headers.get("authorization");
@@ -331,6 +333,7 @@ export async function PUT(request: Request) {
         bio,
         institution,
         location,
+        zotero_auto_sync,
         updated_at: new Date(),
       },
       select: {
@@ -344,6 +347,7 @@ export async function PUT(request: Request) {
         institution: true,
         location: true,
         two_factor_enabled: true,
+        zotero_auto_sync: true,
         created_at: true,
         updated_at: true,
       },
@@ -544,6 +548,7 @@ export async function updateProfileWithOTP(request: Request) {
     const bio = getSafeString(body.bio);
     const institution = getSafeString(body.institution);
     const location = getSafeString(body.location);
+    const zotero_auto_sync = body.zotero_auto_sync;
 
     // Get user from authorization header
     const authHeader = request.headers.get("authorization");
@@ -627,6 +632,7 @@ export async function updateProfileWithOTP(request: Request) {
     if (bio !== undefined) updateData.bio = bio;
     if (institution !== undefined) updateData.institution = institution;
     if (location !== undefined) updateData.location = location;
+    if (body.zotero_auto_sync !== undefined) updateData.zotero_auto_sync = zotero_auto_sync;
 
     // If email is being updated, we need to handle it separately
     if (email && email !== user.email) {
@@ -656,6 +662,8 @@ export async function updateProfileWithOTP(request: Request) {
         bio: true,
         institution: true,
         location: true,
+        two_factor_enabled: true,
+        zotero_auto_sync: true,
         created_at: true,
         updated_at: true,
       },

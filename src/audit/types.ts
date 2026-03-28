@@ -98,6 +98,7 @@ export interface AuditPipelineStage {
 
 // Internal context passed between pipeline stages
 export interface AuditContext {
+    userId: string;           // Required for user-specific lookups (Zotero)
     docState: any;             // ProseMirror JSON Document
     citations: any[];          // Extracted in-text citations
     bibliography: any[];       // Extracted bibliography entries
