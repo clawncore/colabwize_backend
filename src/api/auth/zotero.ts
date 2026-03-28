@@ -1,0 +1,128 @@
+import express from "express";
+import crypto from "crypto";
+import axios from "axios";
+import { prisma } from "../../lib/prisma.js";
+import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware.js";
+
+const router = express.Router();
+
+const ZOTERO_CLIENT_KEY = process.env.ZOTERO_CLIENT_KEY || "";
+const ZOTERO_CLIENT_SECRET = process.env.ZOTERO_CLIENT_SECRET || "";
+const CALLBACK_URL = "https://api.colabwize.com/api/auth/zotero/callback";
+
+// Helper to generate OAuth 1.0a signature
+function generateOAuthSignature(method: string, url: string, params: Record<string, string>, clientSecret: string, tokenSecret: string = "") {
+    const sortedKeys = Object.keys(params).sort();
+    const paramString = sortedKeys.map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`).join("&");
+    
+    const baseString = `${method.toUpperCase()}&${encodeURIComponent(url)}&${encodeURIComponent(paramString)}`;
+    const signingKey = `${encodeURIComponent(clientSecret)}&${encodeURIComponent(tokenSecret)}`;
+    
+    return crypto.createHmac("sha1", signingKey).update(baseString).digest("base64");
+}
+
+/**
+ * GET /api/auth/zotero/connect
+ * Start OAuth 1.0a flow
+ */
+router.get("/connect", authenticateHybridRequest, async (req, res) => {
+    try {
+        const userId = (req as any).user.id;
+        const nonce = crypto.randomBytes(16).toString("hex");
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+
+        const params: Record<string, string> = {
+            oauth_callback: CALLBACK_URL,
+            oauth_consumer_key: ZOTERO_CLIENT_KEY,
+            oauth_nonce: nonce,
+            oauth_signature_method: "HMAC-SHA1",
+            oauth_timestamp: timestamp,
+            oauth_version: "1.0"
+        };
+
+        const signature = generateOAuthSignature("GET", "https://www.zotero.org/oauth/request", params, ZOTERO_CLIENT_SECRET);
+        params.oauth_signature = signature;
+
+        // Append CW User ID to callback to identify user on return
+        const callbackWithUid = `${CALLBACK_URL}?cw_uid=${userId}`;
+        params.oauth_callback = callbackWithUid;
+
+        const authHeader = "OAuth " + Object.keys(params).map(key => `${encodeURIComponent(key)}="${encodeURIComponent(params[key])}"`).join(", ");
+
+        const response = await axios.get("https://www.zotero.org/oauth/request", {
+            headers: { Authorization: authHeader }
+        });
+
+        // Response is form-encoded: oauth_token=...&oauth_token_secret=...&oauth_callback_confirmed=true
+        const data = new URLSearchParams(response.data);
+        const oauthToken = data.get("oauth_token");
+        
+        if (!oauthToken) throw new Error("Failed to get request token from Zotero");
+
+        // Redirect user to Zotero for authorization
+        return res.redirect(`https://www.zotero.org/oauth/authorize?oauth_token=${oauthToken}`);
+    } catch (error: any) {
+        console.error("Zotero Connect Error:", error.response?.data || error.message);
+        return res.status(500).json({ error: "Failed to connect to Zotero" });
+    }
+});
+
+/**
+ * GET /api/auth/zotero/callback
+ * Handle Zotero redirect
+ */
+router.get("/callback", async (req, res) => {
+    try {
+        const { oauth_token, oauth_verifier, cw_uid } = req.query;
+
+        if (!oauth_token || !oauth_verifier || !cw_uid) {
+            return res.status(400).send("Invalid callback parameters");
+        }
+
+        const nonce = crypto.randomBytes(16).toString("hex");
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+
+        const params: Record<string, string> = {
+            oauth_consumer_key: ZOTERO_CLIENT_KEY,
+            oauth_nonce: nonce,
+            oauth_signature_method: "HMAC-SHA1",
+            oauth_timestamp: timestamp,
+            oauth_token: oauth_token as string,
+            oauth_verifier: oauth_verifier as string,
+            oauth_version: "1.0"
+        };
+
+        const signature = generateOAuthSignature("GET", "https://www.zotero.org/oauth/access", params, ZOTERO_CLIENT_SECRET);
+        params.oauth_signature = signature;
+
+        const authHeader = "OAuth " + Object.keys(params).map(key => `${encodeURIComponent(key)}="${encodeURIComponent(params[key])}"`).join(", ");
+
+        const response = await axios.get("https://www.zotero.org/oauth/access", {
+            headers: { Authorization: authHeader }
+        });
+
+        // Response: oauth_token=<API_KEY>&oauth_token_secret=<N/A>&username=<NAME>&userID=<ID>
+        const data = new URLSearchParams(response.data);
+        const apiKey = data.get("oauth_token");
+        const zoteroUserId = data.get("userID");
+
+        if (!apiKey || !zoteroUserId) throw new Error("Failed to exchange access token");
+
+        // Securely save to Prisma
+        await prisma.user.update({
+            where: { id: cw_uid as string },
+            data: {
+                zotero_api_key: apiKey,
+                zotero_user_id: zoteroUserId
+            }
+        });
+        
+        return res.redirect(`https://app.colabwize.com/dashboard/settings/account?zotero_success=true`);
+
+    } catch (error: any) {
+        console.error("Zotero Callback Error:", error.response?.data || error.message);
+        return res.status(500).send("Zotero authentication failed");
+    }
+});
+
+export default router;

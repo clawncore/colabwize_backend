@@ -11,20 +11,31 @@ export class ExternalVerificationService {
     /**
      * Verify citation pairs using LIFO queue processing
      * @param pairs - Matched citation pairs (inline + reference)
+     * @param userId - Optional user ID for Zotero integration
      * @returns Verification results for each inline citation
      */
-    static async verifyCitationPairs(pairs: CitationPair[]): Promise<VerificationResult[]> {
+    static async verifyCitationPairs(pairs: CitationPair[], userId?: string): Promise<VerificationResult[]> {
         console.log(`[ExternalVerification] Verifying ${pairs.length} citation pairs...`);
         const results: VerificationResult[] = [];
         const CONCURRENCY_LIMIT = 5; // Increased slightly for better speed
 
-        // Process in batches
+        // 1. Fetch Zotero credentials if userId is provided
+        let zoteroCreds: any = null;
+        if (userId) {
+            const { prisma } = require("../../lib/prisma");
+            zoteroCreds = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { zotero_api_key: true, zotero_user_id: true }
+            });
+        }
+
+        // 2. Process in batches
         for (let i = 0; i < pairs.length; i += CONCURRENCY_LIMIT) {
             console.log(`[ExternalVerification] Processing batch ${Math.floor(i / CONCURRENCY_LIMIT) + 1}/${Math.ceil(pairs.length / CONCURRENCY_LIMIT)}...`);
             const batch = pairs.slice(i, i + CONCURRENCY_LIMIT);
             const batchPromises = batch.map(async (pair) => {
                 try {
-                    return await this.verifyPair(pair);
+                    return await this.verifyPair(pair, zoteroCreds);
                 } catch (error) {
                     logger.error("Verification error for citation", {
                         inline: pair.inline.text,
@@ -52,7 +63,7 @@ export class ExternalVerificationService {
     /**
      * Verify a single citation pair
      */
-    private static async verifyPair(pair: CitationPair): Promise<VerificationResult> {
+    private static async verifyPair(pair: CitationPair, zoteroCreds?: any): Promise<VerificationResult> {
         const inlineLocation = {
             start: pair.inline.start,
             end: pair.inline.end,
@@ -85,9 +96,37 @@ export class ExternalVerificationService {
 
         if (pair.reference.extractedDOI) {
             console.log(`   🎯 Searching by DOI: ${pair.reference.extractedDOI}`);
-            foundPaper = await AcademicDatabaseService.searchByDOI(pair.reference.extractedDOI);
-            if (foundPaper) {
-                bestMatch = { ...foundPaper, similarity: 1.0 };
+            
+            // --- NEW: Zotero Gold Standard Check ---
+            if (zoteroCreds?.zotero_api_key && zoteroCreds?.zotero_user_id) {
+                const { ZoteroService } = require("../zoteroService");
+                const zoteroItems = await ZoteroService.queryItems(
+                    zoteroCreds.zotero_user_id, 
+                    zoteroCreds.zotero_api_key, 
+                    pair.reference.extractedDOI
+                );
+                
+                if (zoteroItems && zoteroItems.length > 0) {
+                    const zItem = zoteroItems[0];
+                    console.log(`   🏆 GOLD STANDARD MATCH (Zotero): "${zItem.title}"`);
+                    foundPaper = {
+                        title: zItem.title,
+                        authors: zItem.author?.map((a: any) => `${a.given} ${a.family}`).join(", "),
+                        year: zItem.issued?.["date-parts"]?.[0]?.[0] || zItem.publicationDate,
+                        url: zItem.URL,
+                        database: "Zotero (Gold Standard)",
+                        abstract: zItem.abstractNote,
+                        isZoteroRecord: true
+                    };
+                    bestMatch = { ...foundPaper, similarity: 1.0 };
+                }
+            }
+
+            if (!bestMatch) {
+                foundPaper = await AcademicDatabaseService.searchByDOI(pair.reference.extractedDOI);
+                if (foundPaper) {
+                    bestMatch = { ...foundPaper, similarity: 1.0 };
+                }
             }
         }
 
@@ -99,22 +138,50 @@ export class ExternalVerificationService {
             console.log(`   Inline: "${pair.inline.text}"`);
             console.log(`   Reference: ${pair.reference.rawText.substring(0, 80)}...`);
             console.log(`   [Verification ID: ${pair.inline.start}] Searching academic databases for: "${searchQuery}"`);
-            console.log(`   [Verification ID: ${pair.inline.start}] Extracted Title: "${pair.reference.extractedTitle}"`);
-            console.log(`   [Verification ID: ${pair.inline.start}] Extracted Author: "${pair.reference.extractedAuthor}"`);
-            console.log(`   [Verification ID: ${pair.inline.start}] Extracted Year: ${pair.reference.extractedYear}`);
-            console.log(`   🌐 Searching academic databases...`);
+            
+            // --- NEW: Zotero Title-based check ---
+            if (zoteroCreds?.zotero_api_key && zoteroCreds?.zotero_user_id) {
+                const { ZoteroService } = require("../zoteroService");
+                const zoteroItems = await ZoteroService.queryItems(
+                    zoteroCreds.zotero_user_id, 
+                    zoteroCreds.zotero_api_key, 
+                    searchQuery
+                );
+                
+                if (zoteroItems && zoteroItems.length > 0) {
+                    const zItem = zoteroItems[0];
+                    console.log(`   🏆 GOLD STANDARD MATCH (Zotero Title Query): "${zItem.title}"`);
+                    foundPaper = {
+                        title: zItem.title,
+                        authors: zItem.author?.map((a: any) => `${a.given} ${a.family}`).join(", "),
+                        year: zItem.issued?.["date-parts"]?.[0]?.[0] || zItem.publicationDate,
+                        url: zItem.URL,
+                        database: "Zotero (Gold Standard)",
+                        abstract: zItem.abstractNote,
+                        isZoteroRecord: true
+                    };
+                    bestMatch = { ...foundPaper, similarity: 1.0 };
+                }
+            }
 
-            logger.info("Verifying citation", {
-                inline: pair.inline.text,
-                query: searchQuery
-            });
+            if (!bestMatch) {
+                console.log(`   [Verification ID: ${pair.inline.start}] Extracted Title: "${pair.reference.extractedTitle}"`);
+                console.log(`   [Verification ID: ${pair.inline.start}] Extracted Author: "${pair.reference.extractedAuthor}"`);
+                console.log(`   [Verification ID: ${pair.inline.start}] Extracted Year: ${pair.reference.extractedYear}`);
+                console.log(`   🌐 Searching academic databases...`);
 
-            apiResults = await AcademicDatabaseService.searchAcademicDatabases(searchQuery);
-            console.log(`   📊 API Results: ${apiResults.length} papers found`);
+                logger.info("Verifying citation", {
+                    inline: pair.inline.text,
+                    query: searchQuery
+                });
 
-            if (apiResults && apiResults.length > 0) {
-                bestMatch = apiResults[0];
-                console.log(`   [Verification ID: ${pair.inline.start}] Found Match: "${bestMatch.title}" (${(bestMatch.similarity * 100).toFixed(0)}% confidence)`);
+                apiResults = await AcademicDatabaseService.searchAcademicDatabases(searchQuery);
+                console.log(`   📊 API Results: ${apiResults.length} papers found`);
+
+                if (apiResults && apiResults.length > 0) {
+                    bestMatch = apiResults[0];
+                    console.log(`   [Verification ID: ${pair.inline.start}] Found Match: "${bestMatch.title}" (${(bestMatch.similarity * 100).toFixed(0)}% confidence)`);
+                }
             }
         }
 

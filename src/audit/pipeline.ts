@@ -50,7 +50,7 @@ function createInitialReport(jobAuthIds: { documentId: string; projectId: string
  * Initializes and queues a background audit job.
  * Returns the auditId immediately.
  */
-export function startAudit(documentId: string, projectId: string, docState: any, style: string = "APA"): string {
+export function startAudit(documentId: string, projectId: string, docState: any, style: string = "APA", userId: string = ""): string {
     const auditId = uuidv4();
     const job: AuditJob = {
         auditId,
@@ -68,7 +68,7 @@ export function startAudit(documentId: string, projectId: string, docState: any,
     jobStore.set(auditId, job);
 
     // Fire and forget the background execution
-    runPipeline(auditId, docState).catch(err => {
+    runPipeline(auditId, docState, userId).catch(err => {
         console.error(`[AuditPipeline] Fatal error in job ${auditId}:`, err);
         const failedJob = jobStore.get(auditId);
         if (failedJob) {
@@ -85,12 +85,13 @@ export function startAudit(documentId: string, projectId: string, docState: any,
 /**
  * Background worker that processes the pipeline stages synchronously
  */
-async function runPipeline(auditId: string, docState: any) {
+async function runPipeline(auditId: string, docState: any, userId: string) {
     const job = jobStore.get(auditId);
     if (!job) throw new Error("Job not found in store");
 
     // Shared context for the timeline
     const context: AuditContext = {
+        userId,
         docState,
         citations: [],
         bibliography: [],

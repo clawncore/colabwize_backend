@@ -43,36 +43,38 @@ export class PandocExportService {
     const htmlContent = options.htmlContent || "";
     
     try {
-      const outputPath = path.join(tempDir, `output.${options.format === 'pdf' ? 'pdf' : options.format}`);
+      const extension = options.format === 'pdf' ? 'pdf' : options.format;
+      const outputPath = path.join(tempDir, `output.${extension}`);
 
       logger.info(`[Pandoc] Exporting via HTML direct path to ${options.format}`);
       
-      if (options.format === "pdf") {
-        const { buffer } = await this.renderPdfViaPuppeteer(htmlContent);
-        return { buffer, fileSize: buffer.length };
-      }
-
       const htmlPath = path.join(tempDir, "input.html");
       await fs.writeFile(htmlPath, htmlContent);
       
       const pandocPath = await getPandocPath();
       
-      // Standard direct HTML to DOCX command using Pandoc standalone mode
-      const pandocCmd = `"${pandocPath}" "${htmlPath}" -f html -s -o "${outputPath}"`;
+      // For PDF, we might need to specify a pdf-engine. 
+      // We'll let Pandoc try its default first, but we can't use Puppeteer anymore.
+      const pandocCmd = options.format === "pdf" 
+        ? `"${pandocPath}" "${htmlPath}" -f html -s -o "${outputPath}"`
+        : `"${pandocPath}" "${htmlPath}" -f html -s -o "${outputPath}"`;
+      
+      logger.info(`[Pandoc] Running command: ${pandocCmd}`);
       
       await execAsync(pandocCmd);
       const buffer = await fs.readFile(outputPath);
       return { buffer, fileSize: buffer.length };
     } catch (error: any) {
       logger.error("Pandoc export failed", { error: error.message, stack: error.stack });
-      throw new Error(`Failed to export using Pandoc: ${error.message}`);
+      throw new Error(`Failed to export using Pandoc: ${error.message}. (Ensure a PDF engine like wkhtmltopdf or lualatex is installed for PDF export)`);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   }
 
   /**
-   * High-fidelity PDF rendering using Puppeteer
+   * High-fidelity PDF rendering using Puppeteer (Deprecated in favor of Pandoc)
+   * Keeping as private method for now in case of quick rollback needs
    */
   private static async renderPdfViaPuppeteer(htmlContent: string): Promise<{ buffer: Buffer }> {
     const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${htmlContent}</body></html>`;

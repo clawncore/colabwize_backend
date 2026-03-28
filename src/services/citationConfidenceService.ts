@@ -31,7 +31,7 @@ interface Citation {
   type: string;
   doi?: string;
   citationCount?: number;
-  is_reliable?: boolean;
+  vault_verified?: boolean;
 }
 
 export class CitationConfidenceService {
@@ -196,7 +196,7 @@ export class CitationConfidenceService {
     }
 
     // Check reliability
-    const unreliable = citations.filter((c) => c.is_reliable === false);
+    const unreliable = citations.filter((c) => c.vault_verified === false);
     if (unreliable.length > 0) {
       warnings.push(
         `Detected ${unreliable.length} citations that could not be verified in public databases.`
@@ -299,7 +299,7 @@ export class CitationConfidenceService {
           type: c.type,
           doi: c.doi || undefined,
           citationCount: 0, // Would need to fetch from CrossRef
-          is_reliable: c.is_reliable,
+          vault_verified: c.vault_verified,
         };
       });
 
@@ -417,13 +417,13 @@ export class CitationConfidenceService {
       }
 
       // Verify citation authenticity via CrossRef if DOI provided
-      let isReliable = true;
+      let vault_verified = true;
       if (citationData.doi) {
-        isReliable = await this.verifyCitationWithCrossRef(
+        vault_verified = await this.verifyCitationWithCrossRef(
           citationData.doi,
           citationData.title
         );
-        if (!isReliable) {
+        if (!vault_verified) {
           logger.warn("Citation verification failed", {
             doi: citationData.doi,
             title: citationData.title,
@@ -431,22 +431,22 @@ export class CitationConfidenceService {
         }
       } else if (citationData.source === "crossref") {
         // If from CrossRef without DOI, it's likely unreliable
-        isReliable = false;
+        vault_verified = false;
       } else if (citationData.source === "pubmed") {
         // Verify with PubMed
-        isReliable = await this.verifyCitationWithPubMed(citationData.title);
+        vault_verified = await this.verifyCitationWithPubMed(citationData.title);
       } else if (citationData.source === "arxiv") {
         // Verify with arXiv
-        isReliable = await this.verifyCitationWithArxiv(citationData.title);
+        vault_verified = await this.verifyCitationWithArxiv(citationData.title);
       } else {
         // Fallback: Try all if source is manual/unknown but looks academic
         // Check PubMed First (Medical) -> Then ArXiv (Tech) -> Then CrossRef (General - requires searching for DOI really, but we skip that complex flow for now)
         if (await this.verifyCitationWithPubMed(citationData.title)) {
           citationData.source = "pubmed";
-          isReliable = true;
+          vault_verified = true;
         } else if (await this.verifyCitationWithArxiv(citationData.title)) {
           citationData.source = "arxiv";
-          isReliable = true;
+          vault_verified = true;
         }
       }
 
@@ -478,7 +478,7 @@ export class CitationConfidenceService {
           source: citationData.source || "manual",
           abstract: citationData.abstract,
           formatted_citations: citationData.formatted_citations,
-          is_reliable: isReliable,
+          vault_verified,
         },
       });
 
@@ -789,30 +789,31 @@ export class CitationConfidenceService {
   static async verifySingleCitation(citation: {
     title: string;
     doi?: string;
-  }): Promise<{ isReliable: boolean; source: string | null }> {
+  }): Promise<{ vault_verified: boolean; source: string | null }> {
     // 1. Check CrossRef (Gold Standard for DOIs)
     if (citation.doi) {
       const crossRefValid = await this.verifyCitationWithCrossRef(citation.doi, citation.title);
-      if (crossRefValid) return { isReliable: true, source: 'crossref' };
+      if (crossRefValid) return { vault_verified: true, source: 'crossref' };
     }
 
     // 2. Check PubMed (Medical/Bio)
+    // 2. Check PubMed (Medical/Bio)
     if (await this.verifyCitationWithPubMed(citation.title)) {
-      return { isReliable: true, source: 'pubmed' };
+      return { vault_verified: true, source: 'pubmed' };
     }
 
     // 3. Check arXiv (Preprints/CS/Math)
     if (await this.verifyCitationWithArxiv(citation.title)) {
-      return { isReliable: true, source: 'arxiv' };
+      return { vault_verified: true, source: 'arxiv' };
     }
 
     // 4. Check OpenAlex (Broad Coverage)
     if (await this.verifyCitationWithOpenAlex(citation.title)) {
-      return { isReliable: true, source: 'openalex' };
+      return { vault_verified: true, source: 'openalex' };
     }
 
     // 5. Failed all checks
-    return { isReliable: false, source: null };
+    return { vault_verified: false, source: null };
   }
 
   /**

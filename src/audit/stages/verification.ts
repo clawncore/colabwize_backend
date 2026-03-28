@@ -46,7 +46,7 @@ export const VerificationStage: AuditPipelineStage = {
 
         // 3. Verify against external databases
         console.log(`[Stage] DB_VERIFICATION: Fetching DB verification for ${pairs.length} pairs...`);
-        const verificationResults = await ExternalVerificationService.verifyCitationPairs(pairs);
+        const verificationResults = await ExternalVerificationService.verifyCitationPairs(pairs, context.userId);
 
         // Map reference index back to verification results
         verificationResults.forEach((res, idx) => {
