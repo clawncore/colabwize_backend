@@ -14,6 +14,10 @@ router.get("/library", authenticateHybridRequest, async (req: Request, res: Resp
     try {
         const userId = (req as any).user.id;
         
+        // Force fresh response (disable Express ETag for this route)
+        res.set('ETag', 'false');
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+
         // Fetch Zotero credentials from DB
         const user = await prisma.user.findUnique({
             where: { id: userId },
@@ -21,9 +25,11 @@ router.get("/library", authenticateHybridRequest, async (req: Request, res: Resp
         });
 
         if (!user?.zotero_api_key || !user?.zotero_user_id) {
+            console.log("[Zotero Library] Missing credentials for user:", userId);
             return res.status(401).json({ error: "Zotero account not linked" });
         }
 
+        console.log("[Zotero Library] Fetching for user ID:", user.zotero_user_id);
         const { limit = 50, start = 0 } = req.query;
         const items = await ZoteroService.fetchLibrary(
             user.zotero_user_id, 
@@ -32,9 +38,44 @@ router.get("/library", authenticateHybridRequest, async (req: Request, res: Resp
             Number(start)
         );
 
+        console.log("[Zotero Library] Successfully fetched items count:", items.length);
         return res.status(200).json(items);
     } catch (error: any) {
-        console.error("Zotero Library Error:", error.message);
+        console.error("[Zotero Library Error]:", error.message);
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/zotero/debug
+ * Diagnostic endpoint for Zotero integration
+ */
+router.get("/debug", authenticateHybridRequest, async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.id;
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { 
+                id: true, 
+                zotero_user_id: true,
+                zotero_api_key: true 
+            }
+        });
+
+        return res.json({
+            status: "success",
+            diagnostics: {
+                hasZoteroUserId: !!user?.zotero_user_id,
+                hasZoteroApiKey: !!user?.zotero_api_key,
+                zoteroId: user?.zotero_user_id,
+                apiKeyPreview: user?.zotero_api_key ? user.zotero_api_key.substring(0, 4) + "..." : null,
+                nodeEnv: process.env.NODE_ENV,
+            },
+            userObject: {
+                id: user?.id,
+            }
+        });
+    } catch (error: any) {
         return res.status(500).json({ error: error.message });
     }
 });
