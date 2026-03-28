@@ -213,7 +213,11 @@ export async function GET(request: Request) {
         institution: true,
         location: true,
         two_factor_enabled: true,
+        zotero_user_id: true,
+        zotero_api_key: true,
         zotero_auto_sync: true,
+        mendeley_access_token: true,
+        mendeley_auto_sync: true,
         created_at: true,
         updated_at: true,
       },
@@ -235,18 +239,27 @@ export async function GET(request: Request) {
       },
     });
 
-    return new Response(
-      JSON.stringify({
-        user: {
-          ...prismaUser,
-          subscription: subscription || null,
-        },
-      }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    const responseData = {
+      success: true,
+      user: {
+        ...prismaUser,
+        subscription: subscription || null,
+        zotero_user_id: prismaUser.zotero_user_id || null,
+        mendeley_access_token: prismaUser.mendeley_access_token || null,
+      },
+    };
+
+    console.log("[DEBUG] /api/users response data:", {
+      userId: prismaUser.id,
+      hasZotero: !!prismaUser.zotero_user_id,
+      zoteroId: prismaUser.zotero_user_id,
+      hasMendeley: !!prismaUser.mendeley_access_token,
+    });
+
+    return new Response(JSON.stringify(responseData), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error) {
     console.error("Error getting user details:", error);
     return new Response(JSON.stringify({ error: "Internal server error" }), {
@@ -347,7 +360,11 @@ export async function PUT(request: Request) {
         institution: true,
         location: true,
         two_factor_enabled: true,
+        zotero_user_id: true,
+        zotero_api_key: true,
         zotero_auto_sync: true,
+        mendeley_access_token: true,
+        mendeley_auto_sync: true,
         created_at: true,
         updated_at: true,
       },
@@ -663,7 +680,11 @@ export async function updateProfileWithOTP(request: Request) {
         institution: true,
         location: true,
         two_factor_enabled: true,
+        zotero_user_id: true,
+        zotero_api_key: true,
         zotero_auto_sync: true,
+        mendeley_access_token: true,
+        mendeley_auto_sync: true,
         created_at: true,
         updated_at: true,
       },

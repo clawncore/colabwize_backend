@@ -5,8 +5,8 @@ import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware
 
 const router = express.Router();
 
-const MENDELEY_CLIENT_ID = process.env.MENDELEY_CLIENT_ID || "";
-const MENDELEY_CLIENT_SECRET = process.env.MENDELEY_CLIENT_SECRET || "";
+const MENDELEY_CLIENT_ID = (process.env.MENDELEY_CLIENT_ID || "").trim();
+const MENDELEY_CLIENT_SECRET = (process.env.MENDELEY_CLIENT_SECRET || "").trim();
 const CALLBACK_URL = "https://api.colabwize.com/api/auth/mendeley/callback";
 
 /**
@@ -27,8 +27,8 @@ router.get("/connect", authenticateHybridRequest, async (req, res) => {
         return res.redirect(authUrl.toString());
     } catch (error: any) {
         console.error("Mendeley Connect Error:", error.message);
-        const frontendUrl = process.env.FRONTEND_URL || "https://app.colabwize.com";
-        return res.redirect(`${frontendUrl}/dashboard/settings/profile?error=mendeley_connect_failed`);
+        console.error("Mendeley Connect Error:", error.message);
+        return res.redirect(`https://app.colabwize.com/dashboard/settings/profile?error=mendeley_connect_failed`);
     }
 });
 
@@ -52,6 +52,11 @@ router.get("/callback", async (req, res) => {
         // state contains the user ID
         const userId = state as string;
 
+        // In case env variables are missing
+        if (!MENDELEY_CLIENT_ID || !MENDELEY_CLIENT_SECRET) {
+            console.error("MENDELEY_CLIENT_ID or MENDELEY_CLIENT_SECRET is missing!");
+        }
+
         const tokenData = new URLSearchParams({
             grant_type: "authorization_code",
             code: code as string,
@@ -59,9 +64,10 @@ router.get("/callback", async (req, res) => {
         });
 
         // Mendeley requires Basic Auth for token exchange
-        const authHeader = `Basic ${Buffer.from(`${MENDELEY_CLIENT_ID}:${MENDELEY_CLIENT_SECRET}`).toString("base64")}`;
+        const credentialsBase64 = Buffer.from(`${MENDELEY_CLIENT_ID}:${MENDELEY_CLIENT_SECRET}`).toString("base64");
+        const authHeader = `Basic ${credentialsBase64}`;
 
-        const response = await axios.post("https://api.mendeley.com/oauth/token", tokenData, {
+        const response = await axios.post("https://api.mendeley.com/oauth/token", tokenData.toString(), {
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Authorization": authHeader,
