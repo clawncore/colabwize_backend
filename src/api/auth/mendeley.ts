@@ -27,7 +27,8 @@ router.get("/connect", authenticateHybridRequest, async (req, res) => {
         return res.redirect(authUrl.toString());
     } catch (error: any) {
         console.error("Mendeley Connect Error:", error.message);
-        return res.status(500).json({ error: "Failed to connect to Mendeley" });
+        const frontendUrl = process.env.FRONTEND_URL || "https://app.colabwize.com";
+        return res.redirect(`${frontendUrl}/dashboard/settings/profile?error=mendeley_connect_failed`);
     }
 });
 
