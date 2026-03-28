@@ -7,28 +7,53 @@ const router = express.Router();
 
 const MENDELEY_CLIENT_ID = (process.env.MENDELEY_CLIENT_ID || "").trim();
 const MENDELEY_CLIENT_SECRET = (process.env.MENDELEY_CLIENT_SECRET || "").trim();
+// Modern Elsevier Unified IDP Endpoints
+const AUTHORIZE_URL = "https://api.elsevier.com/authenticate";
+const TOKEN_URL = "https://api.elsevier.com/token";
+
+// Redirect URI for production (Vercel/API domain)
 const CALLBACK_URL = "https://api.colabwize.com/api/auth/mendeley/callback";
 
 /**
  * GET /api/auth/mendeley/connect
- * Start OAuth 2.0 flow
+ * Initiate Elsevier/Mendeley OAuth flow
  */
 router.get("/connect", authenticateHybridRequest, async (req, res) => {
     try {
         const userId = (req as any).user.id;
+        console.log("[Mendeley Connect] Redirecting to Elsevier IDP for user:", userId);
 
-        const authUrl = new URL("https://api.mendeley.com/oauth/authorize");
+        const authUrl = new URL(AUTHORIZE_URL);
+        authUrl.searchParams.append("response_type", "code");
         authUrl.searchParams.append("client_id", MENDELEY_CLIENT_ID);
         authUrl.searchParams.append("redirect_uri", CALLBACK_URL);
-        authUrl.searchParams.append("response_type", "code");
-        authUrl.searchParams.append("scope", "all");
-        authUrl.searchParams.append("state", userId); // Use user ID as state to identify them on callback
+        authUrl.searchParams.append("scope", "all"); 
+        authUrl.searchParams.append("state", userId);
 
         return res.redirect(authUrl.toString());
+    } catch (error) {
+        console.error("[Mendeley Connect] Error:", error);
+        return res.redirect(`https://app.colabwize.com/dashboard/settings/account?mendeley_error=initiation_failed`);
+    }
+});
+
+/**
+ * POST /api/auth/mendeley/link
+ * Link a project to use Mendeley library
+ */
+router.post("/link", authenticateHybridRequest, async (req, res) => {
+    try {
+        const { projectId } = req.body;
+        if (!projectId) return res.status(400).json({ error: "projectId is required" });
+
+        await prisma.project.update({
+            where: { id: projectId },
+            data: { linked_library: "mendeley" }
+        });
+
+        return res.json({ success: true, message: "Project linked to Mendeley" });
     } catch (error: any) {
-        console.error("Mendeley Connect Error:", error.message);
-        console.error("Mendeley Connect Error:", error.message);
-        return res.redirect(`https://app.colabwize.com/dashboard/settings/profile?error=mendeley_connect_failed`);
+        return res.status(500).json({ error: error.message });
     }
 });
 
@@ -51,11 +76,14 @@ router.get("/debug", authenticateHybridRequest, async (req, res) => {
         return res.json({
             status: "success",
             diagnostics: {
+                flowType: "Elsevier Unified IDP",
                 hasClientId: !!MENDELEY_CLIENT_ID,
                 hasClientSecret: !!MENDELEY_CLIENT_SECRET,
                 clientIdPrefix: MENDELEY_CLIENT_ID.substring(0, 4),
                 callbackUrl: CALLBACK_URL,
                 nodeEnv: process.env.NODE_ENV,
+                authUrl: AUTHORIZE_URL,
+                tokenUrl: TOKEN_URL
             },
             userStatus: {
                 userId: user?.id,
@@ -70,16 +98,16 @@ router.get("/debug", authenticateHybridRequest, async (req, res) => {
 
 /**
  * GET /api/auth/mendeley/callback
- * Handle Mendeley redirect
+ * Handle Elsevier IDP redirect
  */
 router.get("/callback", async (req, res) => {
-    console.log("[Mendeley Callback] Handling callback...", { query: req.query });
+    console.log("[Mendeley Callback] Handling Elsevier IDP callback...", { query: req.query });
     try {
         const { code, state, error } = req.query;
 
         if (error) {
-            console.error("[Mendeley Callback] OAuth Error from Mendeley:", error);
-            return res.status(400).send(`Mendeley authentication error: ${error}`);
+            console.error("[Mendeley Callback] Elsevier Error:", error);
+            return res.status(400).send(`Elsevier authentication error: ${error}`);
         }
 
         if (!code || !state) {
@@ -87,18 +115,14 @@ router.get("/callback", async (req, res) => {
             return res.status(400).send("Invalid callback parameters");
         }
 
-        // state contains the user ID
         const userId = state as string;
         
-        // Verify user exists in Prisma before proceeding
+        // Verify user exists
         const userExists = await prisma.user.findUnique({ where: { id: userId } });
         if (!userExists) {
-            console.error("[Mendeley Callback] User not found in database for ID:", userId);
-            return res.status(404).send("User not found during authentication sync");
+            console.error("[Mendeley Callback] User not found:", userId);
+            return res.status(404).send("User not found during sync");
         }
-
-        const credentialsBase64 = Buffer.from(`${MENDELEY_CLIENT_ID}:${MENDELEY_CLIENT_SECRET}`).toString("base64");
-        const authHeader = `Basic ${credentialsBase64}`;
 
         const tokenParams = new URLSearchParams();
         tokenParams.append("grant_type", "authorization_code");
@@ -107,16 +131,15 @@ router.get("/callback", async (req, res) => {
         tokenParams.append("client_id", MENDELEY_CLIENT_ID);
         tokenParams.append("client_secret", MENDELEY_CLIENT_SECRET);
 
-        console.log("[Mendeley Callback] Exchanging code for token...", { 
-            redirect_uri: CALLBACK_URL,
-            userId,
-            code: (code as string).substring(0, 5) + "..."
+        console.log("[Mendeley Callback] Exchanging code via Elsevier Token Endpoint...", { 
+            url: TOKEN_URL,
+            clientId: MENDELEY_CLIENT_ID 
         });
 
-        const response = await axios.post("https://api.mendeley.com/oauth/token", tokenParams.toString(), {
+        const response = await axios.post(TOKEN_URL, tokenParams.toString(), {
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
-                "Authorization": authHeader,
+                "Accept": "application/json",
             },
         });
 
