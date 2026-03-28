@@ -33,41 +33,87 @@ router.get("/connect", authenticateHybridRequest, async (req, res) => {
 });
 
 /**
+ * GET /api/auth/mendeley/debug
+ * Diagnostic endpoint for Mendeley integration
+ */
+router.get("/debug", authenticateHybridRequest, async (req, res) => {
+    try {
+        const userId = (req as any).user.id;
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { 
+                id: true, 
+                mendeley_access_token: true,
+                mendeley_token_expires_at: true 
+            }
+        });
+
+        return res.json({
+            status: "success",
+            diagnostics: {
+                hasClientId: !!MENDELEY_CLIENT_ID,
+                hasClientSecret: !!MENDELEY_CLIENT_SECRET,
+                clientIdPrefix: MENDELEY_CLIENT_ID.substring(0, 4),
+                callbackUrl: CALLBACK_URL,
+                nodeEnv: process.env.NODE_ENV,
+            },
+            userStatus: {
+                userId: user?.id,
+                hasToken: !!user?.mendeley_access_token,
+                tokenExpiresAt: user?.mendeley_token_expires_at,
+            }
+        });
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/auth/mendeley/callback
  * Handle Mendeley redirect
  */
 router.get("/callback", async (req, res) => {
+    console.log("[Mendeley Callback] Handling callback...", { query: req.query });
     try {
         const { code, state, error } = req.query;
 
         if (error) {
-            console.error("Mendeley OAuth Error:", error);
+            console.error("[Mendeley Callback] OAuth Error from Mendeley:", error);
             return res.status(400).send(`Mendeley authentication error: ${error}`);
         }
 
         if (!code || !state) {
+            console.error("[Mendeley Callback] Invalid parameters:", { code: !!code, state: !!state });
             return res.status(400).send("Invalid callback parameters");
         }
 
         // state contains the user ID
         const userId = state as string;
-
-        // In case env variables are missing
-        if (!MENDELEY_CLIENT_ID || !MENDELEY_CLIENT_SECRET) {
-            console.error("MENDELEY_CLIENT_ID or MENDELEY_CLIENT_SECRET is missing!");
+        
+        // Verify user exists in Prisma before proceeding
+        const userExists = await prisma.user.findUnique({ where: { id: userId } });
+        if (!userExists) {
+            console.error("[Mendeley Callback] User not found in database for ID:", userId);
+            return res.status(404).send("User not found during authentication sync");
         }
 
-        const tokenData = new URLSearchParams({
-            grant_type: "authorization_code",
-            code: code as string,
-            redirect_uri: CALLBACK_URL,
-        });
-
-        // Mendeley requires Basic Auth for token exchange
         const credentialsBase64 = Buffer.from(`${MENDELEY_CLIENT_ID}:${MENDELEY_CLIENT_SECRET}`).toString("base64");
         const authHeader = `Basic ${credentialsBase64}`;
 
-        const response = await axios.post("https://api.mendeley.com/oauth/token", tokenData.toString(), {
+        const tokenParams = new URLSearchParams();
+        tokenParams.append("grant_type", "authorization_code");
+        tokenParams.append("code", code as string);
+        tokenParams.append("redirect_uri", CALLBACK_URL);
+        tokenParams.append("client_id", MENDELEY_CLIENT_ID);
+        tokenParams.append("client_secret", MENDELEY_CLIENT_SECRET);
+
+        console.log("[Mendeley Callback] Exchanging code for token...", { 
+            redirect_uri: CALLBACK_URL,
+            userId,
+            code: (code as string).substring(0, 5) + "..."
+        });
+
+        const response = await axios.post("https://api.mendeley.com/oauth/token", tokenParams.toString(), {
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Authorization": authHeader,
@@ -76,7 +122,10 @@ router.get("/callback", async (req, res) => {
 
         const { access_token, refresh_token, expires_in } = response.data;
 
-        if (!access_token) throw new Error("Failed to exchange authorization code for access token");
+        if (!access_token) {
+            console.error("[Mendeley Callback] No access_token in Mendeley response:", response.data);
+            throw new Error("Mendeley returned successful status but no access_token");
+        }
 
         const expiresAt = new Date(Date.now() + expires_in * 1000);
 
@@ -90,11 +139,19 @@ router.get("/callback", async (req, res) => {
             }
         });
         
+        console.log("[Mendeley Callback] Token saved successfully for user:", userId);
         return res.redirect(`https://app.colabwize.com/dashboard/settings/account?mendeley_success=true`);
 
     } catch (error: any) {
-        console.error("Mendeley Callback Error:", error.response?.data || error.message);
-        return res.status(500).send("Mendeley authentication failed");
+        const errorData = error.response?.data;
+        console.error("[Mendeley Callback] Token Exchange Failed:", {
+            message: error.message,
+            response: errorData,
+            status: error.response?.status
+        });
+        
+        const detailedError = errorData?.error || errorData?.message || error.message;
+        return res.status(500).send(`Mendeley authentication failed: ${detailedError}`);
     }
 });
 
