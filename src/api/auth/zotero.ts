@@ -63,7 +63,8 @@ router.get("/connect", authenticateHybridRequest, async (req, res) => {
         return res.redirect(`https://www.zotero.org/oauth/authorize?oauth_token=${oauthToken}`);
     } catch (error: any) {
         console.error("Zotero Connect Error:", error.response?.data || error.message);
-        return res.status(500).json({ error: "Failed to connect to Zotero" });
+        const frontendUrl = process.env.FRONTEND_URL || "https://app.colabwize.com";
+        return res.redirect(`${frontendUrl}/dashboard/settings/profile?error=zotero_connect_failed`);
     }
 });
 
