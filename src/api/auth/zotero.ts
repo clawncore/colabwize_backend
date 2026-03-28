@@ -10,6 +10,9 @@ const ZOTERO_CLIENT_KEY = process.env.ZOTERO_CLIENT_KEY || "";
 const ZOTERO_CLIENT_SECRET = process.env.ZOTERO_CLIENT_SECRET || "";
 const CALLBACK_URL = "https://api.colabwize.com/api/auth/zotero/callback";
 
+// In-memory store for oauth_token_secret, mapping user ID to secret
+const requestTokenSecrets = new Map<string, string>();
+
 // Helper to generate OAuth 1.0a signature
 function generateOAuthSignature(method: string, url: string, params: Record<string, string>, clientSecret: string, tokenSecret: string = "") {
     const sortedKeys = Object.keys(params).sort();
@@ -31,8 +34,11 @@ router.get("/connect", authenticateHybridRequest, async (req, res) => {
         const nonce = crypto.randomBytes(16).toString("hex");
         const timestamp = Math.floor(Date.now() / 1000).toString();
 
+        // Append CW User ID to callback to identify user on return
+        const callbackWithUid = `${CALLBACK_URL}?cw_uid=${userId}`;
+
         const params: Record<string, string> = {
-            oauth_callback: CALLBACK_URL,
+            oauth_callback: callbackWithUid,
             oauth_consumer_key: ZOTERO_CLIENT_KEY,
             oauth_nonce: nonce,
             oauth_signature_method: "HMAC-SHA1",
@@ -43,10 +49,6 @@ router.get("/connect", authenticateHybridRequest, async (req, res) => {
         const signature = generateOAuthSignature("GET", "https://www.zotero.org/oauth/request", params, ZOTERO_CLIENT_SECRET);
         params.oauth_signature = signature;
 
-        // Append CW User ID to callback to identify user on return
-        const callbackWithUid = `${CALLBACK_URL}?cw_uid=${userId}`;
-        params.oauth_callback = callbackWithUid;
-
         const authHeader = "OAuth " + Object.keys(params).map(key => `${encodeURIComponent(key)}="${encodeURIComponent(params[key])}"`).join(", ");
 
         const response = await axios.get("https://www.zotero.org/oauth/request", {
@@ -56,8 +58,11 @@ router.get("/connect", authenticateHybridRequest, async (req, res) => {
         // Response is form-encoded: oauth_token=...&oauth_token_secret=...&oauth_callback_confirmed=true
         const data = new URLSearchParams(response.data);
         const oauthToken = data.get("oauth_token");
+        const oauthTokenSecret = data.get("oauth_token_secret");
         
-        if (!oauthToken) throw new Error("Failed to get request token from Zotero");
+        if (!oauthToken || !oauthTokenSecret) throw new Error("Failed to get request token from Zotero");
+
+        requestTokenSecrets.set(userId, oauthTokenSecret);
 
         // Redirect user to Zotero for authorization
         return res.redirect(`https://www.zotero.org/oauth/authorize?oauth_token=${oauthToken}`);
@@ -93,7 +98,10 @@ router.get("/callback", async (req, res) => {
             oauth_version: "1.0"
         };
 
-        const signature = generateOAuthSignature("GET", "https://www.zotero.org/oauth/access", params, ZOTERO_CLIENT_SECRET);
+        const oauthTokenSecret = requestTokenSecrets.get(cw_uid as string) || "";
+        requestTokenSecrets.delete(cw_uid as string);
+
+        const signature = generateOAuthSignature("GET", "https://www.zotero.org/oauth/access", params, ZOTERO_CLIENT_SECRET, oauthTokenSecret);
         params.oauth_signature = signature;
 
         const authHeader = "OAuth " + Object.keys(params).map(key => `${encodeURIComponent(key)}="${encodeURIComponent(params[key])}"`).join(", ");

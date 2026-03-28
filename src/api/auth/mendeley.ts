@@ -56,13 +56,15 @@ router.get("/callback", async (req, res) => {
             grant_type: "authorization_code",
             code: code as string,
             redirect_uri: CALLBACK_URL,
-            client_id: MENDELEY_CLIENT_ID,
-            client_secret: MENDELEY_CLIENT_SECRET,
         });
+
+        // Mendeley requires Basic Auth for token exchange
+        const authHeader = `Basic ${Buffer.from(`${MENDELEY_CLIENT_ID}:${MENDELEY_CLIENT_SECRET}`).toString("base64")}`;
 
         const response = await axios.post("https://api.mendeley.com/oauth/token", tokenData, {
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
+                "Authorization": authHeader,
             },
         });
 
