@@ -30,13 +30,14 @@ const SCOPES = [
 
 /**
  * GET /api/auth/google
+ * GET /api/auth/google/connect  <-- Added back for backward compatibility with older frontends
  * Redirect to Google OAuth (Raw Implementation)
  */
-router.get("/", authenticateHybridRequest, (req, res) => {
+const initiateOAuthFlow = (req: any, res: any) => {
   const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
   const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
   const REDIRECT_URI = `${BACKEND_URL}/api/auth/google/callback`;
-  const userId = (req as any).user.id;
+  const userId = req.user.id;
 
   if (!CLIENT_ID) {
     console.error("❌ GOOGLE_CLIENT_ID missing");
@@ -48,7 +49,10 @@ router.get("/", authenticateHybridRequest, (req, res) => {
 
   console.log(`[Google Auth] Initiating raw connection. Redirect URI: ${REDIRECT_URI}`);
   res.redirect(url);
-});
+};
+
+router.get("/", authenticateHybridRequest, initiateOAuthFlow);
+router.get("/connect", authenticateHybridRequest, initiateOAuthFlow);
 
 /**
  * GET /api/auth/google/callback
