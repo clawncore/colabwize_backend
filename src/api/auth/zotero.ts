@@ -129,7 +129,10 @@ router.get("/callback", async (req, res) => {
             }
         });
         
-        return res.redirect(`https://app.colabwize.com/dashboard/settings/account?zotero_success=true`);
+        // Determine redirect target (default to production app if not inferred)
+        const frontendUrl = (req.headers.referer || "https://app.colabwize.com").split("/dashboard")[0];
+        
+        return res.redirect(`${frontendUrl}/dashboard/settings/account?zotero_success=true`);
 
     } catch (error: any) {
         console.error("Zotero Callback Error:", error.response?.data || error.message);

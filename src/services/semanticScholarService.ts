@@ -27,6 +27,28 @@ export interface AcademicPaper {
 export class SemanticScholarService {
   private static readonly API_URL = "https://api.semanticscholar.org/graph/v1";
 
+  // Rate Limiting: 1 request per second
+  private static lastRequestTime = 0;
+  private static readonly RATE_LIMIT_MS = 1000;
+  private static requestQueue: Promise<void> = Promise.resolve();
+
+  /**
+   * Enforce rate limit sequentially using a promise queue.
+   */
+  private static async waitForRateLimit(): Promise<void> {
+    this.requestQueue = this.requestQueue.then(async () => {
+      const now = Date.now();
+      const timeSinceLast = now - this.lastRequestTime;
+      if (timeSinceLast < this.RATE_LIMIT_MS) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.RATE_LIMIT_MS - timeSinceLast)
+        );
+      }
+      this.lastRequestTime = Date.now();
+    });
+    return this.requestQueue;
+  }
+
   /**
    * Search for papers by query (e.g., specific claim or topic)
    */
@@ -44,6 +66,8 @@ export class SemanticScholarService {
       // Fields to retrieve
       const fields =
         "paperId,title,authors,year,abstract,url,citationCount,isOpenAccess,openAccessPdf,venue";
+
+      await this.waitForRateLimit();
 
       const response = await axios.get(`${this.API_URL}/paper/search`, {
         params: {
@@ -83,6 +107,8 @@ export class SemanticScholarService {
 
       const fields =
         "paperId,title,authors,year,abstract,url,citationCount,isOpenAccess,openAccessPdf,venue";
+
+      await this.waitForRateLimit();
 
       const response = await axios.get(`${this.API_URL}/paper/DOI:${doi}`, {
         params: { fields },
