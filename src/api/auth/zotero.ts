@@ -3,12 +3,16 @@ import crypto from "crypto";
 import axios from "axios";
 import { prisma } from "../../lib/prisma.js";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware.js";
+import logger from "../../monitoring/logger";
 
 const router = express.Router();
 
 const ZOTERO_CLIENT_KEY = process.env.ZOTERO_CLIENT_KEY || "";
 const ZOTERO_CLIENT_SECRET = process.env.ZOTERO_CLIENT_SECRET || "";
-const CALLBACK_URL = "https://api.colabwize.com/api/auth/zotero/callback";
+
+// Dynamic Redirect URI based on environment
+const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:3001").replace(/\/$/, "");
+const CALLBACK_URL = `${BACKEND_URL}/api/auth/zotero/callback`;
 
 // In-memory store for oauth_token_secret, mapping user ID to secret
 const requestTokenSecrets = new Map<string, string>();
