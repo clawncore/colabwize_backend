@@ -1,13 +1,110 @@
 import axios from "axios";
 import { prisma } from "../lib/prisma.js";
 
+const MENDELEY_CLIENT_ID = (process.env.MENDELEY_CLIENT_ID || "").trim();
+const MENDELEY_CLIENT_SECRET = (process.env.MENDELEY_CLIENT_SECRET || "").trim();
+const MENDELEY_API_KEY = (process.env.MENDELEY_API_KEY || MENDELEY_CLIENT_SECRET).trim();
+const TOKEN_URL = "https://api.elsevier.com/token";
+
 export class MendeleyService {
-    static async fetchLibrary(accessToken: string, limit: number = 50, start: number = 0) {
+    /**
+     * Get a valid access token for the user. 
+     * If the current token is expired, it attempts to refresh it.
+     */
+    static async getValidToken(userId: string): Promise<string> {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                mendeley_access_token: true,
+                mendeley_refresh_token: true,
+                mendeley_token_expires_at: true,
+            }
+        });
+
+        if (!user || !user.mendeley_access_token) {
+            throw new Error("Mendeley account not linked");
+        }
+
+        const now = new Date();
+        const expiresAt = user.mendeley_token_expires_at ? new Date(user.mendeley_token_expires_at) : null;
+
+        // If token is expired (or expires in less than 30 seconds), refresh it
+        if (user.mendeley_refresh_token && expiresAt && now.getTime() > (expiresAt.getTime() - 30000)) {
+            console.log(`[Mendeley Service] Token expired for user ${userId}, refreshing...`);
+            return await this.refreshToken(userId, user.mendeley_refresh_token);
+        }
+
+        return user.mendeley_access_token;
+    }
+
+    /**
+     * Refresh the Mendeley access token using the refresh token
+     */
+    static async refreshToken(userId: string, refreshToken: string): Promise<string> {
         try {
+            console.log(`[Mendeley Service] Requesting new token from Elsevier for user: ${userId}`);
+            
+            const params = new URLSearchParams();
+            params.append("grant_type", "refresh_token");
+            params.append("refresh_token", refreshToken);
+            params.append("client_id", MENDELEY_CLIENT_ID);
+            params.append("client_secret", MENDELEY_CLIENT_SECRET);
+
+            const response = await axios.post(TOKEN_URL, params.toString(), {
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                    "X-ELS-APIKey": MENDELEY_API_KEY
+                }
+            });
+
+            const { access_token, refresh_token, expires_in } = response.data;
+
+            if (!access_token) {
+                throw new Error("Elsevier refresh call returned no access_token");
+            }
+
+            const expiresAt = new Date(Date.now() + (expires_in || 3600) * 1000);
+
+            await prisma.user.update({
+                where: { id: userId },
+                data: {
+                    mendeley_access_token: access_token,
+                    mendeley_refresh_token: refresh_token || refreshToken, // reuse if not rotated
+                    mendeley_token_expires_at: expiresAt,
+                }
+            });
+
+            console.log(`[Mendeley Service] Token successfully refreshed for user: ${userId}`);
+            return access_token;
+        } catch (error: any) {
+            console.error("[Mendeley Service] Refresh failed:", error.response?.data || error.message);
+            // If refresh fails, we might need to clear the tokens so the user re-authenticates
+            if (error.response?.status === 400 || error.response?.status === 401) {
+                console.warn(`[Mendeley Service] Refresh token invalid for user ${userId}. Clearing tokens.`);
+                await prisma.user.update({
+                    where: { id: userId },
+                    data: {
+                        mendeley_access_token: null,
+                        mendeley_refresh_token: null,
+                        mendeley_token_expires_at: null,
+                    }
+                });
+            }
+            throw new Error(`Mendeley session expired. Please reconnect your account. (${error.message})`);
+        }
+    }
+
+    static async fetchLibrary(userId: string, limit: number = 50, start: number = 0) {
+        try {
+            const accessToken = await this.getValidToken(userId);
+            
             const response = await axios.get("https://api.mendeley.com/documents", {
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
-                    Accept: "application/vnd.mendeley-document.1+json"
+                    Accept: "application/vnd.mendeley-document.1+json",
+                    "X-ELS-APIKey": MENDELEY_API_KEY
                 },
                 params: {
                     limit,
@@ -16,17 +113,20 @@ export class MendeleyService {
             });
             return response.data;
         } catch (error: any) {
-            console.error("Mendeley fetchLibrary config error:", error.response?.data || error.message);
+            console.error("[Mendeley Service] fetchLibrary Error:", error.response?.data || error.message);
             throw error;
         }
     }
 
-    static async queryItems(accessToken: string, query: string) {
+    static async queryItems(userId: string, query: string) {
         try {
+            const accessToken = await this.getValidToken(userId);
+
             const response = await axios.get("https://api.mendeley.com/search/catalog", {
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
-                    Accept: "application/vnd.mendeley-document.1+json"
+                    Accept: "application/vnd.mendeley-document.1+json",
+                    "X-ELS-APIKey": MENDELEY_API_KEY
                 },
                 params: {
                     title: query,
@@ -36,7 +136,7 @@ export class MendeleyService {
             });
             return response.data;
         } catch (error: any) {
-            console.error("Mendeley queryItems Error:", error.response?.data || error.message);
+            console.error("[Mendeley Service] queryItems Error:", error.response?.data || error.message);
             throw error;
         }
     }
@@ -70,8 +170,47 @@ export class MendeleyService {
 
             return citation;
         } catch (error: any) {
-            console.error("Mendeley Import Error:", error.message);
+            console.error("[Mendeley Service] Import Error:", error.message);
             throw new Error(`Failed to import Mendeley item: ${error.message}`);
+        }
+    }
+
+    /**
+     * Fetch user's Mendeley folders
+     */
+    static async fetchFolders(userId: string) {
+        try {
+            const accessToken = await this.getValidToken(userId);
+            const response = await axios.get("https://api.mendeley.com/folders", {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "X-ELS-APIKey": MENDELEY_API_KEY
+                }
+            });
+            return response.data;
+        } catch (error: any) {
+            console.error("[Mendeley Service] fetchFolders Error:", error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Fetch items from a specific Mendeley folder
+     */
+    static async fetchFolderItems(userId: string, folderId: string) {
+        try {
+            const accessToken = await this.getValidToken(userId);
+            const response = await axios.get(`https://api.mendeley.com/folders/${folderId}/documents`, {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    Accept: "application/vnd.mendeley-document.1+json",
+                    "X-ELS-APIKey": MENDELEY_API_KEY
+                }
+            });
+            return response.data;
+        } catch (error: any) {
+            console.error("[Mendeley Service] fetchFolderItems Error:", error.response?.data || error.message);
+            throw error;
         }
     }
 }
