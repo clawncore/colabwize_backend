@@ -92,7 +92,9 @@ export class ZoteroService {
             const currentResponse = await axios.get(url, {
                 headers: { 'Zotero-API-Key': zoteroApiKey }
             });
-            const currentVersion = currentResponse.headers['last-modified-version'];
+            const currentVersion = currentResponse.headers['last-modified-version'] || 
+                                   currentResponse.headers['Last-Modified-Version'] || 
+                                   currentResponse.data.version;
 
             const response = await axios.patch(url, updateData, {
                 headers: { 

@@ -2,12 +2,14 @@ import express, { Request, Response } from "express";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { GoogleDriveService } from "../../services/googleDriveService";
 import { DocumentUploadService } from "../../services/documentUploadService";
+import { SupabaseStorageService } from "../../services/supabaseStorageService";
+import { StorageService } from "../../services/storageService";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import path from "path";
 import fs from "fs";
 import { promisify } from "util";
-import { pipeline } from "stream";
+import { pipeline, Writable } from "stream";
 
 const streamPipeline = promisify(pipeline);
 
@@ -120,15 +122,91 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
     // 1. Get file content/stream
     const { stream, fileName, mimeType } = await GoogleDriveService.getFileContent(userId, fileId);
 
-    // 2. Here we would typically upload it to our storage (Supabase/S3)
-    // and create a record in the 'files' table for the project.
-    // For now, we'll implement a simplified version that just downloads it to the user.
-    // In a real scenario, this would be integrated with the document service.
-    
-    // Placeholder for actual import logic:
-    // const uploadedFile = await DocumentService.uploadFromStream(userId, projectId, stream, fileName, mimeType);
+    if (!fileName) {
+      return res.status(400).json({ error: "Could not determine file name from Google Drive" });
+    }
 
-    return res.status(200).json({ success: true, message: "File import initiated", fileName });
+    const safeMimeType = mimeType || 'application/octet-stream';
+
+    // 2. Buffer the stream
+    const chunks: Buffer[] = [];
+    const buffer = await new Promise<Buffer>((resolve, reject) => {
+      stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      stream.on('error', (err) => reject(err));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+
+    const fileSize = buffer.length;
+
+    // 3. Check storage limit
+    const storageInfo = await StorageService.getUserStorageInfo(userId);
+    const fileSizeInMB = fileSize / (1024 * 1024);
+    const newStorageUsed = storageInfo.used + fileSizeInMB;
+
+    if (newStorageUsed > storageInfo.limit) {
+      return res.status(400).json({
+        error: "Storage limit exceeded. Please upgrade your plan for more space."
+      });
+    }
+
+    // 4. Upload to Supabase Storage
+    const uploadResult = await SupabaseStorageService.uploadFile(
+      buffer,
+      fileName,
+      safeMimeType,
+      userId,
+      {
+        userId,
+        fileName,
+        fileType: safeMimeType,
+        fileSize,
+        projectId: projectId as string,
+        createdAt: new Date(),
+      }
+    );
+
+    // 5. Create file record in database
+    const fileRecord = await prisma.file.create({
+      data: {
+        user_id: userId,
+        project_id: projectId as string,
+        file_name: fileName,
+        file_path: uploadResult.path,
+        file_type: safeMimeType,
+        file_size: fileSize,
+        metadata: {
+          source: 'google-drive',
+          originalFileId: fileId,
+          publicUrl: uploadResult.publicUrl,
+        },
+      },
+    });
+
+    // 6. Update user's storage usage
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        storage_used: newStorageUsed,
+      },
+    });
+
+    logger.info("Google Drive file imported successfully", {
+      userId,
+      projectId,
+      fileId: fileRecord.id,
+      fileName
+    });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: "File imported successfully", 
+      data: {
+        id: fileRecord.id,
+        fileName: fileRecord.file_name,
+        fileType: fileRecord.file_type,
+        fileSize: fileRecord.file_size
+      }
+    });
   } catch (error: any) {
     logger.error("[Google Drive Import Error]:", error.message);
     return res.status(500).json({ error: error.message });

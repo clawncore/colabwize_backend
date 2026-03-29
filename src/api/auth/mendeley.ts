@@ -211,7 +211,10 @@ router.get("/callback", async (req, res) => {
         console.log(`[Mendeley Callback] Connection successful. Linked Mendeley account to user ${userId}`);
         
         // Return to dashboard with success status
-        return res.redirect(`https://app.colabwize.com/dashboard/settings/account?mendeley_success=true`);
+        // Determine redirect target (default to production app if not inferred)
+        const frontendUrl = (req.headers.referer || "https://app.colabwize.com").split("/dashboard")[0];
+        
+        return res.redirect(`${frontendUrl}/dashboard/settings/account?mendeley_success=true`);
 
     } catch (error: any) {
         const errorData = error.response?.data;

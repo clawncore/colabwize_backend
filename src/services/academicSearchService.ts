@@ -47,8 +47,12 @@ export class AcademicSearchService {
         const uniquePapers: AcademicPaper[] = [];
         const seenTitles = new Set<string>();
 
-        // Sort by quality/citation count where available
-        const sorted = [...papers].sort((a, b) => (b.citationCount || 0) - (a.citationCount || 0));
+        // Sort by Semantic Scholar prioritization, then by quality/citation count where available
+        const sorted = [...papers].sort((a, b) => {
+            if (a.source === "semantic_scholar" && b.source !== "semantic_scholar") return -1;
+            if (b.source === "semantic_scholar" && a.source !== "semantic_scholar") return 1;
+            return (b.citationCount || 0) - (a.citationCount || 0);
+        });
 
         for (const paper of sorted) {
             const normalizedTitle = paper.title.toLowerCase().trim().replace(/[^\w\s]/g, "");

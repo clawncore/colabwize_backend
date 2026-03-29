@@ -6,23 +6,36 @@ import { initializePrisma } from "../lib/prisma-async";
 
 export type Stance = "supporting" | "opposing" | "neutral";
 export type ConsensusLevel = "strong" | "emerging" | "divided" | "controversial";
+export type ReplicationStatus = "replicated" | "failed_to_replicate" | "unverified";
 
 export interface StanceResult {
     stance: Stance;
     confidence: number;
     reasoning: string;
     keyEvidence?: string;
+    methodologyQuality: "high" | "medium" | "low";
+    dissentContext?: string;
+    biasRisk: "low" | "medium" | "high";
+    replicationStatus: ReplicationStatus;
+    independentVerification: boolean;
+    biasTypes: string[];
+    journalReputation?: "high" | "standard" | "low";
 }
 
 export interface ConsensusSummary {
     claim: string;
     consensusLevel: ConsensusLevel;
     agreementPercentage: number;
-    supporting: Array<{ id: string; title: string; confidence: number }>;
-    opposing: Array<{ id: string; title: string; confidence: number }>;
-    neutral: Array<{ id: string; title: string; confidence: number }>;
+    supporting: Array<{ id: string; title: string; confidence: number; quality: string; replication: ReplicationStatus }>;
+    opposing: Array<{ id: string; title: string; confidence: number; quality: string }>;
+    neutral: Array<{ id: string; title: string; confidence: number; quality: string }>;
     summary: string;
     keyFindings: string[];
+    evidenceConvergent: boolean;
+    dissentAcknowledged: boolean;
+    biasCheckStatus: "pass" | "warning" | "failed";
+    extraordinaryEvidenceRequired: boolean;
+    methodologyScore: number;
 }
 
 export interface ConsensusTopic {
@@ -52,19 +65,33 @@ export class ConsensusAnalysisService {
 
 Claim: "${claim}"
 
-Abstract: "${abstract.slice(0, 1000)}"
+Abstract: "${abstract.slice(0, 1500)}"
 
 Determine if this paper:
-- SUPPORTS the claim (provides evidence in favor)
-- OPPOSES the claim (contradicts or refutes it)
-- Is NEUTRAL (discusses but doesn't take a clear stance)
+- SUPPORTS the claim (provides empirical evidence in favor)
+- OPPOSES the claim (contradicts, refutes, or identifies significant flaws)
+- Is NEUTRAL (discusses without taking a clear empirical stance)
+
+Apply rigorous scientific methodology:
+1. Verifying Evidence Sources: Is the consensus based on reproducible results and empirically supported research in reputable journals?
+2. Identifying Dissent: Does the paper acknowledge uncertainty or valid dissenting data?
+3. Detecting Misinformation/Bias: Identify cherry-picking, misrepresentation of agreement, or funding/political biases.
+4. Replication Status: Has the finding been replicated or failed to replicate?
+5. Independent Verification: Are the researchers independent of the original claim's proponents?
 
 Respond in JSON format:
 {
   "stance": "supporting" | "opposing" | "neutral",
   "confidence": 0.0-1.0,
   "reasoning": "Brief explanation",
-  "keyEvidence": "Relevant quote or finding from abstract"
+  "keyEvidence": "Specific finding or data point",
+  "methodologyQuality": "high" | "medium" | "low",
+  "dissentContext": "Acknowledgment of uncertainty or dissenting views",
+  "biasRisk": "low" | "medium" | "high",
+  "biasTypes": ["string"],
+  "replicationStatus": "replicated" | "failed_to_replicate" | "unverified",
+  "independentVerification": boolean,
+  "journalReputation": "high" | "standard" | "low"
 }`;
 
             const response = await axios.post(
@@ -114,7 +141,12 @@ Respond in JSON format:
             return {
                 stance: "neutral",
                 confidence: 0.5,
-                reasoning: "Analysis failed, defaulted to neutral"
+                reasoning: "Analysis failed, defaulted to neutral",
+                methodologyQuality: "medium",
+                biasRisk: "medium",
+                replicationStatus: "unverified",
+                independentVerification: false,
+                biasTypes: []
             };
         }
     }
@@ -137,22 +169,29 @@ Respond in JSON format:
                     stance: stanceResult.stance,
                     confidence: stanceResult.confidence,
                     reasoning: stanceResult.reasoning,
-                    keyEvidence: stanceResult.keyEvidence
+                    keyEvidence: stanceResult.keyEvidence,
+                    methodologyQuality: stanceResult.methodologyQuality,
+                    dissentContext: stanceResult.dissentContext,
+                    biasRisk: stanceResult.biasRisk,
+                    replicationStatus: stanceResult.replicationStatus,
+                    independentVerification: stanceResult.independentVerification,
+                    biasTypes: stanceResult.biasTypes,
+                    journalReputation: stanceResult.journalReputation
                 };
             });
 
             const results = await Promise.all(stancePromises);
 
-            // Calculate consensus
+            // Calculate consensus metrics
             const supporting = results.filter(r => r.stance === "supporting");
             const opposing = results.filter(r => r.stance === "opposing");
             const neutral = results.filter(r => r.stance === "neutral");
 
-            const agreementPercentage = Math.round((supporting.length / results.length) * 100);
+            const agreementPercentage = results.length > 0 ? Math.round((supporting.length / results.length) * 100) : 0;
             const consensusLevel = this.determineConsensusLevel(agreementPercentage);
 
             // Generate summary
-            const summary = this.generateConsensusSummary(supporting.length, opposing.length, neutral.length, results.length);
+            const summary = this.generateEnhancedSummary(supporting, opposing, neutral, results.length);
 
             // Extract key findings
             const keyFindings = results
@@ -160,15 +199,61 @@ Respond in JSON format:
                 .slice(0, 3)
                 .map(r => r.keyEvidence!);
 
+            // Rigorous Meta-Analysis for Convergent Evidence
+            // Convergent evidence requires multiple independent, high-quality papers with replicated results
+            const convergentCount = supporting.filter(s => 
+                s.methodologyQuality === "high" && 
+                s.independentVerification && 
+                s.replicationStatus === "replicated"
+            ).length;
+            
+            const evidenceConvergent = convergentCount >= 3 || (supporting.length > 0 && convergentCount === supporting.length && supporting.length >= 2);
+            
+            const dissentAcknowledged = results.some(r => r.dissentContext && r.dissentContext.length > 15);
+            const highBiasCount = results.filter(r => r.biasRisk === "high").length;
+            const biasCheckStatus = highBiasCount === 0 ? "pass" : highBiasCount < results.length / 3 ? "warning" : "failed";
+
+            // Extraordinary Evidence Check: 
+            // If the consensus is strong and a paper opposes it, we flag that extraordinary evidence is required.
+            const extraordinaryEvidenceRequired = consensusLevel === "strong" && opposing.length > 0;
+
+            // Methodology Score (0-100)
+            const methodologyScore = Math.round(
+                (results.filter(r => r.methodologyQuality === "high").length * 100 +
+                results.filter(r => r.methodologyQuality === "medium").length * 50) / 
+                Math.max(results.length, 1)
+            );
+
             return {
                 claim,
                 consensusLevel,
                 agreementPercentage,
-                supporting: supporting.map(s => ({ id: s.id, title: s.title, confidence: s.confidence })),
-                opposing: opposing.map(o => ({ id: o.id, title: o.title, confidence: o.confidence })),
-                neutral: neutral.map(n => ({ id: n.id, title: n.title, confidence: n.confidence })),
+                supporting: supporting.map(s => ({ 
+                    id: s.id, 
+                    title: s.title, 
+                    confidence: s.confidence, 
+                    quality: s.methodologyQuality,
+                    replication: s.replicationStatus
+                })),
+                opposing: opposing.map(o => ({ 
+                    id: o.id, 
+                    title: o.title, 
+                    confidence: o.confidence, 
+                    quality: o.methodologyQuality
+                })),
+                neutral: neutral.map(n => ({ 
+                    id: n.id, 
+                    title: n.title, 
+                    confidence: n.confidence, 
+                    quality: n.methodologyQuality
+                })),
                 summary,
-                keyFindings
+                keyFindings,
+                evidenceConvergent,
+                dissentAcknowledged,
+                biasCheckStatus,
+                extraordinaryEvidenceRequired,
+                methodologyScore
             };
 
         } catch (error: any) {
@@ -191,22 +276,28 @@ Respond in JSON format:
     }
 
     /**
-     * Generate human-readable consensus summary
+     * Generate enhanced human-readable consensus summary
      */
-    private static generateConsensusSummary(
-        supporting: number,
-        opposing: number,
-        neutral: number,
+    private static generateEnhancedSummary(
+        supporting: any[],
+        opposing: any[],
+        neutral: any[],
         total: number
     ): string {
-        if (supporting > opposing * 2) {
-            return `Strong agreement: ${supporting} of ${total} papers support this claim.`;
-        } else if (supporting > opposing) {
-            return `Emerging consensus: ${supporting} papers support vs ${opposing} oppose.`;
-        } else if (Math.abs(supporting - opposing) <= total * 0.2) {
-            return `Divided: ${supporting} support, ${opposing} oppose, ${neutral} neutral. No clear consensus.`;
+        const supportCount = supporting.length;
+        const opposeCount = opposing.length;
+        const neutralCount = neutral.length;
+
+        if (supportCount > opposeCount * 3 && supportCount >= 3) {
+            return `Strong scientific consensus: ${supportCount} of ${total} independent papers provide convergent evidence supporting this claim.`;
+        } else if (supportCount > opposeCount) {
+            return `Emerging consensus: ${supportCount} papers support vs ${opposeCount} oppose. Evidence is growing but requires further replication.`;
+        } else if (opposeCount > supportCount * 2) {
+            return `Strong contradiction: The majority of evidence (${opposeCount} papers) refutes this claim. Extraordinary evidence is required to challenge this consensus.`;
+        } else if (Math.abs(supportCount - opposeCount) <= total * 0.3) {
+            return `Divided/Inconclusive: Evidence is split (${supportCount} support, ${opposeCount} oppose). This is an area of active debate with significant uncertainty.`;
         } else {
-            return `Controversial: ${opposing} papers oppose vs ${supporting} support this claim.`;
+            return `Limited Evidence: Only ${total} papers analyzed. A preliminary stance indicates ${supportCount > opposeCount ? "support" : "opposition"}.`;
         }
     }
 
