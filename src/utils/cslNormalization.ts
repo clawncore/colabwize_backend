@@ -114,13 +114,14 @@ export function normalizeToCSL(input: any): CSLItem {
   }
 
   // 6. Scalar Whitelist (Strings or Numbers)
-  const scalarFields = ["DOI", "URL", "doi", "url", "container-title", "volume", "issue", "page", "publisher", "abstract", "collection-title", "journal", "pages"];
+  const scalarFields = ["DOI", "URL", "doi", "url", "ISBN", "isbn", "container-title", "volume", "issue", "page", "publisher", "abstract", "collection-title", "journal", "pages"];
   scalarFields.forEach(field => {
-    if (data[field] !== undefined && (typeof data[field] === 'string' || typeof data[field] === 'number')) {
+    if (data[field] !== undefined && (typeof data[field] === "string" || typeof data[field] === "number")) {
       // Map common database fields to CSL standard
       let targetField = field;
       if (field === "doi") targetField = "DOI";
       if (field === "url") targetField = "URL";
+      if (field === "isbn") targetField = "ISBN";
       if (field === "journal") targetField = "container-title";
       if (field === "pages") targetField = "page";
       

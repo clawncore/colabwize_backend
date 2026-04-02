@@ -12,27 +12,21 @@ const router = express.Router();
 router.get("/library", authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
-        
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { mendeley_access_token: true }
-        });
-
-        if (!user?.mendeley_access_token) {
-            return res.status(401).json({ error: "Mendeley account not linked" });
-        }
-
         const { limit = 50, start = 0 } = req.query;
+
+        console.log(`[Mendeley API] Fetching library for user: ${userId}`);
+        
         const items = await MendeleyService.fetchLibrary(
-            user.mendeley_access_token, 
+            userId, 
             Number(limit), 
             Number(start)
         );
 
         return res.status(200).json(items);
     } catch (error: any) {
-        console.error("Mendeley Library Error:", error.message);
-        return res.status(500).json({ error: error.message });
+        console.error("[Mendeley API] Library Error:", error.message);
+        const statusCode = error.message.includes("reconnect") ? 401 : 500;
+        return res.status(statusCode).json({ error: error.message });
     }
 });
 
@@ -47,19 +41,14 @@ router.get("/query", authenticateHybridRequest, async (req: Request, res: Respon
 
         if (!q) return res.status(400).json({ error: "Search query 'q' is required" });
 
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { mendeley_access_token: true }
-        });
+        console.log(`[Mendeley API] Querying Mendeley for user ${userId}: "${q}"`);
 
-        if (!user || !user.mendeley_access_token) {
-            return res.status(401).json({ error: "Mendeley account not linked" });
-        }
-
-        const items = await MendeleyService.queryItems(user.mendeley_access_token, String(q));
+        const items = await MendeleyService.queryItems(userId, String(q));
         return res.status(200).json(items);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        console.error("[Mendeley API] Query Error:", error.message);
+        const statusCode = error.message.includes("reconnect") ? 401 : 500;
+        return res.status(statusCode).json({ error: error.message });
     }
 });
 

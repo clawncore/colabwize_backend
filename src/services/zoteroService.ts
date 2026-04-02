@@ -1,6 +1,7 @@
 import axios from "axios";
 import { prisma } from "../lib/prisma.js";
 import { normalizeToCSL } from "../utils/cslNormalization.js";
+import logger from "../monitoring/logger.js";
 
 export class ZoteroService {
     private static BATCH_SIZE = 50;
@@ -10,6 +11,7 @@ export class ZoteroService {
      */
     static async fetchLibrary(zoteroUserId: string, zoteroApiKey: string, limit: number = 50, start: number = 0) {
         try {
+            logger.info(`[Zotero Service] Fetching library for user ${zoteroUserId} (limit: ${limit}, start: ${start})`);
             const url = `https://api.zotero.org/users/${zoteroUserId}/items?format=csljson&limit=${limit}&start=${start}`;
             
             const response = await axios.get(url, {
@@ -90,7 +92,9 @@ export class ZoteroService {
             const currentResponse = await axios.get(url, {
                 headers: { 'Zotero-API-Key': zoteroApiKey }
             });
-            const currentVersion = currentResponse.headers['last-modified-version'];
+            const currentVersion = currentResponse.headers['last-modified-version'] || 
+                                   currentResponse.headers['Last-Modified-Version'] || 
+                                   currentResponse.data.version;
 
             const response = await axios.patch(url, updateData, {
                 headers: { 
@@ -157,6 +161,38 @@ export class ZoteroService {
     }
 
     /**
+     * Fetch user's Zotero collections
+     */
+    static async fetchCollections(zoteroUserId: string, zoteroApiKey: string) {
+        try {
+            const url = `https://api.zotero.org/users/${zoteroUserId}/collections`;
+            const response = await axios.get(url, {
+                headers: { 'Zotero-API-Key': zoteroApiKey }
+            });
+            return response.data; // Array of collection objects
+        } catch (error: any) {
+            console.error("Zotero Collections Error:", error.response?.data || error.message);
+            throw new Error(`Failed to fetch Zotero collections: ${error.message}`);
+        }
+    }
+
+    /**
+     * Fetch items from a specific Zotero collection
+     */
+    static async fetchCollectionItems(zoteroUserId: string, zoteroApiKey: string, collectionKey: string, limit: number = 50, start: number = 0) {
+        try {
+            const url = `https://api.zotero.org/users/${zoteroUserId}/collections/${collectionKey}/items?format=csljson&limit=${limit}&start=${start}`;
+            const response = await axios.get(url, {
+                headers: { 'Zotero-API-Key': zoteroApiKey }
+            });
+            return response.data;
+        } catch (error: any) {
+            console.error("Zotero Collection Items Error:", error.response?.data || error.message);
+            throw new Error(`Failed to fetch Zotero collection items: ${error.message}`);
+        }
+    }
+
+    /**
      * Import a Zotero item into the project's citation list
      */
     static async importItem(colabUserId: string, projectId: string, itemData: any) {
@@ -181,6 +217,7 @@ export class ZoteroService {
                     publisher: csl.publisher,
                     abstract: csl.abstract,
                     source: "Zotero",
+                    vault_verified: true, // Mark as verified since it comes from their vault
                     formatted_citations: itemData // Store raw Zotero for high-fidelity export later
                 }
             });

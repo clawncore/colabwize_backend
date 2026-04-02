@@ -218,6 +218,7 @@ export async function GET(request: Request) {
         zotero_auto_sync: true,
         mendeley_access_token: true,
         mendeley_auto_sync: true,
+        google_access_token: true,
         created_at: true,
         updated_at: true,
       },
@@ -246,6 +247,7 @@ export async function GET(request: Request) {
         subscription: subscription || null,
         zotero_user_id: prismaUser.zotero_user_id || null,
         mendeley_access_token: prismaUser.mendeley_access_token || null,
+        google_access_token: prismaUser.google_access_token || null,
       },
     };
 

@@ -104,6 +104,16 @@ model User {
   mendeley_token_expires_at DateTime?
   mendeley_auto_sync       Boolean?              @default(false)
   
+  // Google Drive Integration
+  google_access_token      String?
+  google_refresh_token     String?
+  google_token_expires_at  DateTime?
+
+  // OneDrive Integration
+  onedrive_access_token    String?
+  onedrive_refresh_token   String?
+  onedrive_token_expires_at DateTime?
+  
   @@index([email])
   @@map("users")
 }
