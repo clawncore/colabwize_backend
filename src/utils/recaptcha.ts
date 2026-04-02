@@ -56,7 +56,7 @@ export async function verifyRecaptcha(
     if (!data.success) {
       return {
         success: false,
-        message: "reCAPTCHA verification failed. Please try again.",
+        message: "Security verification could not be completed. Please use a standard, up-to-date browser to avoid security risks.",
       };
     }
 
@@ -65,7 +65,7 @@ export async function verifyRecaptcha(
       return {
         success: false,
         score: data.score,
-        message: "Low security score detected. Please complete the manual challenge.",
+        message: "Automated activity detected. Please complete the security challenge to proceed.",
       };
     }
 

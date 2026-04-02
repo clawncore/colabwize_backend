@@ -3,6 +3,7 @@ import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware
 import { ZoteroService } from "../../services/zoteroService.js";
 import { prisma } from "../../lib/prisma.js";
 import axios from "axios";
+import logger from "../../monitoring/logger.js";
 
 const router = express.Router();
 
@@ -25,11 +26,11 @@ router.get("/library", authenticateHybridRequest, async (req: Request, res: Resp
         });
 
         if (!user?.zotero_api_key || !user?.zotero_user_id) {
-            console.log("[Zotero Library] Missing credentials for user:", userId);
-            return res.status(401).json({ error: "Zotero account not linked" });
+            logger.warn(`[Zotero Library] Missing credentials for user: ${userId}`);
+            return res.status(401).json({ error: "Zotero account not linked or credentials missing in local database." });
         }
 
-        console.log("[Zotero Library] Fetching for user ID:", user.zotero_user_id);
+        logger.info(`[Zotero Library] Fetching from API for Zotero ID: ${user.zotero_user_id}`);
         const { limit = 50, start = 0 } = req.query;
         const items = await ZoteroService.fetchLibrary(
             user.zotero_user_id, 
