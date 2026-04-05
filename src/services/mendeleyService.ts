@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma.js";
 const MENDELEY_CLIENT_ID = (process.env.MENDELEY_CLIENT_ID || "").trim();
 const MENDELEY_CLIENT_SECRET = (process.env.MENDELEY_CLIENT_SECRET || "").trim();
 const MENDELEY_API_KEY = (process.env.MENDELEY_API_KEY || MENDELEY_CLIENT_SECRET).trim();
-const TOKEN_URL = "https://api.elsevier.com/token";
+const TOKEN_URL = "https://api.mendeley.com/oauth/token";
 
 export class MendeleyService {
     /**
@@ -51,12 +51,19 @@ export class MendeleyService {
             params.append("client_id", MENDELEY_CLIENT_ID);
             params.append("client_secret", MENDELEY_CLIENT_SECRET);
 
+            const headers: any = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            };
+
+            // Only add Elsevier API Key if it's explicitly provided and not just fallback to secret
+            if (process.env.MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            }
+
             const response = await axios.post(TOKEN_URL, params.toString(), {
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Accept": "application/json",
-                    "X-ELS-APIKey": MENDELEY_API_KEY
-                }
+                headers,
+                timeout: 10000 // 10s timeout for token exchange
             });
 
             const { access_token, refresh_token, expires_in } = response.data;
@@ -100,18 +107,24 @@ export class MendeleyService {
         try {
             const accessToken = await this.getValidToken(userId);
             
+            const headers: any = {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: "application/json", // Use standard JSON
+            };
+
+            if (process.env.MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            }
+
             const response = await axios.get("https://api.mendeley.com/documents", {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    Accept: "application/vnd.mendeley-document.1+json",
-                    "X-ELS-APIKey": MENDELEY_API_KEY
-                },
+                headers,
                 params: {
                     limit,
                     view: "all"
-                }
+                },
+                timeout: 15000 // 15s timeout
             });
-            return response.data;
+            return response.data || [];
         } catch (error: any) {
             console.error("[Mendeley Service] fetchLibrary Error:", error.response?.data || error.message);
             throw error;
@@ -122,19 +135,25 @@ export class MendeleyService {
         try {
             const accessToken = await this.getValidToken(userId);
 
+            const headers: any = {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: "application/json"
+            };
+
+            if (process.env.MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            }
+
             const response = await axios.get("https://api.mendeley.com/search/catalog", {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    Accept: "application/vnd.mendeley-document.1+json",
-                    "X-ELS-APIKey": MENDELEY_API_KEY
-                },
+                headers,
                 params: {
                     title: query,
                     limit: 50,
                     view: "all"
-                }
+                },
+                timeout: 15000
             });
-            return response.data;
+            return response.data || [];
         } catch (error: any) {
             console.error("[Mendeley Service] queryItems Error:", error.response?.data || error.message);
             throw error;
@@ -181,13 +200,20 @@ export class MendeleyService {
     static async fetchFolders(userId: string) {
         try {
             const accessToken = await this.getValidToken(userId);
+            const headers: any = {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: "application/json"
+            };
+
+            if (process.env.MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            }
+
             const response = await axios.get("https://api.mendeley.com/folders", {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    "X-ELS-APIKey": MENDELEY_API_KEY
-                }
+                headers,
+                timeout: 15000
             });
-            return response.data;
+            return response.data || [];
         } catch (error: any) {
             console.error("[Mendeley Service] fetchFolders Error:", error.response?.data || error.message);
             throw error;
@@ -200,14 +226,20 @@ export class MendeleyService {
     static async fetchFolderItems(userId: string, folderId: string) {
         try {
             const accessToken = await this.getValidToken(userId);
+            const headers: any = {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: "application/json"
+            };
+
+            if (process.env.MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            }
+
             const response = await axios.get(`https://api.mendeley.com/folders/${folderId}/documents`, {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    Accept: "application/vnd.mendeley-document.1+json",
-                    "X-ELS-APIKey": MENDELEY_API_KEY
-                }
+                headers,
+                timeout: 15000
             });
-            return response.data;
+            return response.data || [];
         } catch (error: any) {
             console.error("[Mendeley Service] fetchFolderItems Error:", error.response?.data || error.message);
             throw error;
