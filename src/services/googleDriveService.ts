@@ -41,6 +41,9 @@ export class GoogleDriveService {
     }
 
     const oauth2Client = this.createOAuth2Client();
+    
+    console.log(`[GoogleDriveService] Setting credentials for ${userId}. Access Token Length: ${user.google_access_token.length}`);
+    
     oauth2Client.setCredentials({
       access_token: user.google_access_token,
       refresh_token: user.google_refresh_token,
@@ -64,19 +67,26 @@ export class GoogleDriveService {
   }
 
   /**
-   * List PDF/Document files from Google Drive
+   * List Document files from Google Drive
    */
   static async listFiles(userId: string, folderId: string = 'root') {
     const auth = await this.getAuthorizedClient(userId);
+    
+    console.log(`[GoogleDriveService] listFiles executing for user ${userId}. Folder: ${folderId}`);
+    
     const drive = google.drive({ version: 'v3', auth });
 
-    const response = await drive.files.list({
-      q: "mimeType = 'application/pdf' or mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'",
-      fields: 'files(id, name, mimeType, modifiedTime, size, iconLink, webViewLink)',
-      spaces: 'drive',
-    });
-
-    return response.data.files || [];
+    try {
+      const response = await drive.files.list({
+        q: "mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'",
+        fields: 'files(id, name, mimeType, modifiedTime, size, iconLink, webViewLink)',
+        spaces: 'drive',
+      });
+      return response.data.files || [];
+    } catch (e: any) {
+      console.error("[GoogleDriveService] API Call Failed: ", e.message);
+      throw e;
+    }
   }
 
   /**
@@ -93,13 +103,14 @@ export class GoogleDriveService {
 
     if (!file.data.mimeType) throw new Error("Could not determine file type");
 
-    // Handle Google Docs (export to PDF)
+    // Handle Google Docs (export to DOCX)
     if (file.data.mimeType === 'application/vnd.google-apps.document') {
+      const docxMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       const response = await drive.files.export({
         fileId,
-        mimeType: 'application/pdf',
+        mimeType: docxMimeType,
       }, { responseType: 'stream' });
-      return { stream: response.data, fileName: `${file.data.name}.pdf`, mimeType: 'application/pdf' };
+      return { stream: response.data, fileName: `${file.data.name}.docx`, mimeType: docxMimeType };
     }
 
     // Handle regular files (download)

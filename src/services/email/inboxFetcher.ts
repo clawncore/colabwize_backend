@@ -10,23 +10,23 @@ import { initializePrisma } from "../../lib/prisma-async";
  */
 function categorizeEmail(subject: string, body: string): { folder: string; priority: string } {
   const content = (subject + " " + body).toLowerCase();
-  
+
   if (/billing|invoice|payment|subscription|refund|charge|receipt|premium|plan/i.test(content)) {
     return { folder: "Billing", priority: "high" };
   }
-  
+
   if (/security|password|login|auth|hacked|verify|2fa|suspicious|unauthorized|breach/i.test(content)) {
     return { folder: "Security", priority: "high" };
   }
-  
+
   if (/contact|hello|inquiry|question|help|request/i.test(content)) {
     return { folder: "Contact", priority: "medium" };
   }
-  
+
   if (/system|update|maintenance|feature|feedback|platform|error|bug/i.test(content)) {
     return { folder: "Platform", priority: "medium" };
   }
-  
+
   return { folder: "Support", priority: "medium" };
 }
 
@@ -34,7 +34,7 @@ export async function processIncomingSupportEmails() {
   // ... (previous lines)
   const imapUser = await SecretsService.getSecret("IMAP_USER") || "clawncore@colabwize.com";
   const imapPass = await SecretsService.getSecret("IMAP_PASSWORD");
-  const imapHost = await SecretsService.getSecret("IMAP_HOST") || "imap. titan.email";
+  const imapHost = await SecretsService.getSecret("IMAP_HOST") || "imap.titan.email";
   const imapPort = await SecretsService.getSecret("IMAP_PORT") || "993";
 
   if (!imapPass) {
@@ -54,7 +54,7 @@ export async function processIncomingSupportEmails() {
     },
     logger: false,
     tls: { rejectUnauthorized: false },
-    connectionTimeout: 30000, 
+    connectionTimeout: 30000,
     greetingTimeout: 30000,
   });
 
@@ -83,19 +83,19 @@ export async function processIncomingSupportEmails() {
         const subject = parsed.subject || "(No Subject)";
         const html = parsed.html || parsed.textAsHtml || "";
         const text = parsed.text || "";
-        
+
         const sanitizedHtml = DOMPurify.sanitize(html as string);
         const { folder, priority } = categorizeEmail(subject, text);
 
         let threadId = (globalThis as any).crypto?.randomUUID?.() || Math.random().toString(36).substring(7);
         const cleanSubject = subject.replace(/^Re:\s+/i, "").trim();
-        
+
         if (subject.toLowerCase().startsWith("re:")) {
-            const previousMessage = await (prisma as any).supportMessage.findFirst({
-                where: { sender_email: senderEmail, subject: { contains: cleanSubject } },
-                orderBy: { received_at: "desc" }
-            });
-            if (previousMessage) threadId = previousMessage.thread_id;
+          const previousMessage = await (prisma as any).supportMessage.findFirst({
+            where: { sender_email: senderEmail, subject: { contains: cleanSubject } },
+            orderBy: { received_at: "desc" }
+          });
+          if (previousMessage) threadId = previousMessage.thread_id;
         }
 
         await (prisma as any).supportMessage.create({
@@ -109,7 +109,6 @@ export async function processIncomingSupportEmails() {
             thread_id: threadId,
             source_alias: imapUser,
             imap_uid: uid,
-            folder: folder,
             priority: priority,
             is_read: false
           },
@@ -120,11 +119,11 @@ export async function processIncomingSupportEmails() {
         logger.info(`[InboxFetcher] Processed email from ${senderEmail} (UID: ${uid}) -> Folder: ${folder}`);
         processedCount++;
       }
-      
+
       if (processedCount > 0) {
-          logger.info(`[InboxFetcher] Finished sync. Processed ${processedCount} new messages.`);
+        logger.info(`[InboxFetcher] Finished sync. Processed ${processedCount} new messages.`);
       } else {
-          logger.debug("[InboxFetcher] Sync finished. No new messages found.");
+        logger.debug("[InboxFetcher] Sync finished. No new messages found.");
       }
 
     } finally {
@@ -134,8 +133,8 @@ export async function processIncomingSupportEmails() {
     await client.logout();
   } catch (err: any) {
     logger.error("[InboxFetcher] Error during IMAP fetch:", {
-        message: err.message,
-        stack: err.stack
+      message: err.message,
+      stack: err.stack
     });
   }
 }
