@@ -524,10 +524,21 @@ router.get("/blogs", async (req, res) => {
  */
 router.post("/blogs", async (req, res) => {
   try {
-    const { title, excerpt, content, author, category, image, is_published } = req.body;
+    const { title, excerpt, content, author, category, image, is_published, published_at } = req.body;
 
-    if (!title || !excerpt || !content || !author || !category) {
-      return res.status(400).json({ error: "Missing required fields" });
+    // Check for missing required fields specifically
+    const missingFields = [];
+    if (!title) missingFields.push("title");
+    if (!excerpt) missingFields.push("excerpt");
+    if (!content) missingFields.push("content");
+    if (!author) missingFields.push("author");
+    if (!category) missingFields.push("category");
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({ 
+        error: `Missing required fields: ${missingFields.join(", ")}`,
+        missingFields 
+      });
     }
 
     const slug = title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
@@ -542,7 +553,8 @@ router.post("/blogs", async (req, res) => {
         category,
         image,
         is_published: is_published || false,
-        author_id: (req as any).user?.id // Assuming user ID is attached by middleware
+        published_at: published_at ? new Date(published_at) : null,
+        author_id: (req as any).user?.id
       }
     });
 
@@ -561,15 +573,24 @@ router.post("/blogs", async (req, res) => {
 router.patch("/blogs/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const { title, excerpt, content, author, category, image, is_published, published_at } = req.body;
 
-    if (updateData.title) {
-      updateData.slug = updateData.title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
+    const data: any = {};
+    if (title !== undefined) {
+      data.title = title;
+      data.slug = title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
     }
+    if (excerpt !== undefined) data.excerpt = excerpt;
+    if (content !== undefined) data.content = content;
+    if (author !== undefined) data.author = author;
+    if (category !== undefined) data.category = category;
+    if (image !== undefined) data.image = image;
+    if (is_published !== undefined) data.is_published = is_published;
+    if (published_at !== undefined) data.published_at = published_at ? new Date(published_at) : null;
 
     const blog = await prisma.blogPost.update({
       where: { id },
-      data: updateData
+      data
     });
 
     res.json({ success: true, blog });

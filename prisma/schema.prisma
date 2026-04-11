@@ -1510,6 +1510,7 @@ model BlogPost {
   category     String
   image        String?
   read_time    String?
+  published_at DateTime?
   is_published Boolean  @default(false)
   author_id    String?
   created_at   DateTime @default(now())
