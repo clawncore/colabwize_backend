@@ -13,9 +13,9 @@ const router = express.Router();
 const MENDELEY_CLIENT_ID = (process.env.MENDELEY_CLIENT_ID || "").trim();
 const MENDELEY_CLIENT_SECRET = (process.env.MENDELEY_CLIENT_SECRET || "").trim();
 const MENDELEY_API_KEY = (process.env.MENDELEY_API_KEY || MENDELEY_CLIENT_SECRET || "MISSING_KEY").trim(); 
-// Modern Elsevier Unified IDP Endpoints
-const AUTHORIZE_URL = "https://api.elsevier.com/authenticate";
-const TOKEN_URL = "https://api.elsevier.com/token";
+// Standard Mendeley OAuth Endpoints
+const AUTHORIZE_URL = "https://api.mendeley.com/oauth/authorize";
+const TOKEN_URL = "https://api.mendeley.com/oauth/token";
 
 // Dynamic Redirect URI based on environment
 const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:3001").replace(/\/$/, "");
@@ -32,11 +32,10 @@ router.get("/connect", authenticateHybridRequest, async (req, res) => {
         logger.info(`[DIAGNOSTIC] Mendeley Connect - Client ID: ${MENDELEY_CLIENT_ID}`);
         logger.info(`[DIAGNOSTIC] Mendeley Connect - API Key: ${MENDELEY_API_KEY}`);
 
-        // Use the modern Elsevier Unified IDP for Mendeley
+        // Use the Mendeley OAuth flow
         const authUrl = new URL(AUTHORIZE_URL);
         authUrl.searchParams.append("response_type", "code");
         authUrl.searchParams.append("client_id", MENDELEY_CLIENT_ID);
-        authUrl.searchParams.append("apiKey", MENDELEY_API_KEY); // Correct discrete API Key
         authUrl.searchParams.append("redirect_uri", CALLBACK_URL);
         authUrl.searchParams.append("scope", "all"); 
         authUrl.searchParams.append("state", userId);

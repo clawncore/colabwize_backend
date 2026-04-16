@@ -379,9 +379,8 @@ router.post("/audit", async (req: Request, res: Response) => {
                     id: require("uuid").v4(),
                     category: "VERIFICATION",
                     type: "UNVERIFIED_SOURCE",
-                    severity: "CRITICAL",
-                    message: res.message,
                     location: { startPos: res.inlineLocation.start, endPos: res.inlineLocation.end },
+                    citationText: res.inlineLocation.text,
                     suggestedFix: "Remove or replace with a verified academic source."
                 });
             } else if (res.status === "UNMATCHED_REFERENCE") {
@@ -392,6 +391,7 @@ router.post("/audit", async (req: Request, res: Response) => {
                     severity: "MAJOR",
                     message: res.message,
                     location: { startPos: res.inlineLocation.start, endPos: res.inlineLocation.end },
+                    citationText: res.inlineLocation.text,
                     suggestedFix: "Add the full reference to the bibliography section."
                 });
             }

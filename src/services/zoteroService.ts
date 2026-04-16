@@ -12,7 +12,7 @@ export class ZoteroService {
     static async fetchLibrary(zoteroUserId: string, zoteroApiKey: string, limit: number = 50, start: number = 0) {
         try {
             logger.info(`[Zotero Service] Fetching library for user ${zoteroUserId} (limit: ${limit}, start: ${start})`);
-            const url = `https://api.zotero.org/users/${zoteroUserId}/items?format=csljson&limit=${limit}&start=${start}`;
+            const url = `https://api.zotero.org/users/${zoteroUserId}/items?limit=${limit}&start=${start}`;
             
             const response = await axios.get(url, {
                 headers: {
@@ -32,7 +32,7 @@ export class ZoteroService {
      */
     static async queryItems(zoteroUserId: string, zoteroApiKey: string, query: string) {
         try {
-            const url = `https://api.zotero.org/users/${zoteroUserId}/items?format=csljson&q=${encodeURIComponent(query)}`;
+            const url = `https://api.zotero.org/users/${zoteroUserId}/items?q=${encodeURIComponent(query)}`;
             
             const response = await axios.get(url, {
                 headers: { 'Zotero-API-Key': zoteroApiKey }
@@ -181,7 +181,7 @@ export class ZoteroService {
      */
     static async fetchCollectionItems(zoteroUserId: string, zoteroApiKey: string, collectionKey: string, limit: number = 50, start: number = 0) {
         try {
-            const url = `https://api.zotero.org/users/${zoteroUserId}/collections/${collectionKey}/items?format=csljson&limit=${limit}&start=${start}`;
+            const url = `https://api.zotero.org/users/${zoteroUserId}/collections/${collectionKey}/items?limit=${limit}&start=${start}`;
             const response = await axios.get(url, {
                 headers: { 'Zotero-API-Key': zoteroApiKey }
             });
@@ -197,8 +197,11 @@ export class ZoteroService {
      */
     static async importItem(colabUserId: string, projectId: string, itemData: any) {
         try {
+            // Unbox native Zotero JSON if wrapped in data object
+            const targetData = itemData.data ? { ...itemData.data, authors: itemData.meta?.creatorSummary } : itemData;
+            
             // 1. Normalize CSL data
-            const csl = normalizeToCSL(itemData);
+            const csl = normalizeToCSL(targetData);
 
             const authors = csl.author?.map((a: any) => a.family || a.literal).join(", ") || "Unknown Author";
             const year = csl.issued?.["date-parts"]?.[0]?.[0] || parseInt(csl.year) || 0;
