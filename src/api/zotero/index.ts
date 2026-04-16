@@ -102,8 +102,9 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
 
         return res.status(200).json({ success: true, importedCount: results.length, data: results });
     } catch (error: any) {
-        console.error("Zotero Import Error:", error.message);
-        return res.status(500).json({ error: error.message });
+        console.error("Zotero Import Route Critical Error:", error.stack || error.message);
+        console.error("Incoming Body:", JSON.stringify(req.body).substring(0, 500) + "...");
+        return res.status(500).json({ error: error.message, stack: error.stack });
     }
 });
 
@@ -293,6 +294,56 @@ router.post("/items/:itemKey/notes", authenticateHybridRequest, async (req: Requ
 
         const created = await ZoteroService.createNote(user.zotero_user_id, user.zotero_api_key, String(itemKey), note);
         return res.status(201).json(created);
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/zotero/collections
+ * Fetch user's Zotero collections
+ */
+router.get("/collections", authenticateHybridRequest, async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.id;
+
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { zotero_api_key: true, zotero_user_id: true }
+        });
+
+        if (!user || !user.zotero_api_key || !user.zotero_user_id) {
+            return res.status(401).json({ error: "Zotero account not linked" });
+        }
+
+        const collections = await ZoteroService.fetchCollections(user.zotero_user_id, user.zotero_api_key);
+        return res.status(200).json(collections);
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/zotero/collections/:collectionKey/items
+ * Fetch items for a specific Zotero collection
+ */
+router.get("/collections/:collectionKey/items", authenticateHybridRequest, async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.id;
+        const { collectionKey } = req.params;
+        const { limit = 50, start = 0 } = req.query;
+
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { zotero_api_key: true, zotero_user_id: true }
+        });
+
+        if (!user || !user.zotero_api_key || !user.zotero_user_id) {
+            return res.status(401).json({ error: "Zotero account not linked" });
+        }
+
+        const items = await ZoteroService.fetchCollectionItems(user.zotero_user_id, user.zotero_api_key, String(collectionKey), Number(limit), Number(start));
+        return res.status(200).json(items);
     } catch (error: any) {
         return res.status(500).json({ error: error.message });
     }

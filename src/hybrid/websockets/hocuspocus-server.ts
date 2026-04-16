@@ -214,24 +214,10 @@ export class HocuspocusCollaborationServer {
                 contentSize: JSON.stringify(content).length,
               },
             );
-            try {
-              return TiptapTransformer.extensions(extensions as any).toYdoc(
-                content,
-                "default",
-              );
-            } catch (transformError) {
-              logger.error(
-                `[HP] CRITICAL ERROR: Failed to transform JSON to YDoc for project ${projectId}:`,
-                transformError
-              );
-              logger.error(`[HP] Problematic content snippet: ${JSON.stringify(content).substring(0, 1000)}...`);
-              
-              // Fallback to empty project structure to allow connection to succeed
-              return TiptapTransformer.extensions(extensions as any).toYdoc(
-                { type: "doc", content: [{ type: "paragraph" }] },
-                "default",
-              );
-            }
+            return TiptapTransformer.extensions(extensions as any).toYdoc(
+              content,
+              "default",
+            );
           } else if (project) {
             logger.info(
               `Project ${projectId} exists but content is empty, returning default structure`,
@@ -257,16 +243,9 @@ export class HocuspocusCollaborationServer {
 
           // Use TiptapTransformer to correctly serialize Yjs document to Tiptap JSON
           const extensions = self.getExtensions();
-          
-          let content: any = null;
-          try {
-            content = TiptapTransformer.extensions(
-              extensions as any,
-            ).fromYdoc(document, "default");
-          } catch (transformError) {
-            logger.error(`[HP] CRITICAL ERROR: Failed to transform YDoc to JSON for project ${projectId}:`, transformError);
-            return;
-          }
+          const content = TiptapTransformer.extensions(
+            extensions as any,
+          ).fromYdoc(document, "default");
 
           logger.info(`Attempting to store document ${projectId}`, {
             documentName,
@@ -274,7 +253,7 @@ export class HocuspocusCollaborationServer {
             timestamp: new Date().toISOString(),
           });
 
-          if (!content || content.content?.length === 0) {
+          if (!content || (content as any).content?.length === 0) {
             logger.warn(
               "Attempted to store empty or invalid document, skipping",
               { projectId },
