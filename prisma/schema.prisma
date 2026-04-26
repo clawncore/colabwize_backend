@@ -712,6 +712,9 @@ model SupportMessage {
   thread_id     String
   source_alias  String?
   imap_uid      Int      @unique
+  priority      String?  @default("medium")
+  is_read       Boolean  @default(false)
+  folder        String?  @default("Support")
 
   @@index([thread_id])
   @@index([sender_email])
