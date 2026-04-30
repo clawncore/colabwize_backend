@@ -22,9 +22,9 @@ const getOAuth2Client = () => {
   );
 };
 
-// Scopes for Google Drive (Read-only for now, can be expanded)
+// Scopes for Google Drive (Allowing file creation/export)
 const SCOPES = [
-  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 
@@ -45,9 +45,9 @@ const initiateOAuthFlow = (req: any, res: any) => {
   }
 
   // Exact flow requested by user:
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/drive.readonly%20https://www.googleapis.com/auth/userinfo.email&access_type=offline&prompt=consent&state=${userId}`;
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/drive.file%20https://www.googleapis.com/auth/userinfo.email&access_type=offline&prompt=consent&state=${userId}`;
 
-  console.log(`[Google Auth] Initiating raw connection. Redirect URI: ${REDIRECT_URI}`);
+  console.log(`[Google Auth] Initiating raw connection (write-access). Redirect URI: ${REDIRECT_URI}`);
   res.redirect(url);
 };
 
