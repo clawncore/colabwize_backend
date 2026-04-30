@@ -1,11 +1,6 @@
 import { google } from "googleapis";
 import { prisma } from "../lib/prisma";
-
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
-const REDIRECT_URI = `${BACKEND_URL}/api/auth/google/callback`;
-
+import { Readable } from "stream";
 /**
  * Service for interacting with Google Drive API
  */
@@ -16,11 +11,7 @@ export class GoogleDriveService {
     const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
     const REDIRECT_URI = `${BACKEND_URL}/api/auth/google/callback`;
 
-    return new google.auth.OAuth2(
-      CLIENT_ID,
-      CLIENT_SECRET,
-      REDIRECT_URI
-    );
+    return new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
   }
 
   /**
@@ -41,9 +32,11 @@ export class GoogleDriveService {
     }
 
     const oauth2Client = this.createOAuth2Client();
-    
-    console.log(`[GoogleDriveService] Setting credentials for ${userId}. Access Token Length: ${user.google_access_token.length}`);
-    
+
+    console.log(
+      `[GoogleDriveService] Setting credentials for ${userId}. Access Token Length: ${user.google_access_token.length}`,
+    );
+
     oauth2Client.setCredentials({
       access_token: user.google_access_token,
       refresh_token: user.google_refresh_token,
@@ -51,14 +44,18 @@ export class GoogleDriveService {
     });
 
     // Check if token needs refresh
-    const isExpired = user.google_token_expires_at && user.google_token_expires_at.getTime() < Date.now();
+    const isExpired =
+      user.google_token_expires_at &&
+      user.google_token_expires_at.getTime() < Date.now();
     if (isExpired && user.google_refresh_token) {
       const { credentials } = await oauth2Client.refreshAccessToken();
       await prisma.user.update({
         where: { id: userId },
         data: {
           google_access_token: credentials.access_token,
-          google_token_expires_at: credentials.expiry_date ? new Date(credentials.expiry_date) : null,
+          google_token_expires_at: credentials.expiry_date
+            ? new Date(credentials.expiry_date)
+            : null,
         },
       });
     }
@@ -69,18 +66,21 @@ export class GoogleDriveService {
   /**
    * List Document files from Google Drive
    */
-  static async listFiles(userId: string, folderId: string = 'root') {
+  static async listFiles(userId: string, folderId: string = "root") {
     const auth = await this.getAuthorizedClient(userId);
-    
-    console.log(`[GoogleDriveService] listFiles executing for user ${userId}. Folder: ${folderId}`);
-    
-    const drive = google.drive({ version: 'v3', auth });
+
+    console.log(
+      `[GoogleDriveService] listFiles executing for user ${userId}. Folder: ${folderId}`,
+    );
+
+    const drive = google.drive({ version: "v3", auth });
 
     try {
       const response = await drive.files.list({
         q: "mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'",
-        fields: 'files(id, name, mimeType, modifiedTime, size, iconLink, webViewLink)',
-        spaces: 'drive',
+        fields:
+          "files(id, name, mimeType, modifiedTime, size, iconLink, webViewLink)",
+        spaces: "drive",
       });
       return response.data.files || [];
     } catch (e: any) {
@@ -94,31 +94,78 @@ export class GoogleDriveService {
    */
   static async getFileContent(userId: string, fileId: string) {
     const auth = await this.getAuthorizedClient(userId);
-    const drive = google.drive({ version: 'v3', auth });
+    const drive = google.drive({ version: "v3", auth });
 
     const file = await drive.files.get({
       fileId,
-      fields: 'name, mimeType',
+      fields: "name, mimeType",
     });
 
     if (!file.data.mimeType) throw new Error("Could not determine file type");
 
     // Handle Google Docs (export to DOCX)
-    if (file.data.mimeType === 'application/vnd.google-apps.document') {
-      const docxMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      const response = await drive.files.export({
-        fileId,
+    if (file.data.mimeType === "application/vnd.google-apps.document") {
+      const docxMimeType =
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      const response = await drive.files.export(
+        {
+          fileId,
+          mimeType: docxMimeType,
+        },
+        { responseType: "stream" },
+      );
+      return {
+        stream: response.data,
+        fileName: `${file.data.name}.docx`,
         mimeType: docxMimeType,
-      }, { responseType: 'stream' });
-      return { stream: response.data, fileName: `${file.data.name}.docx`, mimeType: docxMimeType };
+      };
     }
 
     // Handle regular files (download)
-    const response = await drive.files.get({
-      fileId,
-      alt: 'media',
-    }, { responseType: 'stream' });
+    const response = await drive.files.get(
+      {
+        fileId,
+        alt: "media",
+      },
+      { responseType: "stream" },
+    );
 
-    return { stream: response.data, fileName: file.data.name, mimeType: file.data.mimeType };
+    return {
+      stream: response.data,
+      fileName: file.data.name,
+      mimeType: file.data.mimeType,
+    };
+  }
+
+  /**
+   * Upload a file to Google Drive
+   */
+  static async uploadFile(
+    userId: string,
+    fileName: string,
+    buffer: Buffer,
+    mimeType: string,
+  ) {
+    const auth = await this.getAuthorizedClient(userId);
+    const drive = google.drive({ version: "v3", auth });
+
+    // Convert Buffer to Readable Stream
+    const stream = new Readable();
+    stream.push(buffer);
+    stream.push(null);
+
+    const response = await drive.files.create({
+      requestBody: {
+        name: fileName,
+        mimeType: mimeType,
+      },
+      media: {
+        mimeType: mimeType,
+        body: stream,
+      },
+      fields: "id, name, webViewLink",
+    });
+
+    return response.data;
   }
 }
