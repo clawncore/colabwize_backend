@@ -93,6 +93,11 @@ model User {
   push_notification_tokens   PushNotificationToken[]
   blog_posts               BlogPost[]
   
+  // Referral System
+  referral_code            String?              @unique
+  referrals_made           Referral[]           @relation("ReferrerRelation")
+  referral_received        Referral?            @relation("RefereeRelation")
+  
   // Zotero Integration
   zotero_user_id           String?
   zotero_api_key           String?
@@ -1535,5 +1540,22 @@ model EmailLog {
   @@index([sender])
   @@index([sent_at])
   @@map("email_logs")
+}
+
+model Referral {
+  id                String   @id @default(uuid())
+  referrer_id       String
+  referee_id        String   @unique
+  reward_status     String   @default("pending") // pending, granted, expired
+  reward_expires_at DateTime?
+  referred_at       DateTime @default(now())
+  
+  referrer          User     @relation("ReferrerRelation", fields: [referrer_id], references: [id], onDelete: Cascade)
+  referee           User     @relation("RefereeRelation", fields: [referee_id], references: [id], onDelete: Cascade)
+  
+  @@index([referrer_id])
+  @@index([reward_status])
+  @@index([referred_at])
+  @@map("referrals")
 }
 

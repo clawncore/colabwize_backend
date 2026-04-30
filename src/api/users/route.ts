@@ -1304,3 +1304,127 @@ export async function hasFeatureAccess(request: Request, feature: string) {
     });
   }
 }
+
+// Get user's referral data
+export async function getReferralData(request: Request) {
+  try {
+    // Get user from authorization header
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Missing or invalid authorization header" }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const token = authHeader.substring(7); // Remove "Bearer " prefix
+
+    // Verify the token with Supabase Auth
+    let user;
+    try {
+      const client = await getSupabaseClient();
+      if (!client) {
+        return new Response(
+          JSON.stringify({ error: "Supabase client not initialized" }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+      const {
+        data: { user: userData },
+        error,
+      } = await client.auth.getUser(token);
+
+      if (error || !userData) {
+        return new Response(
+          JSON.stringify({ error: "Invalid or expired token" }),
+          {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      user = userData;
+    } catch (error) {
+      return new Response(
+        JSON.stringify({ error: "Invalid or expired token" }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // Get user's referral code and referral data
+    const userData = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        referral_code: true,
+        referrals_made: {
+          select: {
+            id: true,
+            referred_at: true,
+            reward_status: true,
+            reward_expires_at: true,
+            referee: {
+              select: {
+                full_name: true,
+                email: true,
+              },
+            },
+          },
+          orderBy: { referred_at: "desc" },
+        },
+      },
+    });
+
+    if (!userData) {
+      return new Response(JSON.stringify({ error: "User not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Calculate stats
+    const totalReferrals = userData.referrals_made.length;
+    const activeRewards = userData.referrals_made.filter(
+      (r: { reward_status: string; reward_expires_at: Date | null }) => 
+        r.reward_status === "granted" && (!r.reward_expires_at || r.reward_expires_at > new Date())
+    ).length;
+    const totalDaysEarned = totalReferrals * 5;
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        referralCode: userData.referral_code,
+        totalReferrals,
+        activeRewards,
+        totalDaysEarned,
+        referrals: userData.referrals_made.map((r: { id: string; referred_at: Date; reward_status: string; reward_expires_at: Date | null; referee: { full_name: string | null; email: string } }) => ({
+          id: r.id,
+          referredAt: r.referred_at,
+          status: r.reward_status,
+          expiresAt: r.reward_expires_at,
+          refereeName: r.referee.full_name,
+          refereeEmail: r.referee.email,
+        })),
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  } catch (error) {
+    console.error("Error fetching referral data:", error);
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}

@@ -29,6 +29,7 @@ export class EmailService {
   static sendUsageLimitWarningEmail = notificationEmails.sendUsageLimitWarningEmail;
   static sendUsageLimitReachedEmail = notificationEmails.sendUsageLimitReachedEmail;
   static sendSearchAlertEmail = notificationEmails.sendSearchAlertEmail;
+  static sendReferralRewardEmail = notificationEmails.sendReferralRewardEmail;
   static sendProjectShareEmail = notificationEmails.sendProjectShareEmail;
   static sendAnalyticsNotificationEmail = notificationEmails.sendAnalyticsNotificationEmail;
   static sendAnalyticsReportEmail = notificationEmails.sendAnalyticsReportEmail;

@@ -64,14 +64,24 @@ export async function processIncomingSupportEmails() {
 
   const prisma = await initializePrisma();
 
+  let lastUid = 0;
+  const lastMessage = await (prisma as any).supportMessage.findFirst({
+    orderBy: { imap_uid: 'desc' },
+    select: { imap_uid: true }
+  });
+  if (lastMessage) lastUid = lastMessage.imap_uid;
+
   try {
     await client.connect();
     let lock = await client.getMailboxLock("INBOX");
     try {
-      const messages = client.fetch({}, { uid: true, envelope: true, source: true });
+      const fetchRange = lastUid > 0 ? `${lastUid + 1}:*` : {};
+      const messages = client.fetch(fetchRange, { uid: true, envelope: true, source: true });
 
+      let totalFound = 0;
       let processedCount = 0;
       for await (const message of messages) {
+        totalFound++;
         const uid = message.uid;
         if (!message.source) continue;
 
@@ -110,7 +120,8 @@ export async function processIncomingSupportEmails() {
             source_alias: imapUser,
             imap_uid: uid,
             priority: priority,
-            is_read: false
+            is_read: false,
+            folder: folder
           },
         });
 

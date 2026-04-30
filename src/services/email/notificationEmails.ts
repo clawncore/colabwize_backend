@@ -666,3 +666,54 @@ export async function sendCertificateExpirationWarningEmail(
 
   return success;
 }
+
+/**
+ * Sends a referral reward notification email.
+ */
+export async function sendReferralRewardEmail(
+  to: string,
+  fullName: string,
+  days: number,
+): Promise<boolean> {
+  const frontendUrl = await SecretsService.getFrontendUrl();
+  
+  const content = `
+    <p>Hello ${fullName || "there"},</p>
+    <p>Great news! Someone just signed up using your referral code. As a thank you, you've been upgraded to <strong>Plus plan</strong> for <strong>${days} days</strong> - absolutely free!</p>
+    
+    <div style="background-color: #d1fae5; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #10b981;">
+      <h2 style="color: #065f46; margin-top: 0; font-size: 18px;">Your Plus Plan Benefits</h2>
+      <ul style="margin: 10px 0; padding-left: 20px; color: #047857;">
+        <li><strong>25 document scans</strong> per month</li>
+        <li><strong>10 Originality Scans</strong> included</li>
+        <li><strong>50 AI Chat</strong> messages</li>
+        <li><strong>Professional certificates</strong> without watermarks</li>
+        <li><strong>Priority email support</strong></li>
+      </ul>
+      <p style="margin: 15px 0 0 0; font-size: 14px; color: #065f46;">
+        <strong>Valid until:</strong> ${new Date(Date.now() + days * 24 * 60 * 60 * 1000).toLocaleDateString()}
+      </p>
+    </div>
+    
+    <p style="font-size: 14px;">Keep sharing your referral code to earn more free days! Each successful referral gives you another ${days} days of Plus.</p>
+    <p style="font-size: 14px; color: #6b7280;">Your referral code: <strong style="color: #1e40af; font-size: 16px;">View in your dashboard</strong></p>
+  `;
+
+  const html = buildEmailHtml({
+    title: "You Earned Free Plus Plan!",
+    titleColor: "#059669",
+    content,
+    ctaText: "Go to Dashboard",
+    ctaUrl: `${frontendUrl}/dashboard`,
+  });
+
+  const { success } = await sendEmail({
+    from: "NOTIFICATIONS",
+    to,
+    subject: `You got ${days} days of Plus plan free!`,
+    html,
+    text: `Hello ${fullName || "there"},\n\nSomeone signed up using your referral code! You now have ${days} days of Plus plan free.\n\nView your dashboard: ${frontendUrl}/dashboard\n\nColabWize Team`,
+  });
+
+  return success;
+}

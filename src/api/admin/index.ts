@@ -1,10 +1,7 @@
 import express, { Router } from "express";
-import { generateText } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
 import { sendEmail } from "../../services/email/baseMailer";
 import { SENDER_IDENTITIES, EmailSender } from "../../services/email/emailConfig";
-import { wrapInPremiumLayout } from "../../services/email/emailLayout";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { processBroadcast } from "../../services/admin/broadcastService";
@@ -26,7 +23,7 @@ router.use(isPlatformAdmin);
  */
 router.post("/email/send", async (req, res) => {
   try {
-    const { to, senderAlias, subject, message, senderName, senderTitle } = req.body;
+    const { to, senderAlias, subject, message } = req.body;
 
     if (!to || !senderAlias || !subject || !message) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -36,12 +33,15 @@ router.post("/email/send", async (req, res) => {
       return res.status(400).json({ error: "Invalid sender alias" });
     }
 
+    // Determine fallback text to bypass raw HTML spam triggers if none is supplied natively
+    const fallbackText = message.replace(/<[^>]+>/g, '');
+
     const result = await sendEmail({
       from: senderAlias as EmailSender,
       to,
       subject,
-      html: wrapInPremiumLayout(message, senderAlias as EmailSender, senderName, senderTitle, to),
-      text: message.replace(/<[^>]+>/g, '') // Clean fallback text
+      html: message,
+      text: fallbackText
     });
 
     // Audit Log Entry
@@ -67,58 +67,13 @@ router.post("/email/send", async (req, res) => {
 });
 
 /**
- * @route   POST /api/admin/email/generate
- * @desc    Generate a professional email draft using OpenAI
- * @access  Admin Only
- */
-router.post("/email/generate", async (req, res) => {
-  try {
-    const { prompt, currentMessage } = req.body;
-    
-    if (!prompt) {
-       return res.status(400).json({ error: "Missing prompt" });
-    }
-
-    let systemInstructions = `You are an expert corporate communications professional for 'ColabWize'. 
-    
-You must generate a beautifully formatted, professional body for an email. 
-Note: The outer "card" layout, company branding, and signatures ARE ALREADY HANDLED. You should focus ONLY on the HTML content of the message itself.
-
-Guidelines:
-1. Use semantic HTML tags for structure: <h1> for titles, <p> for paragraphs, <ul>/<li> for lists.
-2. For specific data or logs, use bold labels and clean line breaks (e.g., "<strong>Location:</strong> Boardman Oregon<br><br>").
-3. You can include links using the <a> tag.
-4. If a button is needed, generate a centered div with a link styled like a button (e.g., <div style="margin: 30px 0; text-align: center;"><a href="#" style="background-color: #0ea5e9; color: white; padding: 12px 24px; text-decoration: none; border-radius: 12px; font-weight: bold; display: inline-block;">Button Text</a></div>).
-
-RETURN ONLY THE HTML CONTENT STRING. Do not include <html>, <head>, or <body> tags. Do not wrap in markdown code blocks like \`\`\`html. Output the final, ready-to-use professional body content.`;
-    let userInstructions = prompt;
-
-    if (currentMessage) {
-        systemInstructions += "\nThe user has provided an existing draft. You must comprehensively revise, correct, or enhance the existing draft according to their instructions.";
-        userInstructions = `Instruction: ${prompt}\n\nCurrent Draft:\n${currentMessage}`;
-    }
-
-    const { text } = await generateText({
-      model: openai("gpt-4o-mini"),
-      system: systemInstructions,
-      prompt: userInstructions,
-    });
-
-    res.json({ success: true, html: text });
-  } catch (error: any) {
-    logger.error("Admin AI Gen Error:", error);
-    res.status(500).json({ success: false, error: "AI Generation failed" });
-  }
-});
-
-/**
  * @route   POST /api/admin/email/broadcast
  * @desc    Send a broadcast email to multiple users
  * @access  Admin Only
  */
 router.post("/email/broadcast", async (req, res) => {
   try {
-    const { userIds, senderAlias, subject, message, senderName, senderTitle } = req.body;
+    const { userIds, senderAlias, subject, message } = req.body;
 
     if (!Array.isArray(userIds) || userIds.length === 0 || !senderAlias || !subject || !message) {
       return res.status(400).json({ error: "Invalid or missing required fields" });
@@ -128,16 +83,12 @@ router.post("/email/broadcast", async (req, res) => {
       return res.status(400).json({ error: "Invalid sender alias" });
     }
 
-    let finalMessage = message;
-
     // Fire and forget: Process broadcast in background
     processBroadcast({
       userIds,
       senderAlias: senderAlias as EmailSender,
       subject,
-      message: finalMessage,
-      senderName,
-      senderTitle
+      message
     }).catch(err => logger.error("Background Broadcast Error:", err));
 
     res.status(202).json({
@@ -158,21 +109,35 @@ router.post("/email/broadcast", async (req, res) => {
 router.get("/inbox", async (req, res) => {
   try {
     const status = (req.query.status as string) || "open";
+    const folder = (req.query.folder as string);
 
     let messages;
-    // Original grouped thread logic for the main "All" view
-    messages = await prisma.$queryRaw`
-      SELECT t1.*
-      FROM support_messages t1
-      INNER JOIN (
-          SELECT thread_id, MAX(received_at) as max_date
-          FROM support_messages
-          WHERE status = ${status}
-          GROUP BY thread_id
-      ) t2 ON t1.thread_id = t2.thread_id AND t1.received_at = t2.max_date
-      ORDER BY t1.received_at DESC
-      LIMIT 100
-    `;
+
+    if (folder) {
+      // If a specific folder is requested, we filter by it
+      messages = await prisma.supportMessage.findMany({
+        where: {
+          status,
+          folder
+        },
+        orderBy: { received_at: "desc" },
+        take: 100
+      });
+    } else {
+      // Original grouped thread logic for the main "All" view
+      messages = await prisma.$queryRaw`
+        SELECT t1.*
+        FROM support_messages t1
+        INNER JOIN (
+            SELECT thread_id, MAX(received_at) as max_date
+            FROM support_messages
+            WHERE status = ${status}
+            GROUP BY thread_id
+        ) t2 ON t1.thread_id = t2.thread_id AND t1.received_at = t2.max_date
+        ORDER BY t1.received_at DESC
+        LIMIT 100
+      `;
+    }
 
     res.json({ success: true, messages });
   } catch (error: any) {
@@ -222,7 +187,7 @@ router.post("/inbox/reply", async (req, res) => {
       from: senderAlias as EmailSender,
       to,
       subject,
-      html: wrapInPremiumLayout(message, senderAlias as EmailSender, undefined, undefined, to),
+      html: message,
       text: fallbackText
     });
 
@@ -298,38 +263,53 @@ router.patch("/inbox/message/:id/read", async (req, res) => {
   }
 });
 
+/**
+ * @route   PATCH /api/admin/inbox/message/:id/folder
+ * @desc    Move a message to a specific folder
+ * @access  Admin Only
+ */
+router.patch("/inbox/message/:id/folder", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { folder } = req.body;
 
+    await prisma.supportMessage.update({
+      where: { id },
+      data: { folder }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    logger.error("Admin Message Folder Update Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/inbox/stats/folders
+ * @desc    Get unread counts for all folders
+ * @access  Admin Only
+ */
+router.get("/inbox/stats/folders", async (req, res) => {
+  try {
+    const counts = await prisma.supportMessage.groupBy({
+      by: ['folder'],
+      where: { is_read: false, status: 'open' },
+      _count: true
+    });
+
+    res.json({ success: true, counts });
+  } catch (error: any) {
+    logger.error("Admin Folder Stats Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
 
 /**
  * @route   GET /api/admin/email/logs
  * @desc    Fetch email sending logs
  * @access  Admin Only
  */
-/**
- * @route   GET /api/admin/email/unsubscribed
- * @desc    Fetch all users who have opted out of marketing emails
- * @access  Admin Only
- */
-router.get("/email/unsubscribed", async (req, res) => {
-  try {
-    const users = await prisma.user.findMany({
-      where: { unsubscribed_from_marketing: true },
-      select: {
-        id: true,
-        email: true,
-        full_name: true,
-        created_at: true,
-      },
-      orderBy: { created_at: "desc" }
-    });
-
-    res.json({ success: true, users, total: users.length });
-  } catch (error: any) {
-    logger.error("Admin Unsubscribed Fetch Error:", error);
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
 router.get("/email/logs", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 100;
@@ -425,7 +405,7 @@ router.get("/users", async (req, res) => {
     const dateTo = req.query.dateTo as string | undefined;
     const search = req.query.search as string | undefined;
 
-    const ADMIN_WHITELIST = ["simbisai@colabwize.com", "craig@colabwize.com"];
+    const ADMIN_WHITELIST = ["simbisai@colabwize.com", "craig@colabwize.com", "craign@colabwize.com"];
 
     const where: any = {
       AND: [
@@ -524,21 +504,10 @@ router.get("/blogs", async (req, res) => {
  */
 router.post("/blogs", async (req, res) => {
   try {
-    const { title, excerpt, content, author, category, image, is_published, published_at } = req.body;
+    const { title, excerpt, content, author, category, image, is_published } = req.body;
 
-    // Check for missing required fields specifically
-    const missingFields = [];
-    if (!title) missingFields.push("title");
-    if (!excerpt) missingFields.push("excerpt");
-    if (!content) missingFields.push("content");
-    if (!author) missingFields.push("author");
-    if (!category) missingFields.push("category");
-
-    if (missingFields.length > 0) {
-      return res.status(400).json({ 
-        error: `Missing required fields: ${missingFields.join(", ")}`,
-        missingFields 
-      });
+    if (!title || !excerpt || !content || !author || !category) {
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
     const slug = title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
@@ -553,8 +522,7 @@ router.post("/blogs", async (req, res) => {
         category,
         image,
         is_published: is_published || false,
-        published_at: published_at ? new Date(published_at) : null,
-        author_id: (req as any).user?.id
+        author_id: (req as any).user?.id // Assuming user ID is attached by middleware
       }
     });
 
@@ -573,24 +541,15 @@ router.post("/blogs", async (req, res) => {
 router.patch("/blogs/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, excerpt, content, author, category, image, is_published, published_at } = req.body;
+    const updateData = req.body;
 
-    const data: any = {};
-    if (title !== undefined) {
-      data.title = title;
-      data.slug = title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
+    if (updateData.title) {
+      updateData.slug = updateData.title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
     }
-    if (excerpt !== undefined) data.excerpt = excerpt;
-    if (content !== undefined) data.content = content;
-    if (author !== undefined) data.author = author;
-    if (category !== undefined) data.category = category;
-    if (image !== undefined) data.image = image;
-    if (is_published !== undefined) data.is_published = is_published;
-    if (published_at !== undefined) data.published_at = published_at ? new Date(published_at) : null;
 
     const blog = await prisma.blogPost.update({
       where: { id },
-      data
+      data: updateData
     });
 
     res.json({ success: true, blog });
