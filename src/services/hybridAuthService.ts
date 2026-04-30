@@ -3,6 +3,7 @@ import { getSupabaseAdminClient } from "../lib/supabase/client";
 import { EmailService } from "./emailService";
 import logger from "../monitoring/logger";
 import { SecretsService } from "./secrets-service";
+import { EntitlementService } from "./EntitlementService";
 
 /**
  * Service for Hybrid Authentication (Supabase + Custom Backend)
@@ -57,7 +58,10 @@ export class HybridAuthService {
         };
       }
 
-      // Create user
+      // Generate referral code
+      const referralCode = await this.generateReferralCode(data.fullName);
+
+      // Create user with referral code
       const user = await prisma.user.create({
         data: {
           id: data.id,
@@ -65,6 +69,7 @@ export class HybridAuthService {
           full_name: data.fullName,
           email_verified: true, // OAuth is verified
           survey_completed: false,
+          referral_code: referralCode,
         },
       });
 
@@ -181,6 +186,9 @@ export class HybridAuthService {
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
         const isNewUser = userCreatedAt > fiveMinutesAgo;
 
+        // Generate referral code for synced user
+        const syncReferralCode = await this.generateReferralCode(metadata.full_name || metadata.name || "");
+
         // Create user in our DB
         const newUser = await prisma.user.create({
           data: {
@@ -190,6 +198,7 @@ export class HybridAuthService {
             email_verified: !!supabaseUser.email_confirmed_at, // Trust Supabase verification status
             survey_completed: false, // Ensure all newly synced users see the survey
             otp_method: "email",
+            referral_code: syncReferralCode,
           },
         });
 
@@ -228,6 +237,134 @@ export class HybridAuthService {
    */
   private static generateOTP(): string {
     return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  /**
+   * Generate a unique referral code
+   * Format: NAME_PREFIX + RANDOM (e.g., "MAROE8X3A")
+   */
+  private static async generateReferralCode(fullName?: string): Promise<string> {
+    const prefix = fullName 
+      ? fullName.replace(/[^a-zA-Z]/g, '').substring(0, 4).toUpperCase()
+      : 'USER';
+    
+    const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+    let code = `${prefix}${randomPart}`;
+    
+    // Ensure uniqueness
+    let attempts = 0;
+    while (attempts < 5) {
+      const existing = await prisma.user.findUnique({
+        where: { referral_code: code },
+      });
+      
+      if (!existing) {
+        return code;
+      }
+      
+      // Generate new random part if collision
+      const newRandom = Math.random().toString(36).substring(2, 6).toUpperCase();
+      code = `${prefix}${newRandom}`;
+      attempts++;
+    }
+    
+    // Fallback to UUID prefix if all attempts failed
+    return `${prefix}${Date.now().toString(36).toUpperCase().slice(-4)}`;
+  }
+
+  /**
+   * Process referral reward when a new user signs up with a referral code
+   */
+  private static async processReferralReward(refereeId: string, referralCode: string): Promise<void> {
+    try {
+      // 1. Find referrer by code
+      const referrer = await prisma.user.findUnique({
+        where: { referral_code: referralCode },
+      });
+      
+      if (!referrer) {
+        logger.warn("Referral code not found", { referralCode });
+        return;
+      }
+      
+      // 2. Prevent self-referral
+      if (referrer.id === refereeId) {
+        logger.warn("Self-referral attempt blocked", { userId: refereeId });
+        return;
+      }
+      
+      // 3. Check if referee already used a referral code
+      const existingReferral = await prisma.referral.findUnique({
+        where: { referee_id: refereeId },
+      });
+      
+      if (existingReferral) {
+        logger.warn("Referee already used a referral code", { refereeId });
+        return;
+      }
+      
+      // 4. Create referral record
+      const rewardExpiresAt = new Date();
+      rewardExpiresAt.setDate(rewardExpiresAt.getDate() + 5); // 5 days of Plus
+      
+      await prisma.referral.create({
+        data: {
+          referrer_id: referrer.id,
+          referee_id: refereeId,
+          reward_status: "granted",
+          reward_expires_at: rewardExpiresAt,
+        },
+      });
+      
+      // 5. Upgrade referrer to Plus for 5 days (if on free plan)
+      const referrerSub = await prisma.subscription.findUnique({
+        where: { user_id: referrer.id },
+      });
+      
+      if (referrerSub?.plan === "free" || !referrerSub) {
+        // If no subscription exists, create one
+        if (!referrerSub) {
+          await prisma.subscription.create({
+            data: {
+              user_id: referrer.id,
+              plan: "plus",
+              status: "active",
+              entitlement_expires_at: rewardExpiresAt,
+            },
+          });
+        } else {
+          // Update existing free subscription to plus with expiry
+          await prisma.subscription.update({
+            where: { user_id: referrer.id },
+            data: {
+              plan: "plus",
+              status: "active",
+              entitlement_expires_at: rewardExpiresAt,
+            },
+          });
+        }
+        
+        // Rebuild entitlements so user gets plus features immediately
+        await EntitlementService.rebuildEntitlements(referrer.id);
+        
+        // Send reward email
+        await EmailService.sendReferralRewardEmail(referrer.email, referrer.full_name || "", 5);
+        
+        logger.info("Referral reward granted", {
+          referrerId: referrer.id,
+          refereeId,
+          expiresAt: rewardExpiresAt,
+        });
+      } else {
+        logger.info("Referrer already on paid plan, referral logged without upgrade", {
+          referrerId: referrer.id,
+          currentPlan: referrerSub.plan,
+        });
+      }
+    } catch (error: any) {
+      logger.error("Failed to process referral reward", { error: error.message, refereeId, referralCode });
+      // Don't throw - referral failure shouldn't block signup
+    }
   }
 
   /**
@@ -332,7 +469,10 @@ export class HybridAuthService {
 
       const userId = supabaseUser.user.id;
 
-      // 4. Create user in our Database with the SAME ID
+      // 4. Generate unique referral code
+      const referralCode = await this.generateReferralCode(userData.full_name);
+
+      // 5. Create user in our Database with the SAME ID
       const user = await prisma.user.create({
         data: {
           id: userId,
@@ -344,22 +484,34 @@ export class HybridAuthService {
           otp_method: userData.otp_method || "email",
           email_verified: false, // Force verification
           survey_completed: false,
+          referral_code: referralCode,
         },
       });
+      
+      // 5.5 Process referral if affiliate_ref was provided
+      if (userData.affiliate_ref) {
+        await this.processReferralReward(userId, userData.affiliate_ref);
+      }
 
-      // 5. Create default free subscription for the user
-      await prisma.subscription.create({
-        data: {
-          user_id: userId,
-          plan: "free",
-          status: "active",
-        },
+      // 6. Create default free subscription for the user (unless they were upgraded via referral)
+      const existingSub = await prisma.subscription.findUnique({
+        where: { user_id: userId },
       });
+      
+      if (!existingSub) {
+        await prisma.subscription.create({
+          data: {
+            user_id: userId,
+            plan: "free",
+            status: "active",
+          },
+        });
+      }
 
-      // 5.5 Check for admin promotion
+      // 6.5 Check for admin promotion
       await this.promoteAdminIfEligible(email, userId);
 
-      // 6. Generate and Send OTP
+      // 7. Generate and Send OTP
       const otpCode = this.generateOTP();
       const expiresAt = new Date();
       expiresAt.setMinutes(expiresAt.getMinutes() + 10);

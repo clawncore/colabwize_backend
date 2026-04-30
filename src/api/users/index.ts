@@ -8,6 +8,7 @@ import {
   getAccountUsage,
   updateAccountPreferences,
   hasFeatureAccess,
+  getReferralData,
 } from "./route";
 import { POST as EXPORT_POST } from "./export/route";
 import { POST_REQUEST_OTP as REQUEST_OTP_POST } from "./route";
@@ -247,6 +248,25 @@ router.get("/features/:feature", async (req, res) => {
       mockRequest as any,
       req.params.feature
     );
+    const data = await response.json();
+
+    return res.status(response.status).json(data);
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Get user's referral data
+router.get("/referrals", async (req, res) => {
+  try {
+    // Create a mock request object that matches the Edge function signature
+    const mockRequest = {
+      headers: {
+        get: (name: string) => req.headers[name.toLowerCase()],
+      },
+    };
+
+    const response = await getReferralData(mockRequest as any);
     const data = await response.json();
 
     return res.status(response.status).json(data);
