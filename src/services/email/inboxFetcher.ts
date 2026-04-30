@@ -132,9 +132,15 @@ export async function processIncomingSupportEmails() {
       }
 
       if (processedCount > 0) {
+<<<<<<< HEAD
         logger.info(`[InboxFetcher] Finished sync. Processed ${processedCount} new messages (out of ${totalFound} total checked).`);
       } else {
         logger.debug(`[InboxFetcher] Sync finished. Checked ${totalFound} messages, no new ones found.`);
+=======
+        logger.info(`[InboxFetcher] Finished sync. Processed ${processedCount} new messages.`);
+      } else {
+        logger.debug("[InboxFetcher] Sync finished. No new messages found.");
+>>>>>>> d14d7db (Syncing backend with Main)
       }
 
     } finally {
