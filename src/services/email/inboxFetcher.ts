@@ -64,19 +64,19 @@ export async function processIncomingSupportEmails() {
 
   const prisma = await initializePrisma();
 
-    let lastUid = 0;
-    const lastMessage = await (prisma as any).supportMessage.findFirst({
-      orderBy: { imap_uid: 'desc' },
-      select: { imap_uid: true }
-    });
-    if (lastMessage) lastUid = lastMessage.imap_uid;
+  let lastUid = 0;
+  const lastMessage = await (prisma as any).supportMessage.findFirst({
+    orderBy: { imap_uid: 'desc' },
+    select: { imap_uid: true }
+  });
+  if (lastMessage) lastUid = lastMessage.imap_uid;
 
+  try {
+    await client.connect();
+    let lock = await client.getMailboxLock("INBOX");
     try {
-      await client.connect();
-      let lock = await client.getMailboxLock("INBOX");
-      try {
-        const fetchRange = lastUid > 0 ? `${lastUid + 1}:*` : {};
-        const messages = client.fetch(fetchRange, { uid: true, envelope: true, source: true });
+      const fetchRange = lastUid > 0 ? `${lastUid + 1}:*` : {};
+      const messages = client.fetch(fetchRange, { uid: true, envelope: true, source: true });
 
       let totalFound = 0;
       let processedCount = 0;
@@ -132,15 +132,9 @@ export async function processIncomingSupportEmails() {
       }
 
       if (processedCount > 0) {
-<<<<<<< HEAD
-        logger.info(`[InboxFetcher] Finished sync. Processed ${processedCount} new messages (out of ${totalFound} total checked).`);
-      } else {
-        logger.debug(`[InboxFetcher] Sync finished. Checked ${totalFound} messages, no new ones found.`);
-=======
         logger.info(`[InboxFetcher] Finished sync. Processed ${processedCount} new messages.`);
       } else {
         logger.debug("[InboxFetcher] Sync finished. No new messages found.");
->>>>>>> d14d7db (Syncing backend with Main)
       }
 
     } finally {
