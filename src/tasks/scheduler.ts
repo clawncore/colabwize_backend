@@ -71,7 +71,7 @@ scheduler.scheduleTask(
 // Schedule backup sync for failed webhooks every hour
 scheduler.scheduleTask(
   "backupSyncFailedWebhooks",
-  WebhookRetryService.backupSync,
+  () => WebhookRetryService.backupSync(),
   60 * 60 * 1000,
 ); // 1 hour
 

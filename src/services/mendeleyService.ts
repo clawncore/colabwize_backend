@@ -221,13 +221,14 @@ export class MendeleyService {
     }
 
     /**
-     * Fetch items from a specific Mendeley folder
+     * Create a new document in Mendeley
      */
-    static async fetchFolderItems(userId: string, folderId: string) {
+    static async createDocument(userId: string, documentData: any) {
         try {
             const accessToken = await this.getValidToken(userId);
             const headers: any = {
                 Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
                 Accept: "application/json"
             };
 
@@ -235,13 +236,13 @@ export class MendeleyService {
                 headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
             }
 
-            const response = await axios.get(`https://api.mendeley.com/folders/${folderId}/documents`, {
+            const response = await axios.post("https://api.mendeley.com/documents", documentData, {
                 headers,
                 timeout: 15000
             });
-            return response.data || [];
+            return response.data;
         } catch (error: any) {
-            console.error("[Mendeley Service] fetchFolderItems Error:", error.response?.data || error.message);
+            console.error("[Mendeley Service] createDocument Error:", error.response?.data || error.message);
             throw error;
         }
     }
