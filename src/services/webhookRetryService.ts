@@ -23,7 +23,7 @@ class WebhookRetryService {
     let retryCount = 0;
     let lastError: Error | null = null;
 
-    while (retryCount <= this.MAX_RETRIES) {
+    while (retryCount <= WebhookRetryService.MAX_RETRIES) {
       try {
         await handlerFunction(data);
         logger.info(`Successfully processed webhook: ${eventName}`);
@@ -38,17 +38,17 @@ class WebhookRetryService {
           data,
         });
 
-        if (retryCount <= this.MAX_RETRIES) {
+        if (retryCount <= WebhookRetryService.MAX_RETRIES) {
           // Exponential backoff with jitter
-          const delay = this.calculateDelay(retryCount);
+          const delay = WebhookRetryService.calculateDelay(retryCount);
           logger.info(`Retrying ${eventName} in ${delay}ms`);
-          await this.sleep(delay);
+          await WebhookRetryService.sleep(delay);
         }
       }
     }
 
     // If we've exhausted retries, store in dead letter queue
-    await this.moveToDeadLetterQueue(eventName, data, retryCount, lastError);
+    await WebhookRetryService.moveToDeadLetterQueue(eventName, data, retryCount, lastError);
     logger.error(
       `Webhook ${eventName} failed permanently after ${retryCount} attempts`,
       {
@@ -90,7 +90,7 @@ class WebhookRetryService {
    * Calculate delay with exponential backoff and jitter
    */
   private static calculateDelay(retryCount: number): number {
-    const exponentialDelay = this.BASE_DELAY_MS * Math.pow(2, retryCount - 1);
+    const exponentialDelay = WebhookRetryService.BASE_DELAY_MS * Math.pow(2, retryCount - 1);
     const jitter = Math.random() * 0.1 * exponentialDelay; // 10% jitter
     return Math.min(exponentialDelay + jitter, 300000); // Max 5 minutes
   }
@@ -110,7 +110,7 @@ class WebhookRetryService {
       const failedWebhooks = await prisma.failedWebhook.findMany({
         where: {
           retry_count: {
-            lt: this.MAX_RETRIES + 2, // Allow one more retry attempt
+            lt: WebhookRetryService.MAX_RETRIES + 2, // Allow one more retry attempt
           },
         },
         orderBy: {
@@ -161,7 +161,7 @@ class WebhookRetryService {
             gte: cutoffDate,
           },
           retry_count: {
-            lt: this.MAX_RETRIES + 5, // Allow additional retry attempts
+            lt: WebhookRetryService.MAX_RETRIES + 5, // Allow additional retry attempts
           },
         },
         orderBy: {
