@@ -4,7 +4,7 @@
   "description": "Backend API for CollaborateWise application",
   "main": "dist/hybrid/main-server.js",
   "engines": {
-    "node": ">=20.x"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "start": "node dist/hybrid/main-server.js",
