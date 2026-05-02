@@ -4,6 +4,8 @@ import { EmailService } from "./emailService";
 import logger from "../monitoring/logger";
 import { SecretsService } from "./secrets-service";
 import { EntitlementService } from "./EntitlementService";
+import { clearSubscriptionCache } from "../api/subscription";
+import { SubscriptionService } from "./subscriptionService";
 
 /**
  * Service for Hybrid Authentication (Supabase + Custom Backend)
@@ -321,7 +323,10 @@ export class HybridAuthService {
         where: { user_id: referrer.id },
       });
       
-      if (referrerSub?.plan === "free" || !referrerSub) {
+      // Use getActivePlan to check the EFFECTIVE plan (handles expired subscriptions)
+      const effectivePlan = await SubscriptionService.getActivePlan(referrer.id, referrerSub);
+      
+      if (effectivePlan === "free" || !referrerSub) {
         // If no subscription exists, create one
         if (!referrerSub) {
           await prisma.subscription.create({
@@ -333,7 +338,7 @@ export class HybridAuthService {
             },
           });
         } else {
-          // Update existing free subscription to plus with expiry
+          // Update existing subscription to plus with expiry
           await prisma.subscription.update({
             where: { user_id: referrer.id },
             data: {
@@ -347,6 +352,9 @@ export class HybridAuthService {
         // Rebuild entitlements so user gets plus features immediately
         await EntitlementService.rebuildEntitlements(referrer.id);
         
+        // Clear subscription cache so the user sees updated plan immediately
+        clearSubscriptionCache(referrer.id);
+        
         // Send reward email
         await EmailService.sendReferralRewardEmail(referrer.email, referrer.full_name || "", 5);
         
@@ -354,11 +362,13 @@ export class HybridAuthService {
           referrerId: referrer.id,
           refereeId,
           expiresAt: rewardExpiresAt,
+          previousEffectivePlan: effectivePlan,
         });
       } else {
         logger.info("Referrer already on paid plan, referral logged without upgrade", {
           referrerId: referrer.id,
-          currentPlan: referrerSub.plan,
+          effectivePlan: effectivePlan,
+          rawPlan: referrerSub?.plan,
         });
       }
     } catch (error: any) {
