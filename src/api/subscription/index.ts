@@ -49,6 +49,82 @@ function setCachedSubscription(userId: string, data: any): void {
   }
 }
 
+// Export function to clear cache (used when subscription changes)
+export function clearSubscriptionCache(userId: string): void {
+  subscriptionCache.delete(userId);
+}
+
+/**
+ * GET /api/subscription/debug
+ * Debug endpoint to check raw subscription data
+ */
+router.get("/debug", authenticateHybridRequest, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const subscription = await prisma.subscription.findUnique({
+      where: { user_id: user.id },
+    });
+
+    const referrals = await prisma.referral.findMany({
+      where: { referrer_id: user.id },
+      include: { referee: { select: { email: true, full_name: true } } }
+    });
+
+    return res.json({
+      userId: user.id,
+      email: user.email,
+      subscription: subscription,
+      referrals: referrals,
+      serverTime: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Debug error:", error);
+    return res.status(500).json({ error: "Debug failed" });
+  }
+});
+
+/**
+ * POST /api/subscription/extend-plus
+ * Extend Plus plan for testing (adds 30 days from now)
+ */
+router.post("/extend-plus", authenticateHybridRequest, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const newExpiry = new Date();
+    newExpiry.setDate(newExpiry.getDate() + 30); // 30 days from now
+
+    const updated = await prisma.subscription.update({
+      where: { user_id: user.id },
+      data: {
+        plan: "plus",
+        status: "active",
+        entitlement_expires_at: newExpiry,
+      },
+    });
+
+    // Clear cache so it shows immediately
+    clearSubscriptionCache(user.id);
+
+    return res.json({
+      success: true,
+      message: "Plus plan extended",
+      expiryDate: newExpiry,
+      subscription: updated,
+    });
+  } catch (error) {
+    console.error("Extend Plus error:", error);
+    return res.status(500).json({ error: "Failed to extend" });
+  }
+});
+
 /**
  * GET /api/subscription/plans
  * Get all available pricing plans
@@ -85,6 +161,7 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
 
   try {
     const user = (req as any).user;
+    console.log("[SUBSCRIPTION DEBUG] Route hit for user:", user?.id, user?.email);
 
     if (!user) {
       return res.status(401).json({
@@ -97,6 +174,7 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
     // CACHE CHECK: Return immediately if fresh data exists (<30s old)
     // ============================================================================
     const cachedData = getCachedSubscription(user.id);
+    console.log("[SUBSCRIPTION DEBUG] Cache check:", cachedData ? "HIT" : "MISS");
     if (cachedData) {
       const cacheAge = Date.now() - cachedData.generatedTimestamp;
       console.log(
@@ -192,7 +270,18 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
 
     // Resolve Plan from Subscription using central service logic
     plan = await SubscriptionService.getActivePlan(user.id, subscriptionData);
-    
+
+    // DEBUG: Log subscription data for troubleshooting
+    console.log("[DEBUG SUBSCRIPTION]", {
+      userId: user.id,
+      subscriptionData: subscriptionData ? {
+        plan: subscriptionData.plan,
+        status: subscriptionData.status,
+        entitlement_expires_at: subscriptionData.entitlement_expires_at,
+      } : null,
+      resolvedPlan: plan,
+    });
+
     if (isTimeout && !subscriptionData) {
       status = "unknown";
     } else if (plan === "free") {

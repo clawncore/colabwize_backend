@@ -162,7 +162,7 @@ export class HocuspocusCollaborationServer {
       debounce: 1000,
       maxDebounce: 5000,
       timeout: 30000,
-      unloadImmediately: false,
+      unloadImmediately: true, // CRITICAL: Unload documents immediately when all clients disconnect to prevent stale data
       stopOnSignals: true,
       async onLoadDocument(data: onLoadDocumentPayload) {
         if (!data.documentName.startsWith("project-")) return null;
@@ -207,11 +207,47 @@ export class HocuspocusCollaborationServer {
               }
             }
 
+            // CRITICAL DIAGNOSTIC: Check for duplicate content in database
+            const contentStr = JSON.stringify(content);
+            const contentObj = typeof content === "string" ? JSON.parse(content) : content;
+            const paragraphs = contentObj?.content || [];
+
+            // Check for consecutive duplicates
+            let dupes = 0;
+            if (paragraphs.length > 1) {
+              for (let i = 0; i < paragraphs.length - 1; i++) {
+                if (JSON.stringify(paragraphs[i]) === JSON.stringify(paragraphs[i + 1])) {
+                  dupes++;
+                }
+              }
+            }
+
+            // Check for full document duplication
+            let fullDupe = false;
+            if (paragraphs.length > 3) {
+              const mid = Math.floor(paragraphs.length / 2);
+              const firstHalf = paragraphs.slice(0, mid);
+              const secondHalf = paragraphs.slice(mid);
+              if (JSON.stringify(firstHalf) === JSON.stringify(secondHalf)) {
+                fullDupe = true;
+              }
+            }
+
+            if (dupes > 0 || fullDupe) {
+              logger.error(
+                `[HP] CRITICAL: Database content for ${projectId} has duplication:`,
+                { dupes, fullDupe, paragraphs: paragraphs.length }
+              );
+            }
+
             const duration = Date.now() - startTime;
             logger.info(
               `[HP] Document ${projectId} loaded and transformed in ${duration}ms`,
               {
-                contentSize: JSON.stringify(content).length,
+                contentSize: contentStr.length,
+                paragraphs: paragraphs.length,
+                dupes,
+                fullDupe,
               },
             );
             return TiptapTransformer.extensions(extensions as any).toYdoc(
