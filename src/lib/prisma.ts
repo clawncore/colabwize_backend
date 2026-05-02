@@ -1,4 +1,6 @@
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 import logger from "../monitoring/logger";
 import { SecretsService } from "../services/secrets-service";
 
@@ -6,12 +8,12 @@ const globalForPrisma = global as unknown as {
   prisma: any;
 };
 
-const getConnectionString = (): string => {
+const configureDatabaseUrl = (): void => {
   let connectionString = process.env.DATABASE_URL;
 
   if (!connectionString) {
     logger.error("❌ DATABASE_URL environment variable is missing");
-    return "";
+    return;
   }
 
   try {
@@ -63,16 +65,26 @@ const getConnectionString = (): string => {
       url.searchParams.set("connect_timeout", "30");
     }
 
-    // Ensure schema is set if using search_path in other places, though mostly handled by prisma schema
-
-    return url.toString();
+    // Update the environment variable with modified URL
+    process.env.DATABASE_URL = url.toString();
   } catch (error) {
     logger.error("❌ Error parsing DATABASE_URL:", error);
-    return connectionString || "";
   }
 };
 
-// Prisma client configuration - using direct connection for compatibility
+// Configure database URL before creating PrismaClient
+configureDatabaseUrl();
+
+// Prisma client configuration - Prisma 7.x uses prisma.config.ts for connection URLs
+// Create PostgreSQL connection pool for Prisma 7 driver adapter
+const connectionString = process.env.DATABASE_URL;
+let adapter: PrismaPg | undefined;
+
+if (connectionString) {
+  const pool = new Pool({ connectionString });
+  adapter = new PrismaPg(pool);
+}
+
 export const prisma =
   globalForPrisma.prisma ||
   new PrismaClient({
@@ -81,11 +93,7 @@ export const prisma =
         ? ["query", "error", "warn"]
         : ["error"],
     errorFormat: "pretty",
-    datasources: {
-      db: {
-        url: getConnectionString(),
-      },
-    },
+    ...(adapter ? { adapter } : {}),
   });
 
 // [AUDIT] Removed eager connection block. 

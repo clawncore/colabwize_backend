@@ -1391,6 +1391,50 @@ export async function getReferralData(request: Request) {
       });
     }
 
+    // Generate referral code if user doesn't have one (for existing users)
+    let referralCode = userData.referral_code;
+    if (!referralCode) {
+      // Generate a unique referral code
+      const generateCode = (): string => {
+        const prefix = user.user_metadata?.full_name 
+          ? user.user_metadata.full_name.replace(/[^a-zA-Z]/g, '').substring(0, 4).toUpperCase()
+          : 'USER';
+        const random = Math.random().toString(36).substring(2, 7).toUpperCase();
+        return `${prefix}${random}`;
+      };
+
+      // Try to generate a unique code (up to 5 attempts)
+      let attempts = 0;
+      let newCode: string | null = null;
+      while (attempts < 5 && !newCode) {
+        const candidateCode = generateCode();
+        
+        // Check if this code already exists
+        const existingUser = await prisma.user.findUnique({
+          where: { referral_code: candidateCode },
+          select: { id: true }
+        });
+        
+        if (!existingUser) {
+          newCode = candidateCode;
+        }
+        attempts++;
+      }
+
+      // Update user with the new referral code if we found a unique one
+      if (newCode) {
+        try {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { referral_code: newCode },
+          });
+          referralCode = newCode;
+        } catch (error) {
+          console.error("Failed to save referral code:", error);
+        }
+      }
+    }
+
     // Calculate stats
     const totalReferrals = userData.referrals_made.length;
     const activeRewards = userData.referrals_made.filter(
@@ -1402,7 +1446,7 @@ export async function getReferralData(request: Request) {
     return new Response(
       JSON.stringify({
         success: true,
-        referralCode: userData.referral_code,
+        referralCode: referralCode,
         totalReferrals,
         activeRewards,
         totalDaysEarned,
