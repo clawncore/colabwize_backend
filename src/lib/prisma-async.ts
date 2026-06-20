@@ -1,6 +1,5 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Pool } from "pg";
 import logger from "../monitoring/logger";
 import { SecretsService } from "../services/secrets-service";
 
@@ -124,8 +123,7 @@ export async function initializePrisma(): Promise<PrismaClient> {
     // This prevents startup crashes if the DB is momentarily unreachable.
     
     // Use driver adapter for Prisma 7 compatibility
-    const pool = new Pool({ connectionString: databaseUrl });
-    const adapter = new PrismaPg(pool);
+    const adapter = new PrismaPg({ connectionString: databaseUrl });
 
     const prisma = new PrismaClient({
         adapter,

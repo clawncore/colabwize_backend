@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { sendJsonResponse, sendErrorResponse } from "../../lib/api-response";
 import logger from "../../monitoring/logger";
+import { AuthorshipConfidenceService } from "../../services/authorshipConfidenceService";
 
 const router = express.Router();
 
@@ -39,6 +40,10 @@ router.get("/verify/:certificateId", async (req: Request, res: Response) => {
       return sendErrorResponse(res, 404, "Certificate not found");
     }
 
+    const confidenceReport = certificate.project_id
+      ? await AuthorshipConfidenceService.getLatestReport(certificate.project_id, certificate.user_id).catch(() => null)
+      : null;
+
     // Return limited public data
     const publicData = {
       id: certificate.id,
@@ -48,6 +53,17 @@ router.get("/verify/:certificateId", async (req: Request, res: Response) => {
       projectTitle: certificate.project?.title || "Untitled Project",
       wordCount: certificate.project?.word_count || 0,
       metadata: certificate.metadata,
+      confidenceReport: confidenceReport ? {
+        overallReliability: confidenceReport.overallReliability,
+        attributionConfidence: confidenceReport.attributionConfidence,
+        contributionConfidence: confidenceReport.contributionConfidence,
+        collaborationClarity: confidenceReport.collaborationClarity,
+        evidenceCompleteness: confidenceReport.evidenceCompleteness,
+        aiAssistanceTransparency: confidenceReport.aiAssistanceTransparency,
+        anomalyRisk: confidenceReport.anomalyRisk,
+        evidenceSummary: confidenceReport.evidenceSummary,
+        limitations: confidenceReport.limitations,
+      } : null,
       status: certificate.status,
     };
 

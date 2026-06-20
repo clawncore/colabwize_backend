@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { getSupabaseClient } from "../../lib/supabase/client";
 import { AuthorshipCertificateGenerator } from "../../services/authorshipCertificateGenerator";
+import { AuthorshipConfidenceService } from "../../services/authorshipConfidenceService";
 import { SubscriptionService } from "../../services/subscriptionService";
 import { randomUUID } from "crypto";
 import { SecretsService } from "../../services/secrets-service";
@@ -95,6 +96,10 @@ export const generateCertificate = async (req: Request, res: Response) => {
         (m) =>
           m.AuthorshipReportService.generateAuthorshipReport(projectId, user.id)
       );
+      const confidenceReport = await AuthorshipConfidenceService.generateProjectReport(
+        projectId,
+        user.id
+      );
       const frontendUrl = await SecretsService.getFrontendUrl();
       const qrCodeDataUrl = includeQRCode
         ? await import("qrcode").then((qr) =>
@@ -118,6 +123,7 @@ export const generateCertificate = async (req: Request, res: Response) => {
           includeQRCode,
           verificationUrl: `${frontendUrl}/verify/${projectId}`,
           watermark: limits.watermark,
+          confidenceReport,
         },
         stats,
         qrCodeDataUrl
@@ -185,6 +191,17 @@ export const generateCertificate = async (req: Request, res: Response) => {
             generated_at: new Date().toISOString(),
             plan_at_generation: plan,
             previewUrl: previewPublicUrl, // Public URL for frontend display
+            confidenceReport: {
+              overallReliability: confidenceReport.overallReliability.label,
+              overallReliabilityScore: confidenceReport.overallReliability.score,
+              attributionConfidence: confidenceReport.attributionConfidence.score,
+              contributionConfidence: confidenceReport.contributionConfidence.score,
+              collaborationClarity: confidenceReport.collaborationClarity.score,
+              evidenceCompleteness: confidenceReport.evidenceCompleteness.score,
+              aiTransparency: confidenceReport.aiAssistanceTransparency.score,
+              anomalyRisk: confidenceReport.anomalyRisk.score,
+              evidenceSummary: confidenceReport.evidenceSummary,
+            },
           },
         },
       });
@@ -216,10 +233,15 @@ export const generateCertificate = async (req: Request, res: Response) => {
         });
       }
 
+      const isMissingBrowser = innerError.message?.includes("Could not find Chrome") ||
+        innerError.message?.includes("Failed to launch the browser process");
+
       // Genuine System Failure
       return res.status(500).json({
-        error: "We couldn't complete this request due to a system issue.",
-        code: "GENERATION_FAILED"
+        error: isMissingBrowser
+          ? "Certificate generation requires a local Chrome/Chromium browser for PDF rendering. Re-run backend postinstall or install Chrome."
+          : "We couldn't complete this request due to a system issue.",
+        code: isMissingBrowser ? "PUPPETEER_BROWSER_MISSING" : "GENERATION_FAILED"
       });
     }
 
