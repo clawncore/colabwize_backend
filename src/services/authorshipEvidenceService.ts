@@ -353,18 +353,18 @@ export class AuthorshipEvidenceService {
       select: { user_id: true },
     });
 
-    const evidenceCounts = evidence.reduce<Record<string, number>>((counts, item) => {
+    const evidenceCounts = evidence.reduce((counts: Record<string, number>, item) => {
       if (!item.user_id) return counts;
       counts[item.user_id] = (counts[item.user_id] ?? 0) + 1;
       return counts;
-    }, {});
+    }, {} as Record<string, number>);
 
-    const sessionCounts = sessions.reduce<Record<string, number>>((counts, item) => {
+    const sessionCounts = sessions.reduce((counts: Record<string, number>, item) => {
       counts[item.user_id] = (counts[item.user_id] ?? 0) + 1;
       return counts;
-    }, {});
+    }, {} as Record<string, number>);
 
-    const sessionMinutes = sessions.reduce<Record<string, number>>((counts, item) => {
+    const sessionMinutes = sessions.reduce((counts: Record<string, number>, item) => {
       const end = item.disconnected_at ?? new Date();
       const minutes = Math.max(
         0,
@@ -372,9 +372,9 @@ export class AuthorshipEvidenceService {
       );
       counts[item.user_id] = (counts[item.user_id] ?? 0) + minutes;
       return counts;
-    }, {});
+    }, {} as Record<string, number>);
 
-    return contributions.map((contribution) => ({
+    return contributions.map((contribution: typeof contributions[number]) => ({
       userId: contribution.user_id,
       userName: contribution.user.full_name || contribution.user.email.split("@")[0] || "Unknown user",
       userEmail: contribution.user.email,
@@ -450,7 +450,7 @@ export class AuthorshipEvidenceService {
 
     await prisma.$transaction(
       grouped.size > 0
-        ? grouped.values().map((summary) =>
+        ? Array.from(grouped.values()).map((summary) =>
             prisma.authorshipContribution.upsert({
               where: {
                 project_id_user_id_block_id: {
