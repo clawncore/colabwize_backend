@@ -11,6 +11,7 @@ import { getTimeToVerification } from "./certificates";
 import activityRouter from "./activity";
 import { generateCertificate } from "./generate";
 import verifyRouter from "../certificates/verify";
+import v2Router from "./v2";
 
 const router = express.Router();
 
@@ -19,6 +20,9 @@ router.use("/", verifyRouter);
 
 // Activity Tracking Routes (MVP Core)
 router.use("/", activityRouter);
+
+// V2 Authorship Evidence Routes
+router.use("/", v2Router);
 
 // GET /api/authorship/certificates - Get all certificates for the authenticated user
 router.get("/certificates", getCertificates);

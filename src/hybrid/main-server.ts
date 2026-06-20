@@ -23,6 +23,7 @@ import { scheduleSearchAlertsTask } from "../scheduledTasks/checkSearchAlerts";
 import { scheduleVersionSchedulingTask } from "../scheduledTasks/versionSchedulingTask";
 import { scheduleTaskReminderTask } from "../scheduledTasks/taskReminderTask";
 import { scheduleInboxWorkerTask } from "../scheduledTasks/inboxWorker";
+import { scheduleActivityCleanupTask } from "../scheduledTasks/activityCleanupTask";
 import grammarRouter from "../api/grammar/index";
 // Import collaboration server
 import { HocuspocusCollaborationServer } from "./websockets/hocuspocus-server";
@@ -82,6 +83,7 @@ scheduleVersionCleanupTask();
 scheduleVersionSchedulingTask();
 scheduleTaskReminderTask();
 scheduleInboxWorkerTask();
+scheduleActivityCleanupTask(); // 7-day retention: purges realTimeActivity + authorshipActivity older than 7 days
 
 app.set("trust proxy", true);
 
