@@ -353,18 +353,18 @@ export class AuthorshipEvidenceService {
       select: { user_id: true },
     });
 
-    const evidenceCounts = evidence.reduce((counts: Record<string, number>, item) => {
+    const evidenceCounts = evidence.reduce((counts: Record<string, number>, item: any) => {
       if (!item.user_id) return counts;
       counts[item.user_id] = (counts[item.user_id] ?? 0) + 1;
       return counts;
     }, {} as Record<string, number>);
 
-    const sessionCounts = sessions.reduce((counts: Record<string, number>, item) => {
+    const sessionCounts = sessions.reduce((counts: Record<string, number>, item: any) => {
       counts[item.user_id] = (counts[item.user_id] ?? 0) + 1;
       return counts;
     }, {} as Record<string, number>);
 
-    const sessionMinutes = sessions.reduce((counts: Record<string, number>, item) => {
+    const sessionMinutes = sessions.reduce((counts: Record<string, number>, item: any) => {
       const end = item.disconnected_at ?? new Date();
       const minutes = Math.max(
         0,
