@@ -830,28 +830,30 @@ export class HocuspocusCollaborationServer {
             timestamp: new Date().toISOString(),
           });
 
-          try {
-            await prisma.authorshipCollaborationSession.create({
-              data: {
-                project_id: authenticatedId,
-                user_id: userRecord.id,
-                server_session_id: serverSessionId,
-                client_session_id: parameters?.sessionId || null,
-                socket_id: socketId,
-                status: "active",
-                metadata: {
-                  documentName,
-                  authenticatedAt: new Date().toISOString(),
+          if (type === "project") {
+            try {
+              await prisma.authorshipCollaborationSession.create({
+                data: {
+                  project_id: authenticatedId,
+                  user_id: userRecord.id,
+                  server_session_id: serverSessionId,
+                  client_session_id: parameters?.sessionId || null,
+                  socket_id: socketId,
+                  status: "active",
+                  metadata: {
+                    documentName,
+                    authenticatedAt: new Date().toISOString(),
+                  },
                 },
-              },
-            });
-          } catch (sessionError) {
-            logger.warn("Failed to create authorship collaboration session", {
-              error: sessionError,
-              projectId: authenticatedId,
-              userId: userRecord.id,
-              serverSessionId,
-            });
+              });
+            } catch (sessionError) {
+              logger.warn("Failed to create authorship collaboration session", {
+                error: sessionError,
+                projectId: authenticatedId,
+                userId: userRecord.id,
+                serverSessionId,
+              });
+            }
           }
 
           // Return user information for the WebSocket connection.
