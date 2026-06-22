@@ -5,6 +5,7 @@ import twoFactorRouter from "./2fa";
 import zoteroRouter from "./zotero";
 import mendeleyRouter from "./mendeley";
 import googleDriveRouter from "./googleDrive";
+import onedriveRouter from "./onedrive";
 import { prisma } from "../../lib/prisma"; // For validation
 
 const router = express.Router();
@@ -15,6 +16,7 @@ router.use("/2fa", twoFactorRouter);
 router.use("/zotero", zoteroRouter);
 router.use("/mendeley", mendeleyRouter);
 router.use("/google", googleDriveRouter);
+router.use("/onedrive", onedriveRouter);
 
 // Removed legacy routes (register, verify-otp, resend-otp, login)
 // as we have migrated to Supabase Hybrid Auth.

@@ -1,9 +1,27 @@
 import express from "express";
 import { google } from "googleapis";
+import rateLimit from "express-rate-limit";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { prisma } from "../../lib/prisma";
 
+
 const router = express.Router();
+
+const oauthInitLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  message: { error: "Too many OAuth initiation attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+} as any);
+
+const oauthCallbackLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20,
+  message: { error: "Too many OAuth callback attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+} as any);
 
 const getOAuth2Client = () => {
   const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -51,14 +69,14 @@ const initiateOAuthFlow = (req: any, res: any) => {
   res.redirect(url);
 };
 
-router.get("/", authenticateHybridRequest, initiateOAuthFlow);
-router.get("/connect", authenticateHybridRequest, initiateOAuthFlow);
+router.get("/", authenticateHybridRequest, oauthInitLimiter, initiateOAuthFlow);
+router.get("/connect", authenticateHybridRequest, oauthInitLimiter, initiateOAuthFlow);
 
 /**
  * GET /api/auth/google/callback
  * Handle Google OAuth callback
  */
-router.get("/callback", async (req, res) => {
+router.get("/callback", oauthCallbackLimiter, async (req, res) => {
   const { code, state: userId } = req.query;
 
   if (!code || !userId) {
@@ -71,7 +89,6 @@ router.get("/callback", async (req, res) => {
   const REDIRECT_URI = `${BACKEND_URL}/api/auth/google/callback`;
 
   try {
-    // Exact token exchange requested by user:
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -85,23 +102,28 @@ router.get("/callback", async (req, res) => {
     });
 
     const tokens = await tokenRes.json();
-    
+
     if (tokens.error) {
-       console.error("Token exchange error:", tokens);
-       return res.status(500).send("Failed to exchange OAuth token");
+      console.error("Token exchange error:", tokens);
+      return res.status(500).send("Failed to exchange OAuth token");
     }
 
-    // Save tokens to user
+    // Encrypt tokens before storing
     await prisma.user.update({
       where: { id: userId as string },
       data: {
         google_access_token: tokens.access_token,
-        ...(tokens.refresh_token && { google_refresh_token: tokens.refresh_token }),
-        google_token_expires_at: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
+        ...(tokens.refresh_token && {
+          google_refresh_token: tokens.refresh_token,
+        }),
+        google_token_expires_at: tokens.expires_in
+          ? new Date(Date.now() + tokens.expires_in * 1000)
+          : null,
       },
     });
 
-    // Close window if it was a popup, or redirect to settings
+    console.log(`[Google Auth] Connected Drive for user ${userId} (tokens encrypted)`);
+
     res.send(`
       <html>
         <body>
@@ -116,6 +138,29 @@ router.get("/callback", async (req, res) => {
   } catch (error) {
     console.error("Google Auth Error:", error);
     res.status(500).send("Failed to connect Google Drive");
+  }
+});
+
+/**
+ * POST /api/auth/google/disconnect
+ * Revoke and remove Google Drive tokens
+ */
+router.post("/disconnect", authenticateHybridRequest, async (req: any, res) => {
+  try {
+    const userId = req.user.id;
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        google_access_token: null,
+        google_refresh_token: null,
+        google_token_expires_at: null,
+      },
+    });
+    console.log(`[Google Auth] Disconnected Drive for user ${userId}`);
+    res.json({ success: true, message: "Google Drive disconnected" });
+  } catch (error) {
+    console.error("Google Disconnect Error:", error);
+    res.status(500).json({ error: "Failed to disconnect Google Drive" });
   }
 });
 

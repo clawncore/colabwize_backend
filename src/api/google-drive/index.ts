@@ -1,4 +1,5 @@
 import express, { Request, Response } from "express";
+import rateLimit from "express-rate-limit";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { GoogleDriveService } from "../../services/googleDriveService";
 import { DocumentUploadService } from "../../services/documentUploadService";
@@ -9,9 +10,25 @@ import logger from "../../monitoring/logger";
 import path from "path";
 import fs from "fs";
 import { promisify } from "util";
-import { pipeline, Writable } from "stream";
+import { pipeline, Readable } from "stream";
 
 const streamPipeline = promisify(pipeline);
+
+const listLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60,
+  message: { error: "Too many list requests. Please slow down." },
+  standardHeaders: true,
+  legacyHeaders: false,
+} as any);
+
+const importLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,
+  message: { error: "Too many import requests. Please slow down." },
+  standardHeaders: true,
+  legacyHeaders: false,
+} as any);
 
 const router = express.Router();
 
@@ -19,7 +36,7 @@ const router = express.Router();
  * GET /api/google-drive/list
  * List files from Google Drive
  */
-router.get("/list", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.get("/list", authenticateHybridRequest, listLimiter, async (req: Request, res: Response) => {
   const userId = (req as any).user.id;
   try {
     const { folderId } = req.query;
@@ -110,7 +127,7 @@ router.get("/download/:fileId", authenticateHybridRequest, async (req: Request, 
  * POST /api/google-drive/import
  * Import a file from Google Drive to the project library
  */
-router.post("/import", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.post("/import", authenticateHybridRequest, importLimiter, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const { projectId, fileId } = req.body;
@@ -119,8 +136,8 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
       return res.status(400).json({ error: "Missing projectId or fileId" });
     }
 
-    // 1. Get file content/stream
-    const { stream, fileName, mimeType } = await GoogleDriveService.getFileContent(userId, fileId);
+    // 1. Get file content stream from Google Drive
+    const { stream: gdStream, fileName, mimeType } = await GoogleDriveService.getFileContent(userId, fileId);
 
     if (!fileName) {
       return res.status(400).json({ error: "Could not determine file name from Google Drive" });
@@ -128,15 +145,17 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
 
     const safeMimeType = mimeType || 'application/octet-stream';
 
-    // 2. Buffer the stream
-    const chunks: Buffer[] = [];
-    const buffer = await new Promise<Buffer>((resolve, reject) => {
-      stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      stream.on('error', (err) => reject(err));
-      stream.on('end', () => resolve(Buffer.concat(chunks)));
-    });
+    // 2. Stream to a temporary file to determine size and allow re-reading
+    const uploadDir = path.join(__dirname, "../../../../uploads");
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    const tempFileName = `gd-import-${Date.now()}-${fileName}`;
+    const tempPath = path.join(uploadDir, tempFileName);
 
-    const fileSize = buffer.length;
+    await streamPipeline(gdStream, fs.createWriteStream(tempPath));
+
+    const fileSize = fs.statSync(tempPath).size;
 
     // 3. Check storage limit
     const storageInfo = await StorageService.getUserStorageInfo(userId);
@@ -144,14 +163,16 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
     const newStorageUsed = storageInfo.used + fileSizeInMB;
 
     if (newStorageUsed > storageInfo.limit) {
+      fs.unlinkSync(tempPath);
       return res.status(400).json({
         error: "Storage limit exceeded. Please upgrade your plan for more space."
       });
     }
 
-    // 4. Upload to Supabase Storage
-    const uploadResult = await SupabaseStorageService.uploadFile(
-      buffer,
+    // 4. Upload from temp file using stream
+    const readStream = fs.createReadStream(tempPath);
+    const uploadResult = await SupabaseStorageService.uploadFileStream(
+      readStream,
       fileName,
       safeMimeType,
       userId,
@@ -165,7 +186,10 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
       }
     );
 
-    // 5. Create file record in database
+    // 5. Clean up temp file
+    fs.unlinkSync(tempPath);
+
+    // 6. Create file record in database
     const fileRecord = await prisma.file.create({
       data: {
         user_id: userId,
@@ -182,7 +206,7 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
       },
     });
 
-    // 6. Update user's storage usage
+    // 7. Update user's storage usage
     await prisma.user.update({
       where: { id: userId },
       data: {
@@ -194,18 +218,19 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
       userId,
       projectId,
       fileId: fileRecord.id,
-      fileName
+      fileName,
+      fileSize,
     });
 
-    return res.status(200).json({ 
-      success: true, 
-      message: "File imported successfully", 
+    return res.status(200).json({
+      success: true,
+      message: "File imported successfully",
       data: {
         id: fileRecord.id,
         fileName: fileRecord.file_name,
         fileType: fileRecord.file_type,
-        fileSize: fileRecord.file_size
-      }
+        fileSize: fileRecord.file_size,
+      },
     });
   } catch (error: any) {
     logger.error("[Google Drive Import Error]:", error.message);
