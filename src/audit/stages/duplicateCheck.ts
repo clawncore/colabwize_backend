@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { AuditJob, AuditContext, AuditPipelineStage } from "../types";
+import { AuditJob, AuditContext, AuditPipelineStage, ExtractedReference } from "../types";
 import stringSimilarity from "string-similarity"; // For fuzzy title matching
 
 /**
@@ -17,26 +17,28 @@ export const DuplicateCheckStage: AuditPipelineStage = {
         for (let i = 0; i < bibliography.length; i++) {
             if (processedIndices.has(i)) continue;
 
-            const refA = bibliography[i];
-            const cluster: string[] = [refA.id];
+            const refA: ExtractedReference = bibliography[i];
+            const refAId = refA.id || refA.text.substring(0, 20);
+            const cluster: string[] = [refAId];
             let matchReason = "";
             let confidence = 1.0;
 
             for (let j = i + 1; j < bibliography.length; j++) {
                 if (processedIndices.has(j)) continue;
 
-                const refB = bibliography[j];
+                const refB: ExtractedReference = bibliography[j];
+                const refBId = refB.id || refB.text.substring(0, 20);
 
                 // Exact DOI Match
                 if (refA.doi && refB.doi && refA.doi.trim() === refB.doi.trim()) {
-                    cluster.push(refB.id);
+                    cluster.push(refBId);
                     processedIndices.add(j);
                     matchReason = "Exact DOI Match";
                     confidence = 1.0;
                 }
                 // URL Match
                 else if (refA.url && refB.url && refA.url.trim() === refB.url.trim()) {
-                    cluster.push(refB.id);
+                    cluster.push(refBId);
                     processedIndices.add(j);
                     matchReason = "Exact URL Match";
                     confidence = 1.0;
@@ -45,7 +47,7 @@ export const DuplicateCheckStage: AuditPipelineStage = {
                 else if (refA.text.length > 20 && refB.text.length > 20) {
                     const similarity = stringSimilarity.compareTwoStrings(refA.text, refB.text);
                     if (similarity > 0.90) { // High threshold for bibliography entries
-                        cluster.push(refB.id);
+                        cluster.push(refBId);
                         processedIndices.add(j);
                         matchReason = "Fuzzy Text Match";
                         confidence = similarity;
@@ -78,10 +80,9 @@ export const DuplicateCheckStage: AuditPipelineStage = {
 
         job.report!.summary.duplicatesDetected = duplicatesDetected;
 
-        // Duplicates are penalizing because they clutter the document and break export logic optionally
-        if (duplicatesDetected > 0) {
-            job.report!.summary.complianceScore -= (duplicatesDetected * 8);
-        }
+        // Note: Score penalties for duplicates are already accounted for in VerificationStage's
+        // scoreBreakdown. We only add issues here for the UI — no direct complianceScore
+        // mutation to avoid double-counting.
 
         console.log(`[Stage] DUPLICATE_DETECTION: Scanned ${bibliography.length} entries, found ${duplicatesDetected} duplicates.`);
     }

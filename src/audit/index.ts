@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import { startAudit, getJobState } from "./pipeline";
 import { createClient } from "@supabase/supabase-js";
 
@@ -12,19 +12,25 @@ const router = express.Router();
  */
 router.post("/start", (req, res) => {
     try {
-        const userId = (req as any).user?.id || "";
-        const { documentId, projectId, docState, style } = req.body;
+        const userId = (req as unknown as { user?: { id?: string } }).user?.id || "";
+        const { documentId, projectId, docState, style } = req.body as {
+            documentId?: unknown;
+            projectId?: unknown;
+            docState?: unknown;
+            style?: unknown;
+        };
 
         if (!documentId || !projectId || !docState) {
-            return res.status(400).json({ error: "Missing documentId, projectId, or docState fields" });
+            return res.status(400).json({ success: false, error: "Missing documentId, projectId, or docState fields" });
         }
 
-        const auditId = startAudit(documentId, projectId, docState, style || "APA", userId);
+        const auditId = startAudit(String(documentId), String(projectId), docState, typeof style === "string" ? style : "APA", userId);
         return res.status(202).json({ success: true, data: { auditId }, message: "Audit background job queued." });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Audit start failed";
         console.error("[AuditEngine] Failed to start task:", error);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ success: false, error: message });
     }
 });
 
@@ -39,7 +45,7 @@ router.get("/progress/:auditId", async (req, res) => {
 
     // Supabase JWT verification — standard header auth can't be used with EventSource
     if (!tokenParam) {
-        return res.status(401).json({ error: "Missing auth token" });
+        return res.status(401).json({ success: false, error: "Missing auth token" });
     }
 
     try {
@@ -49,11 +55,11 @@ router.get("/progress/:auditId", async (req, res) => {
         );
         const { data, error } = await supabase.auth.getUser(tokenParam);
         if (error || !data.user) {
-            return res.status(401).json({ error: "Unauthorized" });
+            return res.status(401).json({ success: false, error: "Unauthorized" });
         }
     } catch (authError) {
         console.error("[AuditSSE] Token verification error:", authError);
-        return res.status(401).json({ error: "Token verification failed" });
+        return res.status(401).json({ success: false, error: "Token verification failed" });
     }
 
     // SSE Headers
@@ -101,6 +107,90 @@ router.get("/progress/:auditId", async (req, res) => {
         isClosed = true;
         clearInterval(interval);
     });
+});
+
+/**
+ * GET /api/audit/job/:auditId
+ * Returns the current in-memory job state when present, otherwise falls back to
+ * the persisted AuditJob / AuditReport rows. This lets clients recover completed
+ * audit results after a restart without requiring Redis or SSE resurrection.
+ */
+router.get("/job/:auditId", async (req: Request, res: Response) => {
+    try {
+        const { auditId } = req.params as { auditId: string };
+        const cached = getJobState(auditId);
+
+        if (cached) {
+            return res.json({
+                success: true,
+                data: {
+                    auditId: cached.auditId,
+                    status: cached.status,
+                    progress: cached.progress,
+                    currentStage: cached.currentStage,
+                    error: cached.error ?? null,
+                    report: cached.report ?? null,
+                    source: "memory" as const,
+                },
+            });
+        }
+
+        let report = null;
+        let source: "database" | "missing" = "missing";
+
+        try {
+            // Persistence may be unavailable locally; surface the missing state gracefully.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let prisma: any = null;
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { PrismaClient } = require("@prisma/client");
+                prisma = new PrismaClient({ log: ["error"] });
+            } catch {
+                prisma = null;
+            }
+
+            if (prisma) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const persistedJob: any = await prisma.auditJob.findUnique({
+                    where: { id: auditId },
+                    include: { report: { select: { report_json: true } } },
+                });
+                await prisma.$disconnect();
+
+                if (persistedJob) {
+                    report = persistedJob.report?.report_json ?? null;
+                    source = "database";
+                }
+            }
+        } catch {
+            // Persistence may be unavailable locally; surface the missing state gracefully.
+        }
+
+        if (source === "missing") {
+            return res.status(404).json({
+                success: false,
+                error: "Audit job not found in memory or persisted store",
+            });
+        }
+
+        return res.json({
+            success: true,
+            data: {
+                auditId,
+                status: "COMPLETED",
+                progress: 100,
+                currentStage: "DONE",
+                error: null,
+                report,
+                source,
+            },
+        });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Failed to fetch audit job";
+        console.error("[AuditEngine] GET /job failed:", error);
+        return res.status(500).json({ success: false, error: message });
+    }
 });
 
 export default router;

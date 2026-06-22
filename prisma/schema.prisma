@@ -5,6 +5,8 @@ generator client {
 
 datasource db {
   provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
   extensions = [vector]
 }
 
@@ -79,6 +81,7 @@ model User {
   pdf_documents            PdfDocument[]
   collaborators            CollaboratorPresence[]
   document_versions        DocumentVersion[]
+  audit_jobs               AuditJob[]
 
   // Workspace Relations
   owned_workspaces           Workspace[]           @relation("WorkspaceOwner")
@@ -432,10 +435,84 @@ model Project {
   version_schedules   VersionSchedule[]
   tasks               WorkspaceTask[] // Tasks linked to this research project
   ydoc                  Bytes?               // Hocuspocus Y.Doc binary state
+  audit_jobs          AuditJob[]
 
   @@index([user_id])
   @@index([created_at])
   @@map("projects")
+}
+
+model AuditJob {
+  id             String            @id @default(uuid())
+  user_id        String?
+  project_id     String?
+  document_id    String?
+  status         String
+  current_stage  String
+  progress       Int               @default(0)
+  started_at     DateTime          @default(now())
+  completed_at   DateTime?
+  created_at     DateTime          @default(now())
+  error          String?
+  report         AuditReport?
+  verification_evidence VerificationEvidence[]
+  score_snapshots IntegrityScoreSnapshot[]
+  user           User?             @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  project        Project?          @relation(fields: [project_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([project_id])
+  @@index([document_id])
+  @@index([status])
+  @@index([created_at])
+  @@map("audit_jobs")
+}
+
+model AuditReport {
+  id           String    @id @default(uuid())
+  audit_job_id String    @unique
+  report_json  Json
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  audit_job    AuditJob  @relation(fields: [audit_job_id], references: [id], onDelete: Cascade)
+
+  @@index([audit_job_id])
+  @@index([created_at])
+  @@map("audit_reports")
+}
+
+model VerificationEvidence {
+  id              String   @id @default(uuid())
+  audit_job_id    String
+  reference_index Int?
+  inline_start    Int?
+  inline_end      Int?
+  inline_text     String?
+  status          String
+  message         String
+  evidence_json   Json?
+  created_at      DateTime @default(now())
+  audit_job       AuditJob @relation(fields: [audit_job_id], references: [id], onDelete: Cascade)
+
+  @@index([audit_job_id])
+  @@index([status])
+  @@index([created_at])
+  @@map("verification_evidence")
+}
+
+model IntegrityScoreSnapshot {
+  id               String   @id @default(uuid())
+  audit_job_id     String
+  integrity_index Float
+  compliance_score Float
+  score_breakdown  Json?
+  summary          Json
+  created_at       DateTime @default(now())
+  audit_job        AuditJob @relation(fields: [audit_job_id], references: [id], onDelete: Cascade)
+
+  @@index([audit_job_id])
+  @@index([created_at])
+  @@map("integrity_score_snapshots")
 }
 
 model Citation {
@@ -1766,5 +1843,33 @@ model Referral {
   @@index([reward_status])
   @@index([referred_at])
   @@map("referrals")
+}
+
+model VerificationCache {
+  id          String   @id @default(uuid())
+  hash        String   @unique
+  result_json Json
+  hits        Int      @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([hash])
+  @@index([created_at])
+  @@map("verification_cache")
+}
+
+model CitationPairHash {
+  id              String   @id @default(uuid())
+  document_id     String
+  project_id      String?
+  pair_hash       String
+  citation_text   String?
+  reference_text  String?
+  created_at      DateTime @default(now())
+
+  @@unique([document_id, pair_hash])
+  @@index([document_id])
+  @@index([project_id])
+  @@map("citation_pair_hashes")
 }
 

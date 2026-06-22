@@ -35,15 +35,33 @@ export class CitationMatcher {
     ): CitationPair[] {
         const pairs: CitationPair[] = [];
 
+        // Auto-detect whether citations are numeric [1] or author-year (Smith, 2020)
+        // by checking the first few citations. If the majority look like numeric
+        // brackets, use index-based matching regardless of declared style.
+        const sampleSize = Math.min(inlineCitations.length, 5);
+        let numericCount = 0;
+        for (let i = 0; i < sampleSize; i++) {
+            if (/^\s*\[\d+\]\s*$/.test(inlineCitations[i].text) || /^\s*\(\d+\)\s*$/.test(inlineCitations[i].text)) {
+                numericCount++;
+            }
+        }
+        const isNumericStyle = numericCount >= Math.ceil(sampleSize / 2);
+
         for (const inline of inlineCitations) {
             let matchedReference: ReferenceEntry | null = null;
 
-            if (style === "IEEE") {
-                // IEEE: Match by number [1], [2], etc.
+            if (isNumericStyle || style === "IEEE") {
+                // Numeric: Match by number [1], [2], etc.
                 matchedReference = this.matchIEEE(inline, referenceEntries);
             } else if (style === "APA" || style === "MLA") {
                 // APA/MLA: Match by author and year
                 matchedReference = this.matchAuthorYear(inline, referenceEntries);
+            } else {
+                // Fallback: try numeric first, then author-year
+                matchedReference = this.matchIEEE(inline, referenceEntries);
+                if (!matchedReference) {
+                    matchedReference = this.matchAuthorYear(inline, referenceEntries);
+                }
             }
 
             // Extract metadata from reference if found
@@ -167,44 +185,58 @@ export class CitationMatcher {
         // CLEANUP: Remove [1], [2], etc. from start
         const cleanText = refText.replace(/^\s*\[\d+\]\s*/, "").replace(/^\s*\d+\.\s*/, "");
 
-        // Try to find title in quotes first
+        // Strategy 1: Title in quotes (common in IEEE/Chicago)
         const quotedMatch = cleanText.match(/"([^"]+)"/);
         if (quotedMatch) {
             return quotedMatch[1].trim();
         }
 
-        // Try to find title in italics (Markdown style if present) or just heuristic
-        // IEEE Pattern: Author, "Title," Journal... OR Author. Title. Journal...
+        // Strategy 2: Title in single quotes
+        const singleQuoted = cleanText.match(/'([^']+)'/);
+        if (singleQuoted) {
+            return singleQuoted[1].trim();
+        }
 
-        // Strategy A: Split by periods (Common in APA/IEEE)
-        const parts = cleanText.split(".");
-        if (parts.length >= 2) {
-            // Usually Part 0 is Author, Part 1 is Year (APA) or Title (IEEE)
-            // If it's IEEE (usually comma separated authors), title might be after first period? 
-            // Actually IEEE is often: J. K. Author, "Title of paper," Abbrev. Title...
+        // Strategy 3: APA format — Author(s) (Year). Title. ...
+        // After the year-in-parentheses, the title is the next sentence-like segment
+        const apaMatch = cleanText.match(/\(\d{4}[a-z]?\)\.\s*([^.]+)/);
+        if (apaMatch) {
+            return apaMatch[1].trim();
+        }
 
-            // Let's try to detect if it's APA-like (Date in parens)
-            if (cleanText.match(/\(\d{4}\)/)) {
-                // APA: Author (Date). Title.
-                const afterDate = cleanText.split(/\)\.\s*/)[1];
-                if (afterDate) {
-                    return afterDate.split(".")[0].trim();
-                }
-            } else {
-                // IEEE: Author. Title.
-                // return parts[1].trim(); // Risky if initials have dots
+        // Strategy 4: Author-Year without period after parens — Author (Year) Title
+        const apaNoPeriod = cleanText.match(/\(\d{4}[a-z]?\)\s+([^.]+)/);
+        if (apaNoPeriod) {
+            return apaNoPeriod[1].trim();
+        }
+
+        // Strategy 5: IEEE format — Author, "Title," Journal
+        // Text between first comma and next comma that looks like a title
+        const ieeeComma = cleanText.match(/,\s*([^,]{10,80}),/);
+        if (ieeeComma) {
+            const candidate = ieeeComma[1].trim();
+            // Make sure it doesn't look like a year or number
+            if (!/^\d+$/.test(candidate) && candidate.length > 5) {
+                return candidate;
             }
         }
 
-        // Fallback: If we have quotes, we took them. If not...
-        // Let's try to grab the longest segment between punctuation that isn't the author?
-        // Simple fallback for now: Remove author (first 3 words?)
+        // Strategy 6: Split by ". " (period + space) and take the longest
+        // segment that isn't the first (author) and isn't too short
+        const segments = cleanText.split(/\.\s+/);
+        if (segments.length >= 2) {
+            // Skip first segment (usually author), find longest remaining
+            let best = "";
+            for (let i = 1; i < segments.length; i++) {
+                const seg = segments[i].trim();
+                if (seg.length > best.length && seg.length > 10 && !/^(19|20)\d{2}$/.test(seg)) {
+                    best = seg;
+                }
+            }
+            if (best) return best;
+        }
 
-        // Better fallback for IEEE: Text between first comma/period and next punctuation?
-        // Removing explicit heuristic that was failing.
-        // Returning segments based on standard formats.
-
-        return null; // Better to return null than "Strachan and A"
+        return null;
     }
 
     /**

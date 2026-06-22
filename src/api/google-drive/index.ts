@@ -19,25 +19,16 @@ const router = express.Router();
  * GET /api/google-drive/list
  * List files from Google Drive
  */
-router.get("/list", async (req: Request, res: Response) => {
-  // Temporary debug override
-  const userId = "41083c9a-ad01-411e-8883-12e23432e8f7"; // req.user.id
+router.get("/list", authenticateHybridRequest, async (req: Request, res: Response) => {
+  const userId = (req as any).user.id;
   try {
     const { folderId } = req.query;
 
-    console.log(`[DEBUG] Calling listFiles for ${userId}`);
     const files = await GoogleDriveService.listFiles(userId, folderId as string);
     return res.status(200).json(files);
   } catch (error: any) {
     logger.error("[Google Drive List Error]:", error.message);
-    return res.status(500).json({ 
-      error: error.message,
-      debug: {
-        CLIENT_ID: process.env.GOOGLE_CLIENT_ID ? 'Exists (Len: ' + process.env.GOOGLE_CLIENT_ID.length + ')' : 'Missing',
-        SECRET: process.env.GOOGLE_CLIENT_SECRET ? 'Exists' : 'Missing',
-        userId: userId
-      }
-    });
+    return res.status(500).json({ error: error.message });
   }
 });
 
