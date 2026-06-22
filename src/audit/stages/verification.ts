@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
-import { AuditJob, AuditContext, AuditPipelineStage } from "../types";
+import { AuditIssueCategory, AuditJob, AuditContext, AuditPipelineStage, ExtractedReference } from "../types";
 import { CitationMatcher } from "../../services/citationAudit/citationMatcher";
 import { ExternalVerificationService } from "../../services/citationAudit/externalVerification";
-import { CitationStyle, ExtractedPattern } from "../../types/citationAudit";
+import { CitationStyle, ExtractedPattern, ReferenceEntry, VerificationResult } from "../../types/citationAudit";
 
 /**
  * Stage: Database Verification
@@ -25,11 +25,11 @@ export const VerificationStage: AuditPipelineStage = {
             context: cit.text // passing the citation itself as context if none other available
         }));
 
-        const formattedRefs = bibliography.map((ref, i) => ({
+        const formattedRefs: ReferenceEntry[] = bibliography.map((ref, i) => ({
             rawText: ref.text,
             index: i,
-            start: 0, // Mocking start as 0 since not available in bibliography context
-            end: 0    // Mocking end as 0 since not available in bibliography context
+            start: ref.start ?? 0,
+            end: ref.end ?? ref.start + ref.text.length
         }));
 
         // 2. Match Citations using robust AI logic, not just UUIDs
@@ -38,22 +38,96 @@ export const VerificationStage: AuditPipelineStage = {
         const pairs = CitationMatcher.matchCitations(formattedInline, formattedRefs, style);
 
         // Update the context mapping for later stages
-        const refMap = new Map<string, any>();
+        const refMap = new Map<string, ExtractedReference>();
         bibliography.forEach(ref => {
             if (ref.id) refMap.set(ref.id, ref);
         });
         context.citationIdMap = refMap;
 
-        // 3. Verify against external databases
+        // 3. Fetch previous audit hashes for incremental audit
+        const { prisma: prismaClient } = require("../../lib/prisma");
+        const previousHashes = new Set<string>();
+
+        // Guard: Prisma client may not have audit models if not regenerated
+        if (prismaClient.auditJob && prismaClient.citationPairHash) {
+            try {
+                const previousAudit = await prismaClient.auditJob.findFirst({
+                    where: {
+                        document_id: job.documentId,
+                        status: "COMPLETED",
+                        id: { not: job.auditId },
+                    },
+                    orderBy: { completed_at: "desc" },
+                    select: { id: true },
+                });
+
+                if (previousAudit) {
+                    const prevHashes = await prismaClient.citationPairHash.findMany({
+                        where: { document_id: job.documentId },
+                        select: { pair_hash: true },
+                    });
+                    prevHashes.forEach((h: any) => previousHashes.add(h.pair_hash));
+                    console.log(`[Stage] DB_VERIFICATION: Found ${previousHashes.size} previous pair hashes for incremental audit.`);
+                }
+            } catch (e) {
+                // Incremental audit lookup failure should not block the audit
+                console.warn("[Stage] DB_VERIFICATION: Failed to fetch previous hashes, running full audit.", e);
+            }
+        } else {
+            console.log("[Stage] DB_VERIFICATION: Audit models not available on Prisma client — running full audit.");
+        }
+
+        // 4. Verify against external databases (with caching + incremental support)
         console.log(`[Stage] DB_VERIFICATION: Fetching DB verification for ${pairs.length} pairs...`);
-        const verificationResults = await ExternalVerificationService.verifyCitationPairs(pairs, context.userId);
+        const verificationResults: VerificationResult[] = await ExternalVerificationService.verifyCitationPairs(
+            pairs,
+            context.userId,
+            {
+                skipUnchanged: previousHashes.size > 0,
+                previousHashes,
+            }
+        );
+
+        // 5. Store current pair hashes for future incremental audits (if Prisma models available)
+        if (prismaClient.citationPairHash) {
+            try {
+                const currentHashes = pairs.map((pair) => ({
+                    document_id: job.documentId,
+                    project_id: job.projectId,
+                    pair_hash: ExternalVerificationService.computePairHash(pair),
+                    citation_text: pair.inline.text,
+                    reference_text: pair.reference?.rawText ?? null,
+                }));
+
+                // Delete old hashes and insert new ones in a transaction
+                await prismaClient.$transaction([
+                    prismaClient.citationPairHash.deleteMany({
+                        where: { document_id: job.documentId },
+                    }),
+                    ...currentHashes.map((h: any) =>
+                        prismaClient.citationPairHash.upsert({
+                            where: {
+                                document_id_pair_hash: {
+                                    document_id: h.document_id,
+                                    pair_hash: h.pair_hash,
+                                },
+                            },
+                            create: h,
+                            update: h,
+                        })
+                    ),
+                ]);
+            } catch (e) {
+                console.warn("[Stage] DB_VERIFICATION: Failed to store pair hashes (non-fatal).", e);
+            }
+        }
 
         // Map reference index back to verification results
         verificationResults.forEach((res, idx) => {
             res.referenceIndex = pairs[idx].reference?.index;
         });
 
-        // 4. Calculate stats and map flags
+        // 6. Calculate stats and map flags
         let confirmed = 0;
         let hallucinations = 0;
         let mismatches = 0;
@@ -124,7 +198,7 @@ export const VerificationStage: AuditPipelineStage = {
         const uncitedEntries = bibliography.filter((_, idx) => !citedIndices.has(idx));
 
         // 2. Duplicate Detection
-        const duplicates: any[] = [];
+        const duplicates: Array<{ entry1: ExtractedReference; entry2: ExtractedReference; index1: number; index2: number }> = [];
         const extractedMetas = bibliography.map((ref, idx) => ({
             index: idx,
             title: CitationMatcher.extractTitle(ref.text)?.toLowerCase().trim(),
@@ -152,12 +226,13 @@ export const VerificationStage: AuditPipelineStage = {
 
         const urlRegex = /https?:\/\/[^\s$.?#].[^\s]*/gi;
 
-        bibliography.forEach(ref => {
-            const hasDoi = !!CitationMatcher.extractDOI(ref.text);
-            const urls = ref.text.match(urlRegex);
+        formattedRefs.forEach((ref, index) => {
+            const sourceText = ref.rawText;
+            const hasDoi = !!CitationMatcher.extractDOI(sourceText);
+            const urls = sourceText.match(urlRegex);
 
             // Simple validation: if verified by DB, it's peer-reviewed
-            const isVerified = verificationResults.some(r => r.referenceIndex === ref.index && r.status === 'VERIFIED');
+            const isVerified = verificationResults.some(r => r.referenceIndex === index && r.status === 'VERIFIED');
 
             if (isVerified || hasDoi) {
                 peerReviewed++;
@@ -190,7 +265,7 @@ export const VerificationStage: AuditPipelineStage = {
         const dupPenaltyEach = Math.min(3, (15 / totalBib));
         const urlPenaltyEach = 2.5;
 
-        const penalties: any[] = [
+        const penalties: Array<{ id: string; label: string; count: number; penalty: number; impact: AuditIssueCategory | string }> = [
             { id: 'unverified', label: 'Unverified Sources', count: hallucinations, penalty: parseFloat((hallucinations * unverifiedPenaltyEach).toFixed(2)), impact: 'CRITICAL' },
             { id: 'unmatched', label: 'Broken References', count: brokenCitations - hallucinations, penalty: parseFloat(((brokenCitations - hallucinations) * brokenPenaltyEach).toFixed(2)), impact: 'MAJOR' },
             { id: 'uncited', label: 'Uncited Bibliography Entries', count: uncitedEntries.length, penalty: parseFloat((uncitedEntries.length * uncitedPenaltyEach).toFixed(2)), impact: 'MINOR' },
@@ -229,7 +304,7 @@ export const VerificationStage: AuditPipelineStage = {
         });
 
         // Add categories to existing issues
-        job.report!.issues.forEach((issue: any) => {
+        job.report!.issues.forEach((issue) => {
             if (!issue.category) {
                 if (issue.type === 'UNVERIFIED_SOURCE') issue.category = 'VERIFICATION';
                 else if (issue.type === 'BROKEN_REFERENCE') issue.category = 'MAPPING';

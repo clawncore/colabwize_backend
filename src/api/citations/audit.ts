@@ -10,6 +10,14 @@ import { getStyleRules } from "../../services/citationAudit/styleRules";
 
 const router = express.Router();
 
+/**
+ * @deprecated Use the pipeline-based POST /api/audit/start instead.
+ *
+ * This synchronous route duplicates extraction, verification, and scoring
+ * logic that now lives in backend/src/audit/pipeline.ts. It remains
+ * temporarily for backward compatibility with older clients, but it is
+ * no longer the authoritative editor audit implementation.
+ */
 router.post("/audit", async (req: Request, res: Response) => {
     console.log("\n\n🚀🚀🚀 AUDIT ENDPOINT CALLED! 🚀🚀🚀\n");
 
