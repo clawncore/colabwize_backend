@@ -102,12 +102,26 @@ router.get("/callback", oauthCallbackLimiter, async (req, res) => {
 
     res.send(`
       <html>
-        <body>
+        <head><title>OneDrive Connected</title></head>
+        <body style="font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8f9fa;">
+          <div style="text-align:center;padding:40px;background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.08);max-width:400px;">
+            <div style="width:64px;height:64px;background:linear-gradient(135deg,#0078D4,#005A9E);border-radius:50%;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            </div>
+            <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:20px;">OneDrive Connected!</h2>
+            <p style="color:#666;margin:0 0 20px;font-size:14px;">Your Microsoft OneDrive has been successfully linked. You can close this window now.</p>
+            <button onclick="window.close()" style="background:#0078D4;color:white;border:none;padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;">Close Window</button>
+          </div>
           <script>
-            window.opener.postMessage({ type: 'ONEDRIVE_CONNECTED' }, '*');
-            window.close();
+            (function() {
+              try {
+                if (window.opener && !window.opener.closed) {
+                  window.opener.postMessage({ type: 'ONEDRIVE_CONNECTED' }, '*');
+                  setTimeout(function() { window.close(); }, 500);
+                }
+              } catch(e) {}
+            })();
           </script>
-          <p>OneDrive connected successfully! You can close this window now.</p>
         </body>
       </html>
     `);

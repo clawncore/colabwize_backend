@@ -121,6 +121,22 @@ export class GoogleDriveService {
       return response.data.files || [];
     } catch (e: any) {
       console.error("[GoogleDriveService] API Call Failed:", e.message);
+      // Preserve the original error code/status for upstream handling
+      const status = e.response?.status || e.code || e.status;
+      if (status) {
+        (e as any).code = status;
+        (e as any).status = status;
+      }
+      // Provide a clearer error message
+      if (status === 401) {
+        throw new Error("Google Drive authentication failed. Please reconnect your account in Settings.");
+      }
+      if (status === 403) {
+        throw new Error("Google Drive access denied. Please ensure you have granted Drive permissions.");
+      }
+      if (status === 429) {
+        throw new Error("Google Drive rate limit exceeded. Please wait a moment and try again.");
+      }
       throw e;
     }
   }

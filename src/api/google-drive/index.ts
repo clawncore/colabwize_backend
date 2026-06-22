@@ -45,7 +45,22 @@ router.get("/list", authenticateHybridRequest, listLimiter, async (req: Request,
     return res.status(200).json(files);
   } catch (error: any) {
     logger.error("[Google Drive List Error]:", error.message);
-    return res.status(500).json({ error: error.message });
+
+    // Return specific status codes for common errors
+    if (error.message?.includes("not connected") || error.message?.includes("refresh")) {
+      return res.status(401).json({ error: "Google Drive not connected or token expired. Please reconnect your account." });
+    }
+    if (error.code === 401 || error.status === 401) {
+      return res.status(401).json({ error: "Google Drive authentication failed. Please reconnect your account." });
+    }
+    if (error.code === 403 || error.status === 403) {
+      return res.status(403).json({ error: "Google Drive access denied. Please check your permissions." });
+    }
+    if (error.code === 429 || error.status === 429) {
+      return res.status(429).json({ error: "Google Drive rate limit exceeded. Please try again later." });
+    }
+
+    return res.status(500).json({ error: error.message || "Failed to list Google Drive files." });
   }
 });
 
