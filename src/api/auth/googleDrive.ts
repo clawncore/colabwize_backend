@@ -3,7 +3,7 @@ import { google } from "googleapis";
 import rateLimit from "express-rate-limit";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { prisma } from "../../lib/prisma";
-
+import { TokenCrypto } from "../../services/crypto/tokenCrypto";
 
 const router = express.Router();
 
@@ -112,9 +112,9 @@ router.get("/callback", oauthCallbackLimiter, async (req, res) => {
     await prisma.user.update({
       where: { id: userId as string },
       data: {
-        google_access_token: tokens.access_token,
+        google_access_token: TokenCrypto.encrypt(tokens.access_token),
         ...(tokens.refresh_token && {
-          google_refresh_token: tokens.refresh_token,
+          google_refresh_token: TokenCrypto.encrypt(tokens.refresh_token),
         }),
         google_token_expires_at: tokens.expires_in
           ? new Date(Date.now() + tokens.expires_in * 1000)
