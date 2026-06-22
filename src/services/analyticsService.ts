@@ -506,7 +506,7 @@ export class AnalyticsService {
         avgAuditDurationSeconds: Math.round(totalDuration / count),
         avgVerifiedSources: Math.round((totalVerified / count) * 10) / 10,
         avgUnverifiedSources: Math.round((totalUnverified / count) * 10) / 10,
-        lastAuditDate: lastDate ? lastDate.toISOString() : null,
+        lastAuditDate: lastDate ? (lastDate as Date).toISOString() : null,
       };
     } catch (error: any) {
       logger.error("Error getting audit stats", { error: error.message });
