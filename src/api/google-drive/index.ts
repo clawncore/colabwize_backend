@@ -202,24 +202,36 @@ router.post("/import", authenticateHybridRequest, importLimiter, async (req: Req
 });
 
 /** Unified cloud error handler */
+/** Translate raw backend errors into user-friendly messages */
+function sanitizeErrorMessage(msg: string): string {
+  if (msg.includes("not found") || msg.includes("does not exist")) {
+    return "The requested Google Drive folder or file was not found. It may have been moved or deleted.";
+  }
+  if (msg.includes("The request was aborted") || msg.includes("timeout")) {
+    return "Google Drive request timed out. Please try again.";
+  }
+  return msg.replace(/^Google Drive error \(\d+\):\s*/, "");
+}
+
 function handleCloudError(res: Response, error: any): Response {
   const msg = error.message || String(error);
+  const friendly = sanitizeErrorMessage(msg);
   if (msg.includes("not connected") || msg.includes("token") || msg.includes("reconnect")) {
-    return res.status(401).json({ error: msg });
+    return res.status(401).json({ error: friendly });
   }
   if (msg.includes("rate limit") || msg.includes("quota")) {
-    return res.status(429).json({ error: msg });
+    return res.status(429).json({ error: friendly });
   }
   if (msg.includes("denied") || msg.includes("forbidden") || msg.includes("permission")) {
-    return res.status(403).json({ error: msg });
+    return res.status(403).json({ error: friendly });
   }
-  if (msg.includes("not found")) {
-    return res.status(404).json({ error: msg });
+  if (msg.includes("not found") || msg.includes("does not exist")) {
+    return res.status(404).json({ error: friendly });
   }
   if (msg.includes("too large")) {
-    return res.status(413).json({ error: msg });
+    return res.status(413).json({ error: friendly });
   }
-  return res.status(500).json({ error: msg });
+  return res.status(500).json({ error: friendly });
 }
 
 export default router;
