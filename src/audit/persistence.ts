@@ -20,21 +20,18 @@ interface ScoreSnapshotInput {
     summary: unknown;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let prismaClient: any = null;
-
 const isPersistenceEnabled = (): boolean => process.env.AUDIT_PERSISTENCE_ENABLED !== "false";
 
+/**
+ * Get the shared Prisma client singleton from src/lib/prisma.
+ * This ensures we always use the properly configured client (with adapter, etc.)
+ * rather than creating a separate bare PrismaClient instance.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getPrismaClient(): any {
-    if (!prismaClient) {
-        // Dynamic require so the module loads even if Prisma client hasn't been generated yet.
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { PrismaClient } = require("@prisma/client");
-        prismaClient = new PrismaClient({ log: ["error"] });
-    }
-
-    return prismaClient;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { prisma } = require("../lib/prisma");
+    return prisma;
 }
 
 function getVerificationEvidence(job: AuditJob): VerificationEvidenceInput[] {
