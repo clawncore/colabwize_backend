@@ -126,103 +126,127 @@ export class GoogleDriveService {
 
   /**
    * List document files from Google Drive.
+   * Uses raw fetch (same approach as OneDrive) to ensure the Authorization
+   * header is sent correctly — avoids any googleapis library edge cases.
    */
   static async listFiles(userId: string, folderId: string = "root") {
-    const auth = await this.getAuthorizedClient(userId);
+    const accessToken = await this.getAccessToken(userId);
 
-    // Diagnostic: log whether we have credentials
-    const creds = auth.credentials;
-    console.log(`[GoogleDriveService] Calling listFiles for user ${userId}, folderId=${folderId}`);
-    console.log(`[GoogleDriveService] Credentials present: access_token=${!!creds.access_token}, refresh_token=${!!creds.refresh_token}, expiry=${creds.expiry_date ? new Date(creds.expiry_date).toISOString() : 'none'}`);
-    console.log(`[GoogleDriveService] GOOGLE_CLIENT_ID=${process.env.GOOGLE_CLIENT_ID?.substring(0, 20)}..., BACKEND_URL=${process.env.BACKEND_URL}`);
+    console.log(`[GoogleDriveService] Calling listFiles for user ${userId}, folderId=${folderId}, hasToken=${!!accessToken}`);
 
-    await this.ensureFreshToken(auth);
-
-    const drive = google.drive({ version: "v3", auth });
+    const query = encodeURIComponent(
+      "mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'"
+    );
+    const url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,mimeType,modifiedTime,size,iconLink,webViewLink)&spaces=drive`;
 
     try {
-      const response = await drive.files.list({
-        q: "mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'",
-        fields: "files(id, name, mimeType, modifiedTime, size, iconLink, webViewLink)",
-        spaces: "drive",
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
-      return response.data.files || [];
-    } catch (e: any) {
-      console.error("[GoogleDriveService] API Call Failed:", e.message);
-      console.error("[GoogleDriveService] Error details:", JSON.stringify(e.response?.data || e, null, 2));
-      // Preserve the original error code/status for upstream handling
-      const status = e.response?.status || e.code || e.status;
-      if (status) {
-        (e as any).code = status;
-        (e as any).status = status;
-      }
-      // Provide a clearer error message
-      if (status === 401) {
-        throw new Error("Google Drive authentication failed. Please reconnect your account in Settings.");
-      }
-      if (status === 403) {
-        const errorMsg = e?.response?.data?.error?.message || e.message || "";
-        if (errorMsg.includes("rate limit") || errorMsg.includes("quota")) {
+
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({}));
+        const errorMsg = errorBody?.error?.message || `HTTP ${res.status}`;
+        console.error("[GoogleDriveService] API Call Failed:", errorMsg);
+        console.error("[GoogleDriveService] Error details:", JSON.stringify(errorBody, null, 2));
+
+        if (res.status === 401) {
+          throw new Error("Google Drive authentication failed. Please reconnect your account in Settings.");
+        }
+        if (res.status === 403) {
+          if (errorMsg.includes("rate limit") || errorMsg.includes("quota")) {
+            throw new Error("Google Drive rate limit exceeded. Please wait a moment and try again.");
+          }
+          if (errorMsg.includes("unregistered callers") || errorMsg.includes("without established identity")) {
+            throw new Error("Google Drive is temporarily unavailable. The Google Cloud project needs billing to be enabled. Please contact support if this persists.");
+          }
+          throw new Error("Google Drive access denied. Please check your permissions or reconnect your account in Settings.");
+        }
+        if (res.status === 429) {
           throw new Error("Google Drive rate limit exceeded. Please wait a moment and try again.");
         }
-        // Check for the specific "unregistered callers" error
-        if (errorMsg.includes("unregistered callers") || errorMsg.includes("without established identity")) {
-          throw new Error("Google Drive API is rejecting requests because the Google Cloud project is not properly configured. Please check: (1) Billing must be enabled on the Google Cloud console → APIs & Services → Billing, (2) The Drive API must be enabled in the SAME project as the OAuth client, (3) Go to console.cloud.google.com → APIs & Services → Enabled APIs and verify 'Google Drive API' is listed. After fixing, reconnect your account in Settings.");
-        }
-        throw new Error("Google Drive access denied. This may be because: (1) Your OAuth consent screen is in Testing mode — publish it in Google Cloud Console, (2) The Drive API is not enabled, or (3) Your token has been revoked. Try reconnecting your account in Settings.");
+        throw new Error(`Google Drive API error: ${errorMsg}`);
       }
-      if (status === 429) {
-        throw new Error("Google Drive rate limit exceeded. Please wait a moment and try again.");
-      }
-      throw e;
+
+      const data = await res.json();
+      return data.files || [];
+    } catch (e: any) {
+      if (e.message?.includes("Google Drive")) throw e; // already wrapped
+      console.error("[GoogleDriveService] Unexpected error:", e.message);
+      throw new Error("Google Drive request failed. Please try again.");
     }
   }
 
   /**
-   * Download a file from Google Drive. Returns a readable stream.
+   * Get a valid access token for the user, refreshing if necessary.
+   * Returns the raw access token string (not the OAuth2Client).
    */
-  static async getFileContent(userId: string, fileId: string) {
+  private static async getAccessToken(userId: string): Promise<string> {
     const auth = await this.getAuthorizedClient(userId);
     await this.ensureFreshToken(auth);
-    const drive = google.drive({ version: "v3", auth });
+    return auth.credentials.access_token as string;
+  }
 
-    const file = await drive.files.get({
-      fileId,
-      fields: "name, mimeType",
-    });
+  /**
+   * Download a file from Google Drive. Returns a readable stream.
+   * Uses raw fetch with Bearer token (same pattern as OneDrive).
+   */
+  static async getFileContent(userId: string, fileId: string) {
+    const accessToken = await this.getAccessToken(userId);
 
-    if (!file.data.mimeType) throw new Error("Could not determine file type");
+    // Get file metadata first
+    const metaRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+
+    if (!metaRes.ok) {
+      const err = await metaRes.json().catch(() => ({}));
+      throw new Error(`Google Drive file not found: ${err?.error?.message || metaRes.status}`);
+    }
+
+    const file = await metaRes.json();
+
+    if (!file.mimeType) throw new Error("Could not determine file type");
 
     // Handle Google Docs (export to DOCX)
-    if (file.data.mimeType === "application/vnd.google-apps.document") {
+    if (file.mimeType === "application/vnd.google-apps.document") {
       const docxMimeType =
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-      const response = await drive.files.export(
-        { fileId, mimeType: docxMimeType },
-        { responseType: "stream" },
+      const exportRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(docxMimeType)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
       );
+      if (!exportRes.ok) {
+        throw new Error(`Google Docs export failed: ${exportRes.status}`);
+      }
       return {
-        stream: response.data,
-        fileName: `${file.data.name}.docx`,
+        stream: Readable.fromWeb(exportRes.body as any),
+        fileName: `${file.name}.docx`,
         mimeType: docxMimeType,
       };
     }
 
     // Handle regular files (download)
-    const response = await drive.files.get(
-      { fileId, alt: "media" },
-      { responseType: "stream" },
+    const downloadRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
+    if (!downloadRes.ok) {
+      throw new Error(`Google Drive download failed: ${downloadRes.status}`);
+    }
+
     return {
-      stream: response.data,
-      fileName: file.data.name,
-      mimeType: file.data.mimeType,
+      stream: Readable.fromWeb(downloadRes.body as any),
+      fileName: file.name,
+      mimeType: file.mimeType,
     };
   }
 
   /**
    * Upload a file to Google Drive from a Buffer.
+   * Uses raw fetch with multipart upload (same pattern as OneDrive).
    */
   static async uploadFile(
     userId: string,
@@ -230,21 +254,40 @@ export class GoogleDriveService {
     buffer: Buffer,
     mimeType: string,
   ) {
-    const auth = await this.getAuthorizedClient(userId);
-    await this.ensureFreshToken(auth);
-    const drive = google.drive({ version: "v3", auth });
+    const accessToken = await this.getAccessToken(userId);
 
-    const stream = new Readable();
-    stream.push(buffer);
-    stream.push(null);
+    // Use multipart upload for reliability
+    const boundary = `----FormBoundary${Date.now()}`;
+    const metadata = JSON.stringify({ name: fileName, mimeType });
 
-    const response = await drive.files.create({
-      requestBody: { name: fileName, mimeType },
-      media: { mimeType, body: stream },
-      fields: "id, name, webViewLink",
-    });
+    const body = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n` +
+        `--${boundary}\r\nContent-Type: ${mimeType}\r\nContent-Transfer-Encoding: binary\r\n\r\n`,
+      ),
+      buffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
 
-    return response.data;
+    const res = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+          "Content-Length": body.length.toString(),
+        },
+        body: body as any,
+      },
+    );
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`Google Drive upload failed: ${err?.error?.message || res.status}`);
+    }
+
+    return res.json();
   }
 
   /**
@@ -257,16 +300,14 @@ export class GoogleDriveService {
     stream: Readable,
     mimeType: string,
   ) {
-    const auth = await this.getAuthorizedClient(userId);
-    await this.ensureFreshToken(auth);
-    const drive = google.drive({ version: "v3", auth });
-
-    const response = await drive.files.create({
-      requestBody: { name: fileName, mimeType },
-      media: { mimeType, body: stream },
-      fields: "id, name, webViewLink",
+    // Buffer the stream first, then use multipart upload
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      stream.on("error", reject);
+      stream.on("end", () => resolve());
     });
-
-    return response.data;
+    const buffer = Buffer.concat(chunks);
+    return this.uploadFile(userId, fileName, buffer, mimeType);
   }
 }

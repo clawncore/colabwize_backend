@@ -86,7 +86,8 @@ scheduleTaskReminderTask();
 scheduleInboxWorkerTask();
 scheduleActivityCleanupTask(); // 7-day retention: purges realTimeActivity + authorshipActivity older than 7 days
 
-app.set("trust proxy", true);
+// Trust only the Render/Cloudflare proxy chain (not open to all)
+app.set("trust proxy", ["loopback", "linklocal", "uniquelocal"]);
 
 // Middleware
 // Robust CORS Configuration
