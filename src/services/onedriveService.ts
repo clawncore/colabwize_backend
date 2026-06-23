@@ -18,6 +18,10 @@ export class OneDriveService {
   /** Per-user locks to prevent concurrent OAuth refreshes */
   private static refreshLocks = new Map<string, Promise<string>>();
 
+  /** Per-user cooldown to prevent rapid retry loops after failed refresh */
+  private static refreshCooldowns = new Map<string, number>();
+  private static readonly REFRESH_COOLDOWN_MS = 60_000; // 1 minute
+
   /**
    * Get a valid access token for the user, refreshing if necessary.
    * Serialises refresh calls per-user.
@@ -39,6 +43,13 @@ export class OneDriveService {
   }
 
   private static async _refreshAndReturnToken(userId: string): Promise<string> {
+    // Check cooldown from recent failed refresh
+    const cooldownEnd = this.refreshCooldowns.get(userId);
+    if (cooldownEnd && cooldownEnd > Date.now()) {
+      throw new Error("OneDrive token refresh failed recently. Please reconnect your account in Settings.");
+    }
+    this.refreshCooldowns.delete(userId);
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -82,20 +93,27 @@ export class OneDriveService {
     const data = await res.json();
 
     if (!res.ok || data.error) {
+      // Set cooldown to prevent rapid retries
+      this.refreshCooldowns.set(userId, Date.now() + this.REFRESH_COOLDOWN_MS);
       throw new Error(`OneDrive token refresh failed: ${data.error_description || data.error}`);
+    }
+
+    // Always update refresh_token when Microsoft returns a new one.
+    // Microsoft rotates refresh tokens periodically — if we don't store the new one,
+    // the old token becomes invalid and the user must reconnect.
+    const updateData: any = {
+      onedrive_access_token: TokenCrypto.encrypt(data.access_token),
+      onedrive_token_expires_at: data.expires_in
+        ? new Date(Date.now() + data.expires_in * 1000)
+        : null,
+    };
+    if (data.refresh_token) {
+      updateData.onedrive_refresh_token = TokenCrypto.encrypt(data.refresh_token);
     }
 
     await prisma.user.update({
       where: { id: userId },
-      data: {
-        onedrive_access_token: TokenCrypto.encrypt(data.access_token),
-        onedrive_refresh_token: data.refresh_token
-          ? TokenCrypto.encrypt(data.refresh_token)
-          : undefined,
-        onedrive_token_expires_at: data.expires_in
-          ? new Date(Date.now() + data.expires_in * 1000)
-          : null,
-      },
+      data: updateData,
     });
 
     return data.access_token;
@@ -132,16 +150,22 @@ export class OneDriveService {
 
   /**
    * List files from the user's OneDrive root.
-   * Returns document files (Word, PDF, text).
+   * Returns document files (Word, PDF, text) with pagination support.
    */
-  static async listFiles(userId: string, folderId?: string) {
+  static async listFiles(userId: string, folderId?: string, skipToken?: string, pageSize: number = 100) {
     const accessToken = await this.getAccessToken(userId);
 
     const path = folderId
       ? `/me/drive/items/${folderId}/children`
       : `/me/drive/root/children`;
 
-    const data = await this.graphRequest(accessToken, `${path}?$top=100`);
+    const limit = Math.min(Math.max(pageSize, 1), 1000);
+    let url = `${path}?$top=${limit}`;
+    if (skipToken) {
+      url += `&$skiptoken=${encodeURIComponent(skipToken)}`;
+    }
+
+    const data = await this.graphRequest(accessToken, url);
 
     // Filter to document types we can import
     const documentMimeTypes = new Set([
@@ -152,27 +176,42 @@ export class OneDriveService {
       "application/rtf",
     ]);
 
-    return (data.value || [])
-      .filter((item: any) => !item.folder && documentMimeTypes.has(item.file?.mimeType || ""))
-      .map((item: any) => ({
-        id: item.id,
-        name: item.name,
-        mimeType: item.file?.mimeType,
-        size: item.size,
-        lastModifiedDateTime: item.lastModifiedDateTime,
-        webUrl: item.webUrl,
-        downloadUrl: item["@microsoft.graph.downloadUrl"] || null,
-      }));
+    return {
+      files: (data.value || [])
+        .filter((item: any) => !item.folder && documentMimeTypes.has(item.file?.mimeType || ""))
+        .map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          mimeType: item.file?.mimeType,
+          size: item.size,
+          lastModifiedDateTime: item.lastModifiedDateTime,
+          webUrl: item.webUrl,
+          downloadUrl: item["@microsoft.graph.downloadUrl"] || null,
+        })),
+      nextPageToken: data["@odata.nextLink"] || null,
+    };
   }
+
+  /** Max file download size: 100MB by default */
+  static maxDownloadSize = parseInt(process.env.ONEDRIVE_MAX_DOWNLOAD_SIZE_MB || "100", 10) * 1024 * 1024;
 
   /**
    * Download a file from OneDrive. Returns a readable stream.
+   * Validates file size before streaming.
    */
   static async getFileContent(userId: string, fileId: string) {
     const accessToken = await this.getAccessToken(userId);
 
-    // Get file metadata first
+    // Get file metadata first (includes size)
     const meta = await this.graphRequest(accessToken, `/me/drive/items/${fileId}`);
+
+    // Validate file size
+    if (meta.size && meta.size > this.maxDownloadSize) {
+      const sizeMB = (meta.size / (1024 * 1024)).toFixed(1);
+      const limitMB = this.maxDownloadSize / (1024 * 1024);
+      throw new Error(`File too large (${sizeMB}MB). Maximum allowed: ${limitMB}MB.`);
+    }
+
     const downloadUrl = meta["@microsoft.graph.downloadUrl"];
 
     if (!downloadUrl) {
