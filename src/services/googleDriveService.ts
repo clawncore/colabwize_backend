@@ -96,6 +96,25 @@ export class GoogleDriveService {
     return oauth2Client;
   }
 
+  /**
+   * Proactively refresh the token if it expires within the next 5 minutes.
+   * The mutex in getAuthorizedClient already handles the expired case, but
+   * this catches the "about to expire" window so the actual API call
+   * doesn't fail mid-request.
+   */
+  private static async ensureFreshToken(auth: OAuth2Client): Promise<void> {
+    const expiresIn = auth.credentials.expiry_date
+      ? auth.credentials.expiry_date - Date.now()
+      : 0;
+    if (expiresIn < 5 * 60 * 1000) {
+      try {
+        await auth.refreshAccessToken();
+      } catch {
+        // Ignore — the API call will fail with a clear error if the token is bad
+      }
+    }
+  }
+
   private static createOAuth2Client(): OAuth2Client {
     const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
     const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -110,6 +129,15 @@ export class GoogleDriveService {
    */
   static async listFiles(userId: string, folderId: string = "root") {
     const auth = await this.getAuthorizedClient(userId);
+
+    // Diagnostic: log whether we have credentials
+    const creds = auth.credentials;
+    console.log(`[GoogleDriveService] Calling listFiles for user ${userId}, folderId=${folderId}`);
+    console.log(`[GoogleDriveService] Credentials present: access_token=${!!creds.access_token}, refresh_token=${!!creds.refresh_token}, expiry=${creds.expiry_date ? new Date(creds.expiry_date).toISOString() : 'none'}`);
+    console.log(`[GoogleDriveService] GOOGLE_CLIENT_ID=${process.env.GOOGLE_CLIENT_ID?.substring(0, 20)}..., BACKEND_URL=${process.env.BACKEND_URL}`);
+
+    await this.ensureFreshToken(auth);
+
     const drive = google.drive({ version: "v3", auth });
 
     try {
@@ -121,6 +149,7 @@ export class GoogleDriveService {
       return response.data.files || [];
     } catch (e: any) {
       console.error("[GoogleDriveService] API Call Failed:", e.message);
+      console.error("[GoogleDriveService] Error details:", JSON.stringify(e.response?.data || e, null, 2));
       // Preserve the original error code/status for upstream handling
       const status = e.response?.status || e.code || e.status;
       if (status) {
@@ -136,6 +165,10 @@ export class GoogleDriveService {
         if (errorMsg.includes("rate limit") || errorMsg.includes("quota")) {
           throw new Error("Google Drive rate limit exceeded. Please wait a moment and try again.");
         }
+        // Check for the specific "unregistered callers" error
+        if (errorMsg.includes("unregistered callers") || errorMsg.includes("without established identity")) {
+          throw new Error("Google Drive API is rejecting requests because the Google Cloud project is not properly configured. Please check: (1) Billing must be enabled on the Google Cloud console → APIs & Services → Billing, (2) The Drive API must be enabled in the SAME project as the OAuth client, (3) Go to console.cloud.google.com → APIs & Services → Enabled APIs and verify 'Google Drive API' is listed. After fixing, reconnect your account in Settings.");
+        }
         throw new Error("Google Drive access denied. This may be because: (1) Your OAuth consent screen is in Testing mode — publish it in Google Cloud Console, (2) The Drive API is not enabled, or (3) Your token has been revoked. Try reconnecting your account in Settings.");
       }
       if (status === 429) {
@@ -150,6 +183,7 @@ export class GoogleDriveService {
    */
   static async getFileContent(userId: string, fileId: string) {
     const auth = await this.getAuthorizedClient(userId);
+    await this.ensureFreshToken(auth);
     const drive = google.drive({ version: "v3", auth });
 
     const file = await drive.files.get({
@@ -197,6 +231,7 @@ export class GoogleDriveService {
     mimeType: string,
   ) {
     const auth = await this.getAuthorizedClient(userId);
+    await this.ensureFreshToken(auth);
     const drive = google.drive({ version: "v3", auth });
 
     const stream = new Readable();
@@ -223,6 +258,7 @@ export class GoogleDriveService {
     mimeType: string,
   ) {
     const auth = await this.getAuthorizedClient(userId);
+    await this.ensureFreshToken(auth);
     const drive = google.drive({ version: "v3", auth });
 
     const response = await drive.files.create({
