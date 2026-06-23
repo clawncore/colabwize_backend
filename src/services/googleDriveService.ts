@@ -134,8 +134,25 @@ export class GoogleDriveService {
 
     console.log(`[GoogleDriveService] Calling listFiles for user ${userId}, folderId=${folderId}, hasToken=${!!accessToken}`);
 
-    // List ALL files — no MIME type filter, no trashed files
-    const query = encodeURIComponent("trashed = false");
+    // List document & PDF files only (no images, videos, etc.)
+    const query = encodeURIComponent(
+      "trashed = false and (" +
+      "mimeType = 'application/vnd.google-apps.document' or " +
+      "mimeType = 'application/vnd.google-apps.spreadsheet' or " +
+      "mimeType = 'application/vnd.google-apps.presentation' or " +
+      "mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' or " +
+      "mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or " +
+      "mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation' or " +
+      "mimeType = 'application/pdf' or " +
+      "mimeType = 'application/msword' or " +
+      "mimeType = 'application/rtf' or " +
+      "mimeType = 'text/plain' or " +
+      "mimeType = 'text/csv' or " +
+      "mimeType contains 'word' or " +
+      "mimeType contains 'pdf' or " +
+      "mimeType contains 'text'" +
+      ")"
+    );
     const url = `https://www.googleapis.com/drive/v3/files?q=${query}&pageSize=100&fields=files(id,name,mimeType,modifiedTime,size,iconLink,webViewLink,parents)&orderBy=name`;
 
     try {
