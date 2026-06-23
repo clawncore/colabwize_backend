@@ -9,8 +9,8 @@ export class OneDriveProvider implements IStorageProvider {
   readonly name = "onedrive";
 
   async listFiles(userId: string, folderId?: string): Promise<ProviderFile[]> {
-    const files = await OneDriveService.listFiles(userId, folderId);
-    return files.map((f: any) => ({
+    const result = await OneDriveService.listFiles(userId, folderId);
+    return result.files.map((f: any) => ({
       id: f.id,
       name: f.name,
       mimeType: f.mimeType,

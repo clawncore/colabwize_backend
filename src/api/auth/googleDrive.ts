@@ -1,9 +1,35 @@
 import express from "express";
 import { google } from "googleapis";
 import rateLimit from "express-rate-limit";
+import { randomBytes } from "crypto";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { prisma } from "../../lib/prisma";
 import { TokenCrypto } from "../../services/crypto/tokenCrypto";
+
+/** CSRF state store: maps state token → userId, auto-expires after 10 minutes */
+const oauthStateStore = new Map<string, { userId: string; expiresAt: number }>();
+
+/** Clean expired state entries every 5 minutes */
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of oauthStateStore) {
+    if (value.expiresAt < now) oauthStateStore.delete(key);
+  }
+}, 5 * 60 * 1000);
+
+function generateState(userId: string): string {
+  const state = randomBytes(32).toString("hex");
+  oauthStateStore.set(state, { userId, expiresAt: Date.now() + 10 * 60 * 1000 });
+  return state;
+}
+
+function validateState(state: string): string | null {
+  const entry = oauthStateStore.get(state);
+  if (!entry) return null;
+  oauthStateStore.delete(state); // one-time use
+  if (entry.expiresAt < Date.now()) return null;
+  return entry.userId;
+}
 
 const router = express.Router();
 
@@ -11,6 +37,14 @@ const oauthInitLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10,
   message: { error: "Too many OAuth initiation attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+} as any);
+
+const disconnectLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: { error: "Too many disconnect attempts. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
 } as any);
@@ -67,9 +101,10 @@ const initiateOAuthFlow = (req: any, res: any) => {
   const scope = encodeURIComponent(
     'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email'
   );
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=${userId}`;
+  const state = generateState(userId);
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=${state}`;
 
-  console.log(`[Google Auth] Initiating raw connection (write-access). Redirect URI: ${REDIRECT_URI}`);
+  console.log(`[Google Auth] Initiating OAuth for user ${userId}. Redirect URI: ${REDIRECT_URI}`);
   res.redirect(url);
 };
 
@@ -81,10 +116,17 @@ router.get("/connect", authenticateHybridRequest, oauthInitLimiter, initiateOAut
  * Handle Google OAuth callback
  */
 router.get("/callback", oauthCallbackLimiter, async (req, res) => {
-  const { code, state: userId } = req.query;
+  const { code, state } = req.query;
 
-  if (!code || !userId) {
+  if (!code || !state) {
     return res.status(400).send("Missing code or state");
+  }
+
+  // Validate CSRF state and extract userId
+  const userId = validateState(state as string);
+  if (!userId) {
+    console.error("[Google Auth] Invalid or expired CSRF state");
+    return res.status(400).send("Invalid or expired state. Please try connecting again.");
   }
 
   const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -161,11 +203,41 @@ router.get("/callback", oauthCallbackLimiter, async (req, res) => {
 
 /**
  * POST /api/auth/google/disconnect
- * Revoke and remove Google Drive tokens
+ * Revoke Google Drive tokens with Google, then clear locally
  */
-router.post("/disconnect", authenticateHybridRequest, async (req: any, res) => {
+router.post("/disconnect", authenticateHybridRequest, disconnectLimiter, async (req: any, res) => {
   try {
     const userId = req.user.id;
+
+    // Fetch the current access token to revoke it with Google
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { google_access_token: true },
+    });
+
+    if (user?.google_access_token) {
+      try {
+        const accessToken = TokenCrypto.decryptOrPlaintext(user.google_access_token);
+        // Revoke the token with Google
+        const revokeRes = await fetch(
+          `https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(accessToken)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          }
+        );
+        if (!revokeRes.ok) {
+          console.warn(`[Google Auth] Token revocation returned ${revokeRes.status}, clearing locally anyway`);
+        } else {
+          console.log(`[Google Auth] Token revoked with Google for user ${userId}`);
+        }
+      } catch (revokeErr) {
+        // Don't fail the disconnect if revocation fails — just log
+        console.warn(`[Google Auth] Token revocation failed:`, revokeErr);
+      }
+    }
+
+    // Clear tokens locally regardless of revocation result
     await prisma.user.update({
       where: { id: userId },
       data: {

@@ -11,8 +11,8 @@ export class GoogleDriveProvider implements IStorageProvider {
   readonly name = "google-drive";
 
   async listFiles(userId: string, folderId?: string): Promise<ProviderFile[]> {
-    const files = await GoogleDriveService.listFiles(userId, folderId || "root");
-    return files.map((f: any) => ({
+    const result = await GoogleDriveService.listFiles(userId, folderId || "root");
+    return result.files.map((f: any) => ({
       id: f.id,
       name: f.name,
       mimeType: f.mimeType,

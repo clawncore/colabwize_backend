@@ -5,6 +5,8 @@ dotenv.config();
 
 import express, { Application, Request, Response, NextFunction } from "express";
 import * as url from "url";
+import path from "path";
+import fs from "fs";
 import cors from "cors";
 import logger from "../monitoring/logger";
 import { authenticateExpressRequest } from "../middleware/auth";
@@ -76,6 +78,31 @@ import googleDriveApiRouter from "../api/google-drive/index";
 import onedriveApiRouter from "../api/onedrive/index";
 
 const app: Application = express();
+
+/** Clean up stale temp files from previous runs (files older than 1 hour) */
+function cleanupStaleTempFiles(): void {
+  const uploadsDir = path.join(__dirname, "../uploads");
+  if (!fs.existsSync(uploadsDir)) return;
+  const now = Date.now();
+  const maxAge = 60 * 60 * 1000; // 1 hour
+  try {
+    const files = fs.readdirSync(uploadsDir);
+    let cleaned = 0;
+    for (const file of files) {
+      const filePath = path.join(uploadsDir, file);
+      try {
+        const stat = fs.statSync(filePath);
+        if (now - stat.mtimeMs > maxAge) {
+          fs.unlinkSync(filePath);
+          cleaned++;
+        }
+      } catch { /* skip files we can't stat/unlink */ }
+    }
+    if (cleaned > 0) {
+      console.log(`[Startup] Cleaned up ${cleaned} stale temp files from uploads/`);
+    }
+  } catch { /* best-effort cleanup */ }
+}
 
 // Start Scheduled Tasks
 scheduleSearchAlertsTask();
@@ -433,8 +460,9 @@ app.use("/api/notifications", authMiddleware);
 
 app.use("/api/zotero", authMiddleware, zoteroRouter);
 app.use("/api/mendeley", authMiddleware, mendeleyRouter);
-app.use("/api/google-drive", authMiddleware, googleDriveApiRouter);
-app.use("/api/onedrive", authMiddleware, onedriveApiRouter);
+// Cloud routes have their own authenticateHybridRequest middleware per-route
+app.use("/api/google-drive", googleDriveApiRouter);
+app.use("/api/onedrive", onedriveApiRouter);
 
 // 404 handler
 app.use((req, res) => {
@@ -449,8 +477,11 @@ app.use((req, res) => {
 
 // Start server
 const startServer = async () => {
+  // Clean up stale temp files from previous runs
+  cleanupStaleTempFiles();
   // Schedule the cleanup task for expired recycle bin items
   scheduleCleanupTask();
+
 
   // Schedule the version cleanup task based on subscription plans
   scheduleVersionCleanupTask(); // Added import and function call

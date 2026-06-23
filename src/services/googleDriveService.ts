@@ -125,14 +125,19 @@ export class GoogleDriveService {
   }
 
   /**
-   * List ALL files from Google Drive (no MIME type filter).
-   * Uses raw fetch (same approach as OneDrive) to ensure the Authorization
-   * header is sent correctly — avoids any googleapis library edge cases.
+   * List document files from Google Drive.
+   * Supports pagination via pageToken and configurable pageSize.
    */
-  static async listFiles(userId: string, folderId: string = "root") {
+  static async listFiles(
+    userId: string,
+    folderId: string = "root",
+    pageToken?: string,
+    pageSize: number = 100,
+  ) {
     const accessToken = await this.getAccessToken(userId);
 
-    console.log(`[GoogleDriveService] Calling listFiles for user ${userId}, folderId=${folderId}, hasToken=${!!accessToken}`);
+    // Clamp pageSize to Google's max of 1000, default 100
+    const limit = Math.min(Math.max(pageSize, 1), 1000);
 
     // List document & PDF files only (no images, videos, etc.)
     const query = encodeURIComponent(
@@ -153,7 +158,11 @@ export class GoogleDriveService {
       "mimeType contains 'text'" +
       ")"
     );
-    const url = `https://www.googleapis.com/drive/v3/files?q=${query}&pageSize=100&fields=files(id,name,mimeType,modifiedTime,size,iconLink,webViewLink,parents)&orderBy=name`;
+
+    let url = `https://www.googleapis.com/drive/v3/files?q=${query}&pageSize=${limit}&fields=nextPageToken,files(id,name,mimeType,modifiedTime,size,iconLink,webViewLink,parents)&orderBy=name`;
+    if (pageToken) {
+      url += `&pageToken=${encodeURIComponent(pageToken)}`;
+    }
 
     try {
       const res = await fetch(url, {
@@ -163,13 +172,9 @@ export class GoogleDriveService {
         },
       });
 
-      console.log(`[GoogleDriveService] Response status: ${res.status}`);
-
       if (!res.ok) {
         const errorBody = await res.json().catch(() => ({}));
         const errorMsg = errorBody?.error?.message || `HTTP ${res.status}`;
-        console.error("[GoogleDriveService] API Call Failed:", errorMsg);
-        console.error("[GoogleDriveService] Error details:", JSON.stringify(errorBody, null, 2));
 
         if (res.status === 401) {
           throw new Error("Google Drive authentication failed. Please reconnect your account in Settings.");
@@ -190,15 +195,12 @@ export class GoogleDriveService {
       }
 
       const data = await res.json();
-      const files = data.files || [];
-      console.log(`[GoogleDriveService] Found ${files.length} files`);
-      if (files.length > 0) {
-        console.log(`[GoogleDriveService] First file: ${files[0].name} (${files[0].mimeType})`);
-      }
-      return files;
+      return {
+        files: data.files || [],
+        nextPageToken: data.nextPageToken || null,
+      };
     } catch (e: any) {
       if (e.message?.includes("Google Drive")) throw e; // already wrapped
-      console.error("[GoogleDriveService] Unexpected error:", e.message);
       throw new Error("Google Drive request failed. Please try again.");
     }
   }
@@ -213,16 +215,20 @@ export class GoogleDriveService {
     return auth.credentials.access_token as string;
   }
 
+  /** Max file download size: 100MB by default */
+  static maxDownloadSize = parseInt(process.env.GOOGLE_DRIVE_MAX_DOWNLOAD_SIZE_MB || "100", 10) * 1024 * 1024;
+
   /**
    * Download a file from Google Drive. Returns a readable stream.
    * Uses raw fetch with Bearer token (same pattern as OneDrive).
+   * Validates file size before streaming.
    */
   static async getFileContent(userId: string, fileId: string) {
     const accessToken = await this.getAccessToken(userId);
 
-    // Get file metadata first
+    // Get file metadata first (includes size)
     const metaRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType`,
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields,name,mimeType,size`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
 
@@ -234,6 +240,13 @@ export class GoogleDriveService {
     const file = await metaRes.json();
 
     if (!file.mimeType) throw new Error("Could not determine file type");
+
+    // Validate file size
+    if (file.size && parseInt(file.size, 10) > this.maxDownloadSize) {
+      const sizeMB = (parseInt(file.size, 10) / (1024 * 1024)).toFixed(1);
+      const limitMB = this.maxDownloadSize / (1024 * 1024);
+      throw new Error(`File too large (${sizeMB}MB). Maximum allowed: ${limitMB}MB.`);
+    }
 
     // Handle Google Docs (export to DOCX)
     if (file.mimeType === "application/vnd.google-apps.document") {

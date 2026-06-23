@@ -1,5 +1,6 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
+import { randomBytes } from "crypto";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { prisma } from "../../lib/prisma";
 import { TokenCrypto } from "../../services/crypto/tokenCrypto";
@@ -7,7 +8,7 @@ import { TokenCrypto } from "../../services/crypto/tokenCrypto";
 const router = express.Router();
 
 const oauthInitLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
+  windowMs: 60 * 60 * 1000, // 1 hour
   max: 10,
   message: { error: "Too many OAuth initiation attempts. Please try again later." },
   standardHeaders: true,
@@ -15,14 +16,47 @@ const oauthInitLimiter = rateLimit({
 } as any);
 
 const oauthCallbackLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
+  windowMs: 60 * 60 * 1000, // 1 hour
   max: 20,
   message: { error: "Too many OAuth callback attempts. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
 } as any);
 
+const disconnectLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: { error: "Too many disconnect attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+} as any);
+
 const SCOPES = "openid email profile Files.ReadWrite.All offline_access";
+
+/** CSRF state store: maps state token → userId, auto-expires after 10 minutes */
+const oauthStateStore = new Map<string, { userId: string; expiresAt: number }>();
+
+/** Clean expired state entries every 5 minutes */
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of oauthStateStore) {
+    if (value.expiresAt < now) oauthStateStore.delete(key);
+  }
+}, 5 * 60 * 1000);
+
+function generateState(userId: string): string {
+  const state = randomBytes(32).toString("hex");
+  oauthStateStore.set(state, { userId, expiresAt: Date.now() + 10 * 60 * 1000 });
+  return state;
+}
+
+function validateState(state: string): string | null {
+  const entry = oauthStateStore.get(state);
+  if (!entry) return null;
+  oauthStateStore.delete(state); // one-time use
+  if (entry.expiresAt < Date.now()) return null;
+  return entry.userId;
+}
 
 /**
  * GET /api/auth/onedrive
@@ -39,9 +73,10 @@ router.get("/", authenticateHybridRequest, oauthInitLimiter, (req: any, res) => 
     return res.status(500).send("Server configuration error");
   }
 
-  const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(SCOPES)}&access_type=offline&prompt=consent&state=${userId}`;
+  const state = generateState(userId);
+  const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(SCOPES)}&access_type=offline&prompt=consent&state=${state}`;
 
-  console.log(`[OneDrive Auth] Initiating OAuth. Redirect URI: ${redirectUri}`);
+  console.log(`[OneDrive Auth] Initiating OAuth for user ${userId}. Redirect URI: ${redirectUri}`);
   res.redirect(authUrl);
 });
 
@@ -50,10 +85,17 @@ router.get("/", authenticateHybridRequest, oauthInitLimiter, (req: any, res) => 
  * Handle Microsoft OAuth callback
  */
 router.get("/callback", oauthCallbackLimiter, async (req, res) => {
-  const { code, state: userId } = req.query;
+  const { code, state } = req.query;
 
-  if (!code || !userId) {
+  if (!code || !state) {
     return res.status(400).send("Missing code or state");
+  }
+
+  // Validate CSRF state and extract userId
+  const userId = validateState(state as string);
+  if (!userId) {
+    console.error("[OneDrive Auth] Invalid or expired CSRF state");
+    return res.status(400).send("Invalid or expired state. Please try connecting again.");
   }
 
   const clientId = process.env.MICROSOFT_CLIENT_ID;
@@ -86,7 +128,7 @@ router.get("/callback", oauthCallbackLimiter, async (req, res) => {
 
     // Encrypt tokens before storing
     await prisma.user.update({
-      where: { id: userId as string },
+      where: { id: userId },
       data: {
         onedrive_access_token: TokenCrypto.encrypt(tokens.access_token),
         onedrive_refresh_token: tokens.refresh_token
@@ -133,11 +175,33 @@ router.get("/callback", oauthCallbackLimiter, async (req, res) => {
 
 /**
  * POST /api/auth/onedrive/disconnect
- * Remove OneDrive tokens
+ * Revoke tokens with Microsoft and remove locally
  */
 router.post("/disconnect", authenticateHybridRequest, async (req: any, res) => {
   try {
     const userId = req.user.id;
+
+    // Fetch the current access token to revoke it with Microsoft
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { onedrive_access_token: true },
+    });
+
+    if (user?.onedrive_access_token) {
+      try {
+        const accessToken = TokenCrypto.decryptOrPlaintext(user.onedrive_access_token);
+        // Revoke the token with Microsoft
+        const revokeRes = await fetch(
+          `https://login.microsoftonline.com/common/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(process.env.FRONTEND_URL || "http://localhost:3000")}`,
+          { method: "GET" }
+        );
+        console.log(`[OneDrive Auth] Microsoft logout returned ${revokeRes.status}`);
+      } catch (revokeErr) {
+        // Don't fail disconnect if revocation fails
+        console.warn(`[OneDrive Auth] Token revocation failed:`, revokeErr);
+      }
+    }
+
     await prisma.user.update({
       where: { id: userId },
       data: {
