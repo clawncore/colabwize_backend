@@ -42,6 +42,8 @@ router.get("/list", authenticateHybridRequest, listLimiter, async (req: Request,
     const { folderId } = req.query;
 
     const files = await GoogleDriveService.listFiles(userId, folderId as string);
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.set("Pragma", "no-cache");
     return res.status(200).json(files);
   } catch (error: any) {
     logger.error("[Google Drive List Error]:", error.message);

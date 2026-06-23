@@ -125,7 +125,7 @@ export class GoogleDriveService {
   }
 
   /**
-   * List document files from Google Drive.
+   * List ALL files from Google Drive (no MIME type filter).
    * Uses raw fetch (same approach as OneDrive) to ensure the Authorization
    * header is sent correctly — avoids any googleapis library edge cases.
    */
@@ -134,15 +134,19 @@ export class GoogleDriveService {
 
     console.log(`[GoogleDriveService] Calling listFiles for user ${userId}, folderId=${folderId}, hasToken=${!!accessToken}`);
 
-    const query = encodeURIComponent(
-      "mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'"
-    );
-    const url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,mimeType,modifiedTime,size,iconLink,webViewLink)&spaces=drive`;
+    // List ALL files — no MIME type filter, no trashed files
+    const query = encodeURIComponent("trashed = false");
+    const url = `https://www.googleapis.com/drive/v3/files?q=${query}&pageSize=100&fields=files(id,name,mimeType,modifiedTime,size,iconLink,webViewLink,parents)&orderBy=name`;
 
     try {
       const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Cache-Control": "no-cache",
+        },
       });
+
+      console.log(`[GoogleDriveService] Response status: ${res.status}`);
 
       if (!res.ok) {
         const errorBody = await res.json().catch(() => ({}));
@@ -158,7 +162,7 @@ export class GoogleDriveService {
             throw new Error("Google Drive rate limit exceeded. Please wait a moment and try again.");
           }
           if (errorMsg.includes("unregistered callers") || errorMsg.includes("without established identity")) {
-            throw new Error("Google Drive is temporarily unavailable. The Google Cloud project needs billing to be enabled. Please contact support if this persists.");
+            throw new Error("Google Drive is temporarily unavailable. Please contact support if this persists.");
           }
           throw new Error("Google Drive access denied. Please check your permissions or reconnect your account in Settings.");
         }
@@ -169,7 +173,12 @@ export class GoogleDriveService {
       }
 
       const data = await res.json();
-      return data.files || [];
+      const files = data.files || [];
+      console.log(`[GoogleDriveService] Found ${files.length} files`);
+      if (files.length > 0) {
+        console.log(`[GoogleDriveService] First file: ${files[0].name} (${files[0].mimeType})`);
+      }
+      return files;
     } catch (e: any) {
       if (e.message?.includes("Google Drive")) throw e; // already wrapped
       console.error("[GoogleDriveService] Unexpected error:", e.message);
