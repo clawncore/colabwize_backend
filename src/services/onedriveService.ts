@@ -138,13 +138,31 @@ export class OneDriveService {
 
     if (!res.ok) {
       const errorBody = await res.text();
-      throw new Error(`Graph API error ${res.status}: ${errorBody}`);
+      // Try to extract a meaningful error from Graph API error responses
+      let errorMessage = errorBody;
+      try {
+        const parsed = JSON.parse(errorBody);
+        errorMessage = parsed.error?.message || parsed.error?.code || errorBody;
+      } catch {
+        // Not JSON — use the raw text (could be HTML error page)
+        // Truncate long HTML responses
+        errorMessage = errorBody.length > 200 ? errorBody.substring(0, 200) + "..." : errorBody;
+      }
+      throw new Error(`OneDrive error (${res.status}): ${errorMessage}`);
+    }
+
+    // 204 No Content or empty body — return empty object
+    if (res.status === 204 || res.headers.get("content-length") === "0") {
+      return {};
     }
 
     const contentType = res.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
-      return res.json();
+      const text = await res.text();
+      if (!text) return {};
+      return JSON.parse(text);
     }
+    // Non-JSON response (e.g., file download) — return the response object
     return res;
   }
 
