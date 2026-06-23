@@ -40,8 +40,10 @@ const getOAuth2Client = () => {
   );
 };
 
-// Scopes for Google Drive (Allowing file creation/export)
+// Scopes for Google Drive — drive.readonly to list user's documents,
+// drive.file to create/edit files via the app
 const SCOPES = [
+  'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/userinfo.email',
 ];
@@ -62,8 +64,10 @@ const initiateOAuthFlow = (req: any, res: any) => {
     return res.status(500).send("Server configuration error");
   }
 
-  // Exact flow requested by user:
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=code&scope=https://www.googleapis.com/auth/drive.file%20https://www.googleapis.com/auth/userinfo.email&access_type=offline&prompt=consent&state=${userId}`;
+  const scope = encodeURIComponent(
+    'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email'
+  );
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=${userId}`;
 
   console.log(`[Google Auth] Initiating raw connection (write-access). Redirect URI: ${REDIRECT_URI}`);
   res.redirect(url);
