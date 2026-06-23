@@ -132,7 +132,11 @@ export class GoogleDriveService {
         throw new Error("Google Drive authentication failed. Please reconnect your account in Settings.");
       }
       if (status === 403) {
-        throw new Error("Google Drive access denied. Please ensure you have granted Drive permissions.");
+        const errorMsg = e?.response?.data?.error?.message || e.message || "";
+        if (errorMsg.includes("rate limit") || errorMsg.includes("quota")) {
+          throw new Error("Google Drive rate limit exceeded. Please wait a moment and try again.");
+        }
+        throw new Error("Google Drive access denied. This may be because: (1) Your OAuth consent screen is in Testing mode — publish it in Google Cloud Console, (2) The Drive API is not enabled, or (3) Your token has been revoked. Try reconnecting your account in Settings.");
       }
       if (status === 429) {
         throw new Error("Google Drive rate limit exceeded. Please wait a moment and try again.");
