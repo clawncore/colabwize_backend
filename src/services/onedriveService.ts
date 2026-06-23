@@ -148,6 +148,18 @@ export class OneDriveService {
         // Truncate long HTML responses
         errorMessage = errorBody.length > 200 ? errorBody.substring(0, 200) + "..." : errorBody;
       }
+
+      // Translate known technical errors into user-friendly messages
+      if (res.status === 404) {
+        if (errorMessage.includes("Item does not exist") || errorMessage.includes("itemNotFound")) {
+          throw new Error("The requested OneDrive folder or file was not found. It may have been moved or deleted.");
+        }
+        throw new Error("OneDrive resource not found. Please check the file and try again.");
+      }
+      if (res.status === 403 || errorMessage.includes("accessDenied")) {
+        throw new Error("OneDrive access denied. Please check your permissions or reconnect your account.");
+      }
+
       throw new Error(`OneDrive error (${res.status}): ${errorMessage}`);
     }
 
@@ -194,6 +206,19 @@ export class OneDriveService {
       "application/rtf",
     ]);
 
+    // Parse @odata.nextLink to extract just the $skiptoken parameter
+    // Microsoft returns a full URL like "https://graph.microsoft.com/v1.0/me/drive/root/children?$skiptoken=abc123"
+    let nextPageToken: string | null = null;
+    const nextLink = data["@odata.nextLink"];
+    if (nextLink) {
+      try {
+        const url = new URL(nextLink);
+        nextPageToken = url.searchParams.get("$skiptoken") || nextLink;
+      } catch {
+        nextPageToken = nextLink;
+      }
+    }
+
     return {
       files: (data.value || [])
         .filter((item: any) => !item.folder && documentMimeTypes.has(item.file?.mimeType || ""))
@@ -206,7 +231,7 @@ export class OneDriveService {
           webUrl: item.webUrl,
           downloadUrl: item["@microsoft.graph.downloadUrl"] || null,
         })),
-      nextPageToken: data["@odata.nextLink"] || null,
+      nextPageToken,
     };
   }
 
