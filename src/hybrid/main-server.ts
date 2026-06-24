@@ -460,8 +460,8 @@ app.use("/api/research", authMiddleware, researchRouter);
 // Apply auth middleware to notification routes
 app.use("/api/notifications", authMiddleware);
 
-app.use("/api/zotero", authMiddleware, zoteroRouter);
-app.use("/api/mendeley", authMiddleware, mendeleyRouter);
+app.use("/api/zotero", zoteroRouter);
+app.use("/api/mendeley", mendeleyRouter);
 app.use("/api/references", referencesRouter);
 app.use("/api/references/collections", collectionsRouter);
 // Cloud routes have their own authenticateHybridRequest middleware per-route

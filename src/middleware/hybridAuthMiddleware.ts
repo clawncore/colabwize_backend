@@ -49,13 +49,9 @@ export async function authenticateHybridRequest(
       logger.error("Supabase authentication failed", {
         error: error instanceof Error ? error.message : String(error),
       });
+      // authenticateExpressRequest already sent an error response; don't send another
+      return;
     }
-
-    // If authentication fails
-    res.status(401).json({
-      success: false,
-      message: "Authentication failed. Invalid token.",
-    });
   } catch (error) {
     logger.error("Authentication error", {
       error: error instanceof Error ? error.message : String(error),
