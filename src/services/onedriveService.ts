@@ -75,7 +75,7 @@ export class OneDriveService {
 
     console.log(`[OneDriveService] Token expired for ${userId}, refreshing...`);
 
-    const tokenEndpoint = `https://login.microsoftonline.com/common/oauth2/v0/token`;
+    const tokenEndpoint = `https://login.microsoftonline.com/common/oauth2/v2.0/token`;
     const body = new URLSearchParams({
       client_id: process.env.MICROSOFT_CLIENT_ID || "",
       client_secret: process.env.MICROSOFT_CLIENT_SECRET || "",
