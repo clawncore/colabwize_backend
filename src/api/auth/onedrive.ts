@@ -74,7 +74,7 @@ router.get("/", authenticateHybridRequest, oauthInitLimiter, (req: any, res) => 
   }
 
   const state = generateState(userId);
-  const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(SCOPES)}&access_type=offline&prompt=consent&state=${state}`;
+  const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(SCOPES)}&prompt=consent&state=${state}`;
 
   console.log(`[OneDrive Auth] Initiating OAuth for user ${userId}. Redirect URI: ${redirectUri}`);
   res.redirect(authUrl);
@@ -85,7 +85,12 @@ router.get("/", authenticateHybridRequest, oauthInitLimiter, (req: any, res) => 
  * Handle Microsoft OAuth callback
  */
 router.get("/callback", oauthCallbackLimiter, async (req, res) => {
-  const { code, state } = req.query;
+  const { code, state, error, error_description } = req.query;
+
+  if (error) {
+    console.warn(`[OneDrive Auth] Provider returned error: ${error} - ${error_description}`);
+    return res.status(400).send(`Authentication error: ${error_description || error}. Please try again.`);
+  }
 
   if (!code || !state) {
     return res.status(400).send("Missing code or state");
