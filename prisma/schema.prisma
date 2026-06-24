@@ -73,6 +73,7 @@ model User {
   credit_transactions   CreditTransaction[]
   annotations           Annotation[]
   source_interactions   SourceInteraction[]
+  reference_collections ReferenceCollection[]
   entitlement           UserEntitlement?
   search_alerts         SearchAlert[]
   research_topics       ResearchTopic[]
@@ -434,6 +435,7 @@ model Project {
   tasks               WorkspaceTask[] // Tasks linked to this research project
   ydoc                  Bytes?               // Hocuspocus Y.Doc binary state
   audit_jobs          AuditJob[]
+  reference_collections ReferenceCollection[]
 
   @@index([user_id])
   @@index([created_at])
@@ -518,7 +520,8 @@ model Citation {
   project_id     String
   user_id        String
   title          String
-  author         String
+  author         String?  @map("author")  // Legacy flat author string — kept for migration compat
+  authors        Json?    // Structured authors: [{ family, given, literal }]
   year           Int
   type           String
   doi            String?
@@ -530,13 +533,26 @@ model Citation {
   journal        String?
   citation_count Int?
   source         String?
-  abstract       String?  // Summary of the paper
+  abstract       String?
   formatted_citations Json?
-  themes         Json?    // Array of themes like ["Gap", "Method", "Result"]
-  matrix_notes   String?  // Qualitative notes for the Literature Matrix
+  themes         Json?
+  matrix_notes   String?
   vault_verified  Boolean  @default(true)
+
+  // --- Canonical Citation Model additions ---
+  provider       String?  @default("manual")  // "zotero" | "mendeley" | "manual" | "crossref"
+  providerId     String?  // Original provider item/document ID
+  rawMetadata    Json?    // Original provider data for round-trip export fidelity
+  identifiers    Json?    // { doi, isbn, pmid, pmcid, arxiv, issn, ... }
+  attachments    Json?    // [{ type, title, url, mimeType, size }]
+  tags           Json?    // Array of user-defined tags
+  isFavorite     Boolean  @default(false)
+  readingStatus  String?  @default("unread")  // "unread" | "reading" | "read"
+  authenticityScore Float? @default(0)        // 0-100 source integration score
+
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
+  collections    CollectionCitation[]
   project        Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
   user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
@@ -544,7 +560,52 @@ model Citation {
   @@index([user_id])
   @@index([year])
   @@index([doi])
+  @@index([provider])
+  @@index([providerId])
+  @@index([isFavorite])
   @@map("citations")
+}
+
+model ReferenceCollection {
+  id          String   @id @default(uuid())
+  project_id  String
+  user_id     String
+  name        String
+  description String?
+  icon        String?
+  type        String   @default("collection")  // "collection" | "reading_list" | "citation_bundle" | "literature_review"
+  is_smart    Boolean  @default(false)
+  smart_rules Json?
+  color       String?
+  sort_order  Int      @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  citations   CollectionCitation[]
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([type])
+  @@map("reference_collections")
+}
+
+model CollectionCitation {
+  id              String   @id @default(uuid())
+  collection_id   String
+  citation_id     String
+  note            String?
+  sort_order      Int      @default(0)
+  added_at        DateTime @default(now())
+
+  collection      ReferenceCollection @relation(fields: [collection_id], references: [id], onDelete: Cascade)
+  citation        Citation            @relation(fields: [citation_id], references: [id], onDelete: Cascade)
+
+  @@unique([collection_id, citation_id])
+  @@index([collection_id])
+  @@index([citation_id])
+  @@map("collection_citations")
 }
 
 model Subscription {

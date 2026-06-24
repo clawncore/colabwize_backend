@@ -177,14 +177,14 @@ router.get("/callback", async (req, res) => {
         tokenParams.append("grant_type", "authorization_code");
         tokenParams.append("code", code as string);
         tokenParams.append("redirect_uri", CALLBACK_URL);
-        tokenParams.append("client_id", MENDELEY_CLIENT_ID);
-        tokenParams.append("client_secret", MENDELEY_CLIENT_SECRET);
+        // Elsevier IDP requires HTTP Basic Auth (client_id:client_secret in base64)
+        const basicAuth = Buffer.from(`${MENDELEY_CLIENT_ID}:${MENDELEY_CLIENT_SECRET}`).toString("base64");
 
         const response = await axios.post(TOKEN_URL, tokenParams.toString(), {
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accept": "application/json",
-                "X-ELS-APIKey": MENDELEY_API_KEY 
+                "Authorization": `Basic ${basicAuth}`,
             },
         });
 
@@ -227,6 +227,62 @@ router.get("/callback", async (req, res) => {
         
         const errorMessage = errorData?.error_description || errorData?.message || error.message;
         return res.status(statusCode).send(`Mendeley Token Exchange Failed: ${errorMessage}`);
+    }
+});
+
+/**
+ * POST /api/auth/mendeley/disconnect
+ * Revoke Mendeley tokens with Elsevier, then clear locally
+ */
+router.post("/disconnect", authenticateHybridRequest, async (req, res) => {
+    try {
+        const userId = (req as any).user.id;
+
+        // Fetch current access token to revoke with Elsevier
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { mendeley_access_token: true },
+        });
+
+        if (user?.mendeley_access_token) {
+            try {
+                const accessToken = user.mendeley_access_token;
+                const revokeRes = await fetch(
+                    `https://api.mendeley.com/oauth/revoke?token=${encodeURIComponent(accessToken)}`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "Authorization": `Basic ${Buffer.from(`${MENDELEY_CLIENT_ID}:${MENDELEY_CLIENT_SECRET}`).toString("base64")}`,
+                        },
+                    }
+                );
+                if (!revokeRes.ok) {
+                    console.warn(`[Mendeley Auth] Token revocation returned ${revokeRes.status}, clearing locally anyway`);
+                } else {
+                    console.log(`[Mendeley Auth] Token revoked with Elsevier for user ${userId}`);
+                }
+            } catch (revokeErr) {
+                console.warn("[Mendeley Auth] Token revocation failed, clearing locally anyway:", revokeErr);
+            }
+        }
+
+        // Clear tokens locally regardless of revocation result
+        await prisma.user.update({
+            where: { id: userId },
+            data: {
+                mendeley_access_token: null,
+                mendeley_refresh_token: null,
+                mendeley_token_expires_at: null,
+                mendeley_auto_sync: false,
+            },
+        });
+
+        logger.info(`[Mendeley Auth] Disconnected Mendeley for user ${userId}`);
+        res.json({ success: true, message: "Mendeley disconnected" });
+    } catch (error: any) {
+        console.error("[Mendeley Disconnect] Error:", error.message);
+        res.status(500).json({ error: "Failed to disconnect Mendeley" });
     }
 });
 
