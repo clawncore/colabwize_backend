@@ -130,7 +130,7 @@ router.get("/callback", async (req, res) => {
         });
         
         // Determine redirect target (default to production app if not inferred)
-        const frontendUrl = (req.headers.referer || "https://app.colabwize.com").split("/dashboard")[0];
+        const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === "production" ? "https://app.colabwize.com" : "http://localhost:5173");
         
         return res.redirect(`${frontendUrl}/dashboard/settings/account?zotero_success=true`);
 
