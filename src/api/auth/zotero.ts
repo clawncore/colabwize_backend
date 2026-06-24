@@ -156,9 +156,6 @@ router.post("/disconnect", authenticateHybridRequest, async (req: any, res) => {
             data: {
                 zotero_api_key: null,
                 zotero_user_id: null,
-                zotero_access_token: null,
-                zotero_refresh_token: null,
-                zotero_token_expires_at: null,
                 zotero_auto_sync: false,
             },
         });
