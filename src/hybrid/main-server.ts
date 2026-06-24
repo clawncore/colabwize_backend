@@ -74,6 +74,8 @@ import adminRouter from "../api/admin/index";
 import publicBlogsRouter from "../api/blogs/index";
 import zoteroRouter from "../api/zotero/index";
 import mendeleyRouter from "../api/mendeley/index";
+import referencesRouter from "../api/references/index";
+import collectionsRouter from "../api/references/collections";
 import googleDriveApiRouter from "../api/google-drive/index";
 import onedriveApiRouter from "../api/onedrive/index";
 
@@ -460,6 +462,8 @@ app.use("/api/notifications", authMiddleware);
 
 app.use("/api/zotero", authMiddleware, zoteroRouter);
 app.use("/api/mendeley", authMiddleware, mendeleyRouter);
+app.use("/api/references", referencesRouter);
+app.use("/api/references/collections", collectionsRouter);
 // Cloud routes have their own authenticateHybridRequest middleware per-route
 app.use("/api/google-drive", googleDriveApiRouter);
 app.use("/api/onedrive", onedriveApiRouter);

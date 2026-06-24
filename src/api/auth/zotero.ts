@@ -140,4 +140,35 @@ router.get("/callback", async (req, res) => {
     }
 });
 
+/**
+ * POST /api/auth/zotero/disconnect
+ * Clear Zotero tokens and user association
+ */
+router.post("/disconnect", authenticateHybridRequest, async (req: any, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Revoke OAuth tokens by clearing them locally
+        // Zotero API keys don't support server-side revocation,
+        // so we clear the stored credentials
+        await prisma.user.update({
+            where: { id: userId },
+            data: {
+                zotero_api_key: null,
+                zotero_user_id: null,
+                zotero_access_token: null,
+                zotero_refresh_token: null,
+                zotero_token_expires_at: null,
+                zotero_auto_sync: false,
+            },
+        });
+
+        logger.info(`[Zotero Auth] Disconnected Zotero for user ${userId}`);
+        res.json({ success: true, message: "Zotero disconnected" });
+    } catch (error: any) {
+        console.error("[Zotero Disconnect] Error:", error.message);
+        res.status(500).json({ error: "Failed to disconnect Zotero" });
+    }
+});
+
 export default router;

@@ -349,4 +349,67 @@ router.get("/collections/:collectionKey/items", authenticateHybridRequest, async
     }
 });
 
+/**
+ * POST /api/zotero/export
+ * Export a citation back to Zotero (round-trip)
+ */
+router.post("/export", authenticateHybridRequest, async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.id;
+        const { citationId } = req.body;
+
+        if (!citationId) {
+            return res.status(400).json({ error: "citationId is required" });
+        }
+
+        // Fetch citation from DB
+        const citation = await prisma.citation.findFirst({
+            where: { id: citationId, user_id: userId },
+        });
+
+        if (!citation) {
+            return res.status(404).json({ error: "Citation not found" });
+        }
+
+        // Reconstruct Zotero item from rawMetadata or formatted data
+        const itemData = citation.rawMetadata || {
+            itemType: citation.type || 'article-journal',
+            title: citation.title,
+            creators: [],
+            date: citation.year?.toString() || '',
+            DOI: citation.doi,
+            url: citation.url,
+            publicationTitle: citation.journal,
+            volume: citation.volume,
+            issue: citation.issue,
+            pages: citation.pages,
+            publisher: citation.publisher,
+            abstractNote: citation.abstract,
+        };
+
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { zotero_api_key: true, zotero_user_id: true },
+        });
+
+        if (!user?.zotero_api_key || !user?.zotero_user_id) {
+            return res.status(401).json({ error: "Zotero account not linked" });
+        }
+
+        const created = await ZoteroService.createItem(
+            user.zotero_user_id,
+            user.zotero_api_key,
+            itemData
+        );
+
+        return res.status(200).json({
+            success: true,
+            zoteroItemKey: typeof created === 'string' ? created : created?.key || 'unknown',
+        });
+    } catch (error: any) {
+        console.error("[Zotero Export] Error:", error.message);
+        return res.status(500).json({ error: error.message });
+    }
+});
+
 export default router;

@@ -78,4 +78,53 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
     }
 });
 
+/**
+ * POST /api/mendeley/export
+ * Export a citation back to Mendeley (round-trip)
+ */
+router.post("/export", authenticateHybridRequest, async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.id;
+        const { citationId } = req.body;
+
+        if (!citationId) {
+            return res.status(400).json({ error: "citationId is required" });
+        }
+
+        const citation = await prisma.citation.findFirst({
+            where: { id: citationId, user_id: userId },
+        });
+
+        if (!citation) {
+            return res.status(404).json({ error: "Citation not found" });
+        }
+
+        // Reconstruct Mendeley document from rawMetadata or formatted data
+        const documentData = citation.rawMetadata || {
+            title: citation.title,
+            type: citation.type || 'journal_article',
+            authors: citation.author ? [{ first_name: '', last_name: citation.author }] : [],
+            year: citation.year,
+            doi: citation.doi,
+            websites: citation.url ? [citation.url] : [],
+            source: citation.journal,
+            publisher: citation.publisher,
+            volume: citation.volume,
+            issue: citation.issue,
+            pages: citation.pages,
+            abstract: citation.abstract,
+        };
+
+        const created = await MendeleyService.createDocument(userId, documentData);
+
+        return res.status(200).json({
+            success: true,
+            mendeleyDocumentId: created?.id || 'unknown',
+        });
+    } catch (error: any) {
+        console.error("[Mendeley Export] Error:", error.message);
+        return res.status(500).json({ error: error.message });
+    }
+});
+
 export default router;
