@@ -8,6 +8,7 @@ import { RecycleBinService } from "./recycleBinService";
 import logger from "../monitoring/logger";
 import { PdfConversionService } from "./pdfConversionService";
 import { WorkspaceActivityService } from "./workspaceActivityService";
+import { CitationMappingService } from "./citationMappingService";
 
 interface ExtendedRequest extends Request {
   user?: {
@@ -36,24 +37,29 @@ export class DocumentUploadService {
     // Count words in the document
     const wordCount = this.countWords(extractedContent);
 
-    // Prepare content for database
-    const projectContent =
-      format === "html"
-        ? extractedContent
-        : {
-            type: "doc",
-            content: [
-              {
-                type: "paragraph",
-                content: [
-                  {
-                    type: "text",
-                    text: extractedContent,
-                  },
-                ],
-              },
-            ],
-          };
+    // Parse citation structure from the document (or fall back to plain text wrapper)
+    let projectContent: any;
+    try {
+      const parsed = CitationMappingService.parseDocument(extractedContent, format);
+      // If parsing produced a structured document with content, use it
+      if (parsed && parsed.content && parsed.content.length > 0) {
+        projectContent = parsed;
+
+        // Persist bibliography entries to the citations table so the rest of the app can see them
+        const bibNodes = parsed.content.filter((n: any) => n.type === "bibliographyEntry");
+        if (bibNodes.length > 0) {
+          // We need the project ID first — create the project, then insert citations
+          // So we do this after project creation below (see post-create block)
+        }
+      } else {
+        projectContent = this.wrapPlainText(extractedContent);
+      }
+    } catch (mappingError: any) {
+      logger.warn("CitationMappingService failed, falling back to plain text:", {
+        error: mappingError.message,
+      });
+      projectContent = this.wrapPlainText(extractedContent);
+    }
 
     // Create project record in the database
     const project = await prisma.project.create({
@@ -73,6 +79,37 @@ export class DocumentUploadService {
         citations: true,
       },
     });
+
+    // Post-create: persist bibliography entries to citations table
+    try {
+      const bibNodes = projectContent?.content?.filter((n: any) => n.type === "bibliographyEntry") || [];
+      if (bibNodes.length > 0) {
+        const citationData = bibNodes.map((node: any) => {
+          const text = node.content?.[0]?.text || "";
+          const ieeeMatch = text.match(/^\[?(\d+)\]?[\.\s]/);
+          const yearMatch = text.match(/\((\d{4}[a-z]?)\)/) || text.match(/\b(19|20)\d{2}\b/);
+          return {
+            id: node.attrs.citationId,
+            project_id: project.id,
+            user_id: userId,
+            title: text.substring(0, 200),
+            raw_reference_text: text,
+            ieee_number: ieeeMatch ? parseInt(ieeeMatch[1], 10) : null,
+            year: yearMatch ? parseInt(yearMatch[1] || yearMatch[0]) : new Date().getFullYear(),
+            type: "journal-article",
+            source: "document_import",
+          };
+        });
+        await prisma.citation.createMany({
+          data: citationData,
+          skipDuplicates: true,
+        });
+        logger.info(`Imported ${citationData.length} bibliography entries for project ${project.id}`);
+      }
+    } catch (citeError: any) {
+      logger.warn("Failed to persist bibliography entries:", { error: citeError.message });
+      // Non-fatal: project is still created
+    }
 
     // Log workspace activity and notify members if applicable
     if (workspaceId) {
@@ -383,6 +420,26 @@ export class DocumentUploadService {
     }
 
     return this.mapProjectWithProgress(project);
+  }
+
+  /**
+   * Wraps plain text in a Tiptap doc structure (fallback when mapping fails)
+   */
+  private static wrapPlainText(text: string): any {
+    return {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text,
+            },
+          ],
+        },
+      ],
+    };
   }
 
   /**
