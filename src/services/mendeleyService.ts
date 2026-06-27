@@ -4,7 +4,11 @@ import { normalizeToCSL } from "../utils/cslNormalization.js";
 
 const MENDELEY_CLIENT_ID = (process.env.MENDELEY_CLIENT_ID || "").trim();
 const MENDELEY_CLIENT_SECRET = (process.env.MENDELEY_CLIENT_SECRET || "").trim();
-const MENDELEY_API_KEY = (process.env.MENDELEY_API_KEY || MENDELEY_CLIENT_SECRET).trim();
+const MENDELEY_API_KEY = (process.env.MENDELEY_API_KEY || "").trim();
+
+if (!MENDELEY_API_KEY && process.env.NODE_ENV === "production") {
+  console.warn("[Mendeley Service] WARNING: MENDELEY_API_KEY is not set. Mendeley API requests will fail.");
+}
 const TOKEN_URL = "https://api.mendeley.com/oauth/token";
 
 /**
@@ -74,8 +78,8 @@ export class MendeleyService {
             };
 
             // Only add Elsevier API Key if it's explicitly provided and not just fallback to secret
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.post(TOKEN_URL, params.toString(), {
@@ -129,8 +133,8 @@ export class MendeleyService {
                 Accept: "application/json", // Use standard JSON
             };
 
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.get("https://api.mendeley.com/documents", {
@@ -157,8 +161,8 @@ export class MendeleyService {
                 Accept: "application/json"
             };
 
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.get("https://api.mendeley.com/search/catalog", {
@@ -263,8 +267,8 @@ export class MendeleyService {
                 Accept: "application/json"
             };
 
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.get("https://api.mendeley.com/folders", {
@@ -289,8 +293,8 @@ export class MendeleyService {
                 Accept: "application/json"
             };
 
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.get(`https://api.mendeley.com/folders/${folderId}/documents`, {
@@ -316,8 +320,8 @@ export class MendeleyService {
                 Accept: "application/json"
             };
 
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.post("https://api.mendeley.com/documents", documentData, {

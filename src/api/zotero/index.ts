@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware.js";
+import { providerApiLimiter } from "../../middleware/rateLimiter.js";
 import { ZoteroService } from "../../services/zoteroService.js";
 import { prisma } from "../../lib/prisma.js";
 import axios from "axios";
@@ -11,10 +12,10 @@ const router = express.Router();
  * GET /api/zotero/library
  * Fetch the user's Zotero library items
  */
-router.get("/library", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.get("/library", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
-        
+
         // Force fresh response (disable Express ETag for this route)
         res.set('ETag', 'false');
         res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -85,13 +86,19 @@ router.get("/debug", authenticateHybridRequest, async (req: Request, res: Respon
  * POST /api/zotero/import
  * Import selected items from Zotero to a specific project
  */
-router.post("/import", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.post("/import", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const { projectId, items } = req.body; // items is an array of CSL-JSON objects
 
         if (!projectId || !items || !Array.isArray(items)) {
             return res.status(400).json({ error: "Missing projectId or items array" });
+        }
+
+        // Cap import size to prevent DB row exhaustion
+        const MAX_IMPORT_ITEMS = 500;
+        if (items.length > MAX_IMPORT_ITEMS) {
+            return res.status(400).json({ error: `Too many items. Maximum is ${MAX_IMPORT_ITEMS} per import.` });
         }
 
         const results = [];
@@ -112,7 +119,7 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
  * GET /api/zotero/query
  * Search Zotero by DOI, ISBN, or Title
  */
-router.get("/query", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.get("/query", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const { q } = req.query;
@@ -221,6 +228,11 @@ router.get("/file/:itemKey", authenticateHybridRequest, async (req: Request, res
         const userId = (req as any).user.id;
         const { itemKey } = req.params;
 
+        // Validate itemKey format (Zotero keys are alphanumeric)
+        if (!/^[a-zA-Z0-9]+$/.test(itemKey)) {
+            return res.status(400).json({ error: "Invalid item key format" });
+        }
+
         const user = await prisma.user.findUnique({
             where: { id: userId },
             select: { zotero_api_key: true, zotero_user_id: true }
@@ -231,19 +243,21 @@ router.get("/file/:itemKey", authenticateHybridRequest, async (req: Request, res
         }
 
         const url = `https://api.zotero.org/users/${user.zotero_user_id}/items/${itemKey}/file`;
-        
+
         const response = await axios.get(url, {
             headers: { 'Zotero-API-Key': user.zotero_api_key },
-            responseType: 'stream'
+            responseType: 'stream',
+            maxContentLength: 100 * 1024 * 1024, // 100MB max
+            maxBodyLength: 100 * 1024 * 1024,
         });
 
         // Forward headers
         res.setHeader('Content-Type', response.headers['content-type']);
         res.setHeader('Content-Disposition', response.headers['content-disposition']);
-        
+
         response.data.pipe(res);
     } catch (error: any) {
-        console.error("Zotero File Proxy Error:", error.message);
+        console.error("[Zotero File Proxy] Error:", error.message);
         return res.status(500).json({ error: "Failed to download file from Zotero" });
     }
 });
@@ -252,7 +266,7 @@ router.get("/file/:itemKey", authenticateHybridRequest, async (req: Request, res
  * POST /api/zotero/items
  * Create a new item in Zotero
  */
-router.post("/items", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.post("/items", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const itemData = req.body;
@@ -303,7 +317,7 @@ router.post("/items/:itemKey/notes", authenticateHybridRequest, async (req: Requ
  * GET /api/zotero/collections
  * Fetch user's Zotero collections
  */
-router.get("/collections", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.get("/collections", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
 
@@ -327,7 +341,7 @@ router.get("/collections", authenticateHybridRequest, async (req: Request, res: 
  * GET /api/zotero/collections/:collectionKey/items
  * Fetch items for a specific Zotero collection
  */
-router.get("/collections/:collectionKey/items", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.get("/collections/:collectionKey/items", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const { collectionKey } = req.params;
@@ -353,7 +367,7 @@ router.get("/collections/:collectionKey/items", authenticateHybridRequest, async
  * POST /api/zotero/export
  * Export a citation back to Zotero (round-trip)
  */
-router.post("/export", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.post("/export", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const { citationId } = req.body;

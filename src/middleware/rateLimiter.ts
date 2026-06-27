@@ -1,4 +1,4 @@
-import { rateLimit } from "express-rate-limit";
+import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 import logger from "../monitoring/logger";
 
 // General API Rate Limiter
@@ -58,5 +58,28 @@ export const adminOperationRateLimiter = rateLimit({
   limit: 100,
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+// Per-user rate limiter for provider API calls (Zotero/Mendeley).
+// 30 requests per minute per authenticated user — prevents abuse of
+// third-party provider APIs and protects against unexpected throttling.
+export const providerApiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => {
+    // Key by authenticated user ID, falling back to normalised IP for unauthenticated.
+    // ipKeyGenerator handles IPv6 address normalisation to prevent bypass.
+    return req.user?.id || ipKeyGenerator(req);
+  },
+  message: {
+    success: false,
+    message: "Too many provider API requests. Please try again in a minute.",
+  },
+  handler: (req, res, next, options) => {
+    logger.warn(`Provider API rate limit exceeded: user=${(req as any).user?.id || "anon"} ip=${req.ip} -> ${req.originalUrl}`);
+    res.status(options.statusCode).send(options.message);
+  },
 });
 

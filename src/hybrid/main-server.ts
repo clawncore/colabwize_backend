@@ -500,6 +500,11 @@ const startServer = async () => {
       console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
     });
 
+    // Increase max HTTP header size to 64KB (default is 16KB)
+    // Prevents 431 errors when auth tokens/cookies are large
+    server.maxHeadersCount = 100;
+    (server as any).maxHeaderSize = 64 * 1024;
+
     // PRIORITY 2: Initialize Database and Services in background
     // This prevents startup timeouts if DB connection is slow
     const initServices = async () => {

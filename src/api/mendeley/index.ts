@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
+import { providerApiLimiter } from "../../middleware/rateLimiter";
 import { MendeleyService } from "../../services/mendeleyService";
 import { prisma } from "../../lib/prisma";
 
@@ -9,12 +10,10 @@ const router = express.Router();
  * GET /api/mendeley/library
  * Fetch the user's Mendeley library items
  */
-router.get("/library", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.get("/library", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const { limit = 50, start = 0 } = req.query;
-
-        console.log(`[Mendeley API] Fetching library for user: ${userId}`);
         
         const items = await MendeleyService.fetchLibrary(
             userId, 
@@ -34,14 +33,12 @@ router.get("/library", authenticateHybridRequest, async (req: Request, res: Resp
  * GET /api/mendeley/query
  * Search Mendeley by Title
  */
-router.get("/query", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.get("/query", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const { q } = req.query;
 
         if (!q) return res.status(400).json({ error: "Search query 'q' is required" });
-
-        console.log(`[Mendeley API] Querying Mendeley for user ${userId}: "${q}"`);
 
         const items = await MendeleyService.queryItems(userId, String(q));
         return res.status(200).json(items);
@@ -56,13 +53,19 @@ router.get("/query", authenticateHybridRequest, async (req: Request, res: Respon
  * POST /api/mendeley/import
  * Import selected items from Mendeley to a specific project
  */
-router.post("/import", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.post("/import", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const { projectId, items } = req.body; // items is an array of Mendeley document objects
 
         if (!projectId || !items || !Array.isArray(items)) {
             return res.status(400).json({ error: "Missing projectId or items array" });
+        }
+
+        // Cap import size to prevent DB row exhaustion
+        const MAX_IMPORT_ITEMS = 500;
+        if (items.length > MAX_IMPORT_ITEMS) {
+            return res.status(400).json({ error: `Too many items. Maximum is ${MAX_IMPORT_ITEMS} per import.` });
         }
 
         const results = [];
@@ -82,7 +85,7 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
  * POST /api/mendeley/export
  * Export a citation back to Mendeley (round-trip)
  */
-router.post("/export", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.post("/export", providerApiLimiter, authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const { citationId } = req.body;

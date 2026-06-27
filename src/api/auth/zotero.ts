@@ -1,6 +1,7 @@
 import express from "express";
 import crypto from "crypto";
 import axios from "axios";
+import rateLimit from "express-rate-limit";
 import { prisma } from "../../lib/prisma.js";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware.js";
 import logger from "../../monitoring/logger";
@@ -14,8 +15,37 @@ const ZOTERO_CLIENT_SECRET = process.env.ZOTERO_CLIENT_SECRET || "";
 const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:3001").replace(/\/$/, "");
 const CALLBACK_URL = `${BACKEND_URL}/api/auth/zotero/callback`;
 
-// In-memory store for oauth_token_secret, mapping user ID to secret
-const requestTokenSecrets = new Map<string, string>();
+/**
+ * In-memory store for Zotero OAuth 1.0a token secrets.
+ * Maps userId → { secret, oauthToken, expiresAt }.
+ * Entries auto-expire after 10 minutes.
+ */
+const requestTokenSecrets = new Map<string, { secret: string; oauthToken: string; expiresAt: number }>();
+
+/** Clean expired entries every 5 minutes */
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of requestTokenSecrets) {
+    if (value.expiresAt < now) requestTokenSecrets.delete(key);
+  }
+}, 5 * 60 * 1000);
+
+/** Rate limiters for Zotero OAuth endpoints */
+const oauthInitLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many Zotero OAuth initiation attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const oauthCallbackLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: { error: "Too many Zotero OAuth callback attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Helper to generate OAuth 1.0a signature
 function generateOAuthSignature(method: string, url: string, params: Record<string, string>, clientSecret: string, tokenSecret: string = "") {
@@ -32,7 +62,7 @@ function generateOAuthSignature(method: string, url: string, params: Record<stri
  * GET /api/auth/zotero/connect
  * Start OAuth 1.0a flow
  */
-router.get("/connect", authenticateHybridRequest, async (req, res) => {
+router.get("/connect", oauthInitLimiter, authenticateHybridRequest, async (req, res) => {
     try {
         const userId = (req as any).user.id;
         const nonce = crypto.randomBytes(16).toString("hex");
@@ -63,16 +93,23 @@ router.get("/connect", authenticateHybridRequest, async (req, res) => {
         const data = new URLSearchParams(response.data);
         const oauthToken = data.get("oauth_token");
         const oauthTokenSecret = data.get("oauth_token_secret");
-        
+
         if (!oauthToken || !oauthTokenSecret) throw new Error("Failed to get request token from Zotero");
 
-        requestTokenSecrets.set(userId, oauthTokenSecret);
+        // Store secret + token + expiry (10 minutes) to validate binding on callback
+        requestTokenSecrets.set(userId, {
+          secret: oauthTokenSecret,
+          oauthToken,
+          expiresAt: Date.now() + 10 * 60 * 1000,
+        });
+
+        logger.info(`[Zotero Connect] OAuth request token obtained for user: ${userId}`);
 
         // Redirect user to Zotero for authorization
         return res.redirect(`https://www.zotero.org/oauth/authorize?oauth_token=${oauthToken}`);
     } catch (error: any) {
-        console.error("Zotero Connect Error:", error.message);
-        return res.redirect(`https://app.colabwize.com/dashboard/settings/profile?error=zotero_connect_failed`);
+        console.error("[Zotero Connect] Error:", error.message);
+        return res.redirect(`${process.env.FRONTEND_URL || "https://app.colabwize.com"}/dashboard/settings/profile?error=zotero_connect_failed`);
     }
 });
 
@@ -80,12 +117,31 @@ router.get("/connect", authenticateHybridRequest, async (req, res) => {
  * GET /api/auth/zotero/callback
  * Handle Zotero redirect
  */
-router.get("/callback", async (req, res) => {
+router.get("/callback", oauthCallbackLimiter, async (req, res) => {
     try {
         const { oauth_token, oauth_verifier, cw_uid } = req.query;
 
         if (!oauth_token || !oauth_verifier || !cw_uid) {
             return res.status(400).send("Invalid callback parameters");
+        }
+
+        // Look up the stored secret and validate token↔user binding
+        const stored = requestTokenSecrets.get(cw_uid as string);
+        if (!stored) {
+          console.error("[Zotero Callback] No pending OAuth session for user:", cw_uid);
+          return res.status(400).send("OAuth session expired or invalid. Please try connecting again.");
+        }
+        requestTokenSecrets.delete(cw_uid as string);
+
+        if (stored.expiresAt < Date.now()) {
+          console.error("[Zotero Callback] OAuth session expired for user:", cw_uid);
+          return res.status(400).send("OAuth session expired. Please try connecting again.");
+        }
+
+        // Token binding check: the oauth_token from Zotero must match the one we issued
+        if (stored.oauthToken !== oauth_token) {
+          console.error("[Zotero Callback] Token mismatch — possible session hijack attempt");
+          return res.status(400).send("OAuth session validation failed. Please try connecting again.");
         }
 
         const nonce = crypto.randomBytes(16).toString("hex");
@@ -101,10 +157,7 @@ router.get("/callback", async (req, res) => {
             oauth_version: "1.0"
         };
 
-        const oauthTokenSecret = requestTokenSecrets.get(cw_uid as string) || "";
-        requestTokenSecrets.delete(cw_uid as string);
-
-        const signature = generateOAuthSignature("GET", "https://www.zotero.org/oauth/access", params, ZOTERO_CLIENT_SECRET, oauthTokenSecret);
+        const signature = generateOAuthSignature("GET", "https://www.zotero.org/oauth/access", params, ZOTERO_CLIENT_SECRET, stored.secret);
         params.oauth_signature = signature;
 
         const authHeader = "OAuth " + Object.keys(params).map(key => `${encodeURIComponent(key)}="${encodeURIComponent(params[key])}"`).join(", ");
@@ -135,7 +188,7 @@ router.get("/callback", async (req, res) => {
         return res.redirect(`${frontendUrl}/dashboard/settings/account?zotero_success=true`);
 
     } catch (error: any) {
-        console.error("Zotero Callback Error:", error.response?.data || error.message);
+        console.error("[Zotero Callback] Error:", error.response?.data || error.message);
         return res.status(500).send("Zotero authentication failed");
     }
 });

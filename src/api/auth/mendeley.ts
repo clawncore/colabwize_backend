@@ -1,18 +1,55 @@
 import express from "express";
 import axios from "axios";
+import { randomBytes } from "crypto";
+import rateLimit from "express-rate-limit";
+import { providerApiLimiter } from "../../middleware/rateLimiter";
 import { prisma } from "../../lib/prisma";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { MendeleyService } from "../../services/mendeleyService";
 import logger from "../../monitoring/logger";
 
-console.log("[DEBUG] Mendeley file script executing...");
-logger.info("[CRITICAL_DIAGNOSTIC] Mendeley Auth Route File Loaded");
+/**
+ * CSRF state store for Mendeley OAuth.
+ * Maps state token → { userId, expiresAt }. Auto-expires after 10 minutes.
+ */
+const oauthStateStore = new Map<string, { userId: string; expiresAt: number }>();
+
+/** Clean expired state entries every 5 minutes */
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of oauthStateStore) {
+    if (value.expiresAt < now) oauthStateStore.delete(key);
+  }
+}, 5 * 60 * 1000);
+
+function generateMendeleyState(userId: string): string {
+  const state = randomBytes(32).toString("hex");
+  oauthStateStore.set(state, { userId, expiresAt: Date.now() + 10 * 60 * 1000 });
+  return state;
+}
+
+/** Rate limiters for Mendeley OAuth endpoints */
+const oauthInitLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many Mendeley OAuth initiation attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const oauthCallbackLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: { error: "Too many Mendeley OAuth callback attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const router = express.Router();
 
 const MENDELEY_CLIENT_ID = (process.env.MENDELEY_CLIENT_ID || "").trim();
 const MENDELEY_CLIENT_SECRET = (process.env.MENDELEY_CLIENT_SECRET || "").trim();
-const MENDELEY_API_KEY = (process.env.MENDELEY_API_KEY || MENDELEY_CLIENT_SECRET || "MISSING_KEY").trim(); 
+const MENDELEY_API_KEY = (process.env.MENDELEY_API_KEY || "").trim();
 // Standard Mendeley OAuth Endpoints
 const AUTHORIZE_URL = "https://api.mendeley.com/oauth/authorize";
 const TOKEN_URL = "https://api.mendeley.com/oauth/token";
@@ -25,27 +62,24 @@ const CALLBACK_URL = `${BACKEND_URL}/api/auth/mendeley/callback`;
  * GET /api/auth/mendeley/connect
  * Initiate Elsevier/Mendeley OAuth flow
  */
-router.get("/connect", authenticateHybridRequest, async (req, res) => {
+router.get("/connect", oauthInitLimiter, authenticateHybridRequest, async (req, res) => {
     try {
         const userId = (req as any).user.id;
-        logger.info(`[DIAGNOSTIC] Mendeley Connect - User: ${userId}`);
-        logger.info(`[DIAGNOSTIC] Mendeley Connect - Client ID: ${MENDELEY_CLIENT_ID}`);
-        logger.info(`[DIAGNOSTIC] Mendeley Connect - API Key: ${MENDELEY_API_KEY}`);
 
-        // Use the Mendeley OAuth flow
+        // Use the Mendeley OAuth flow with a cryptographic CSRF state token
+        const state = generateMendeleyState(userId);
         const authUrl = new URL(AUTHORIZE_URL);
         authUrl.searchParams.append("response_type", "code");
         authUrl.searchParams.append("client_id", MENDELEY_CLIENT_ID);
         authUrl.searchParams.append("redirect_uri", CALLBACK_URL);
-        authUrl.searchParams.append("scope", "all"); 
-        authUrl.searchParams.append("state", userId);
+        authUrl.searchParams.append("scope", "all");
+        authUrl.searchParams.append("state", state);
 
-        logger.info(`[DIAGNOSTIC] Mendeley Connect - Final Auth URL: ${authUrl.toString()}`);
-        
+        logger.info(`[Mendeley Connect] Initiating OAuth for user: ${userId}`);
         return res.redirect(authUrl.toString());
     } catch (error: any) {
         console.error("[Mendeley Connect] Fatal Error:", error.message);
-        return res.redirect(`https://app.colabwize.com/dashboard/settings/account?mendeley_error=initiation_failed&details=${encodeURIComponent(error.message)}`);
+        return res.redirect(`${process.env.FRONTEND_URL || "https://app.colabwize.com"}/dashboard/settings/account?mendeley_error=initiation_failed`);
     }
 });
 
@@ -114,7 +148,7 @@ router.get("/debug", authenticateHybridRequest, async (req, res) => {
  * GET /api/auth/mendeley/folders
  * Fetch user's Mendeley folders
  */
-router.get("/folders", authenticateHybridRequest, async (req, res) => {
+router.get("/folders", providerApiLimiter, authenticateHybridRequest, async (req, res) => {
     try {
         const userId = (req as any).user.id;
         const folders = await MendeleyService.fetchFolders(userId);
@@ -128,7 +162,7 @@ router.get("/folders", authenticateHybridRequest, async (req, res) => {
  * GET /api/auth/mendeley/folders/:folderId/items
  * Fetch items from a specific Mendeley folder
  */
-router.get("/folders/:folderId/items", authenticateHybridRequest, async (req, res) => {
+router.get("/folders/:folderId/items", providerApiLimiter, authenticateHybridRequest, async (req, res) => {
     try {
         const userId = (req as any).user.id;
         const folderId = req.params.folderId as string;
@@ -143,9 +177,7 @@ router.get("/folders/:folderId/items", authenticateHybridRequest, async (req, re
  * GET /api/auth/mendeley/callback
  * Handle Elsevier IDP redirect after user authorization
  */
-router.get("/callback", async (req, res) => {
-    console.log("[Mendeley Callback] Received callback from Elsevier IDP");
-    
+router.get("/callback", oauthCallbackLimiter, async (req, res) => {
     try {
         const code = req.query.code as string;
         const state = req.query.state as string;
@@ -159,11 +191,25 @@ router.get("/callback", async (req, res) => {
 
         if (!code || !state) {
             console.error("[Mendeley Callback] Missing required OAuth parameters (code or state)");
-            return res.status(400).send("Invalid callback parameters: code and state (userId) are required");
+            return res.status(400).send("Invalid callback parameters: code and state are required");
         }
 
-        const userId = state as string;
-        
+        // Validate the CSRF state token and retrieve the associated user ID
+        const stateEntry = oauthStateStore.get(state);
+        if (!stateEntry) {
+            console.error("[Mendeley Callback] Invalid or expired state token");
+            return res.status(400).send("OAuth session expired or invalid. Please try connecting again.");
+        }
+        // Delete immediately to prevent replay
+        oauthStateStore.delete(state);
+
+        if (stateEntry.expiresAt < Date.now()) {
+            console.error("[Mendeley Callback] State token expired");
+            return res.status(400).send("OAuth session expired. Please try connecting again.");
+        }
+
+        const userId = stateEntry.userId;
+
         // Verify user exists before proceeding with token exchange
         const user = await prisma.user.findUnique({ where: { id: userId } });
         if (!user) {

@@ -535,6 +535,8 @@ model Citation {
   source         String?
   abstract       String?
   formatted_citations Json?
+  raw_reference_text  String?  @map("raw_reference_text")
+  ieee_number         Int?     @map("ieee_number")
   themes         Json?
   matrix_notes   String?
   vault_verified  Boolean  @default(true)
