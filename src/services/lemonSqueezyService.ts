@@ -135,9 +135,24 @@ export class LemonSqueezyService {
    * Cancel subscription
    */
   static async cancelSubscription(subscriptionId: string) {
+    // Cancel AT PERIOD END, not immediately. LemonSqueezy v1 interprets a
+    // DELETE as immediate cancellation (access revoked at once). To honor the
+    // "retain access until the end of the current billing period" promise we
+    // PATCH with `cancelled: true`, which tells LemonSqueezy to keep the
+    // subscription active until `renews_at` and then stop billing.
+    const body = {
+      data: {
+        type: "subscriptions",
+        id: subscriptionId,
+        attributes: {
+          cancelled: true,
+        },
+      },
+    };
     const response = await this.makeRequest(
       `subscriptions/${subscriptionId}`,
-      "DELETE",
+      "PATCH",
+      body,
     );
     return response.data;
   }

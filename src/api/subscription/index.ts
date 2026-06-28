@@ -237,7 +237,7 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
         ),
         withTimeout(CreditService.getBalance(user.id), DB_TIMEOUT_MS),
         withTimeout(
-          prisma.originalityScan.count({ where: { user_id: user.id } }),
+          prisma.project.count({ where: { user_id: user.id } }),
           DB_TIMEOUT_MS,
         ),
       ]);

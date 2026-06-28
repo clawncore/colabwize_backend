@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import { startAudit, getJobState } from "./pipeline";
 import { createClient } from "@supabase/supabase-js";
+import { BillingGateway, BillingError } from "../billing/BillingGateway";
 
 const router = express.Router();
 
@@ -10,7 +11,7 @@ const router = express.Router();
  * Returns { auditId } immediately.
  * Auth is handled by the global authenticateExpressRequest middleware.
  */
-router.post("/start", (req, res) => {
+router.post("/start", async (req, res) => {
     try {
         const userId = (req as unknown as { user?: { id?: string } }).user?.id || "";
         const { documentId, projectId, docState, style } = req.body as {
@@ -22,6 +23,27 @@ router.post("/start", (req, res) => {
 
         if (!documentId || !projectId || !docState) {
             return res.status(400).json({ success: false, error: "Missing documentId, projectId, or docState fields" });
+        }
+
+        // Reserve billing quota before starting the background job. The audit is
+        // an async job, so we hold + confirm immediately when we accept it for
+        // billing. If the audit later fails in the pipeline, the reconciliation
+        // job will catch the orphaned CONSUMED event.
+        try {
+            const hold = await BillingGateway.hold(userId, "citation_audit");
+            await BillingGateway.confirm(hold.eventId);
+        } catch (billingError: any) {
+            if (billingError instanceof BillingError) {
+                const status = billingError.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+                return res.status(status).json({
+                    success: false,
+                    error: billingError.message,
+                    code: billingError.code,
+                });
+            }
+            // Non-billing error from hold (e.g. DB issue) — log but allow the
+            // feature to run so billing infrastructure doesn't block the audit.
+            console.error("[AuditEngine] Billing hold failed, proceeding:", billingError.message);
         }
 
         const auditId = startAudit(String(documentId), String(projectId), docState, typeof style === "string" ? style : "APA", userId);

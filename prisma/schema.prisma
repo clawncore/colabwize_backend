@@ -63,6 +63,7 @@ model User {
   subscription          Subscription?
   support_tickets       SupportTicket[]
   usage_tracking        UsageTracking[]
+  usage_events          UsageEvent[]
   feedback              UserFeedback[]
   user_metrics          UserMetrics?
   user_sessions         UserSession[]
@@ -1188,6 +1189,33 @@ model CreditTransaction {
   @@index([type])
   @@index([created_at])
   @@map("credit_transactions")
+}
+
+// Immutable ledger of every billable feature execution. This is the single
+// source of truth for usage accounting; userEntitlement.features is a
+// read-model cache rebuilt from these events.
+model UsageEvent {
+  id          String   @id @default(uuid())
+  user_id     String
+  feature     String
+  source      String   // PLAN | CREDIT
+  cost        Int      @default(0) // credits charged (0 when covered by plan)
+  status      String   // HELD | CONSUMED | RELEASED | REFUNDED
+  reference_id String? // idempotency key — duplicate holds return the same event
+  metadata    Json?
+  error       String?
+  held_at     DateTime @default(now())
+  confirmed_at DateTime?
+  released_at DateTime?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([reference_id])
+  @@index([user_id, feature, held_at])
+  @@index([status])
+  @@index([reference_id])
+  @@map("usage_events")
 }
 
 model DocumentTemplate {

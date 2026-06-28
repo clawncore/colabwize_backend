@@ -2,7 +2,7 @@ import express, { Request, Response } from "express";
 import axios from "axios";
 import logger from "../../monitoring/logger";
 import { AcademicSearchService } from "../../services/academicSearchService";
-import { SubscriptionService } from "../../services/subscriptionService";
+import { BillingGateway, BillingError } from "../../billing/BillingGateway";
 
 const router = express.Router();
 
@@ -43,6 +43,10 @@ async function handleSearch(req: Request, res: Response) {
     }
 
     const query = req.query.q as string;
+    // `enrich=1` marks an auto-enrichment call (background metadata fetch
+    // when citations are detected on editor load). These are FREE — only
+    // intentional user searches (the Search button) count against quota.
+    const isEnrichment = req.query.enrich === "1";
 
     if (!query) {
       return res.status(400).json({
@@ -51,30 +55,45 @@ async function handleSearch(req: Request, res: Response) {
       });
     }
 
-    // Check limits and consume action
-    const consumption = await SubscriptionService.consumeAction(
-      userId,
-      "paper_search",
-    );
+    console.log(`Searching Academic Papers for: ${query} (enrich: ${isEnrichment})`);
 
-    if (!consumption.allowed) {
-      return res.status(403).json({
-        success: false,
-        message: consumption.message || "Monthly search limit reached",
-        requiresUpgrade: true,
-      });
+    // Auto-enrichment bypasses the billing gate entirely — it's a background
+    // metadata fetch, not a user-initiated search. Only manual searches run
+    // through the hold → execute → confirm/release pipeline.
+    if (isEnrichment) {
+      try {
+        const papers = await AcademicSearchService.searchPapers(query);
+        return res.status(200).json({ success: true, data: papers });
+      } catch (error: any) {
+        logger.error("Error auto-enriching papers", { error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to search papers" });
+      }
     }
 
-    console.log(`Searching Academic Papers for: ${query}`);
+    // Manual search: run through the single billing pipeline.
+    try {
+      const papers = await BillingGateway.withFeature(
+        userId,
+        "paper_search",
+        undefined,
+        () => AcademicSearchService.searchPapers(query),
+      );
 
-    // Use the Aggregator Service
-    const papers = await AcademicSearchService.searchPapers(query);
-
-    return res.status(200).json({
-      success: true,
-      data: papers,
-      remaining: consumption.remaining,
-    });
+      return res.status(200).json({
+        success: true,
+        data: papers,
+      });
+    } catch (e: any) {
+      if (e instanceof BillingError) {
+        const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+        return res.status(status).json({
+          success: false,
+          message: e.message || "Monthly search limit reached",
+          requiresUpgrade: true,
+        });
+      }
+      throw e;
+    }
   } catch (error: any) {
     logger.error("Error searching academic papers", { error: error.message });
     return res.status(500).json({
@@ -101,6 +120,7 @@ router.post("/legitimize", async (req: Request, res: Response) => {
     }
 
     const { claim, context } = req.body;
+    void context;
 
     if (!claim) {
       return res.status(400).json({
@@ -109,23 +129,15 @@ router.post("/legitimize", async (req: Request, res: Response) => {
       });
     }
 
-    // Check limits (Reuse paper_search or new limit?)
-    const consumption = await SubscriptionService.consumeAction(
+    // Run through the single billing pipeline (hold → execute →
+    // confirm/release), consuming paper_search quota.
+    // Use the claim directly as the evidence search query.
+    const papers = await BillingGateway.withFeature(
       userId,
       "paper_search",
+      undefined,
+      () => AcademicSearchService.findEvidenceForClaim(claim),
     );
-
-    if (!consumption.allowed) {
-      return res.status(403).json({
-        success: false,
-        message: consumption.message,
-        requiresUpgrade: true,
-      });
-    }
-
-    // Use the context if available to refine search?
-    // For now, search the claim directly
-    const papers = await AcademicSearchService.findEvidenceForClaim(claim);
 
     return res.status(200).json({
       success: true,
@@ -133,8 +145,16 @@ router.post("/legitimize", async (req: Request, res: Response) => {
       message:
         papers.length > 0 ? "Evidence found" : "No direct evidence found",
     });
-  } catch (error: any) {
-    logger.error("Error legitimizing claim", { error: error.message });
+  } catch (e: any) {
+    if (e instanceof BillingError) {
+      const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+      return res.status(status).json({
+        success: false,
+        message: e.message || "Monthly search limit reached",
+        requiresUpgrade: true,
+      });
+    }
+    logger.error("Error legitimizing claim", { error: e.message });
     return res.status(500).json({
       success: false,
       message: "Failed to find evidence",
@@ -142,5 +162,4 @@ router.post("/legitimize", async (req: Request, res: Response) => {
   }
 });
 
-// End of router
 export default router;
