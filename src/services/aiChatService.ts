@@ -371,6 +371,24 @@ Claim Type: ${input.claimType}
       }
       // --- LIMIT ENFORCEMENT END ---
 
+      // Construct the full context system message. Declared here (before the
+      // web search block below) so the web search results can be appended to
+      // it when the user has the toggle ON.
+      let contextMessage = `
+[DOCUMENT CONTEXT LOADER]
+Document type: ${context.documentType || "Research Paper"}
+Academic level: ${context.academicLevel || "Undergraduate"}
+Citation style: ${context.citationStyle || "APA 7"}
+Discipline: ${context.discipline || "Unknown"}
+
+[DOCUMENT CONTENT]
+Title: ${context.projectTitle || "Untitled"}
+Description: ${context.projectDescription || "No description"}
+Excerpt (around cursor): "${context.selectedText || context.documentContent.slice(0, 2000)
+        }..."
+[END DOCUMENT CONTEXT]
+`;
+
       // --- WEB SEARCH (user-opt-in) ---
       // When the user toggles Web Search ON for this message, run a real web
       // search and inject the live results into the AI context. This is a
@@ -435,22 +453,6 @@ A web search was performed but returned no results.
         }
       }
       // --- END WEB SEARCH ---
-
-      // Construct the full context system message
-      let contextMessage = `
-[DOCUMENT CONTEXT LOADER]
-Document type: ${context.documentType || "Research Paper"}
-Academic level: ${context.academicLevel || "Undergraduate"}
-Citation style: ${context.citationStyle || "APA 7"}
-Discipline: ${context.discipline || "Unknown"}
-
-[DOCUMENT CONTENT]
-Title: ${context.projectTitle || "Untitled"}
-Description: ${context.projectDescription || "No description"}
-Excerpt (around cursor): "${context.selectedText || context.documentContent.slice(0, 2000)
-        }..."
-[END DOCUMENT CONTEXT]
-`;
 
       // Add project source library context
       if (context.projectSources && context.projectSources.length > 0) {
