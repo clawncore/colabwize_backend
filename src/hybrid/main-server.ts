@@ -170,6 +170,8 @@ const corsOptions = {
     "x-auth-google",
     "x-auth-microsoft",
   ],
+  // Expose custom response headers so the frontend can read web search status.
+  exposedHeaders: ["X-Web-Search-Status", "X-Web-Search-Message"],
   maxAge: 86400, // Cache preflight response for 24 hours
 };
 

@@ -1,10 +1,15 @@
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { SubscriptionService } from "./subscriptionService";
-import { EntitlementService } from "./EntitlementService";
+import { mapFeatureKey } from "../billing/BillingGateway";
 
 /**
- * Usage Service for tracking feature usage
+ * Usage Service for tracking feature usage.
+ *
+ * Since the BillingGateway migration, the UsageEvent ledger is the source of
+ * truth for billing. This service reads from UsageEvent for current-usage
+ * queries (used by the frontend dashboard) and still writes to usageTracking
+ * for backwards-compatible analytics history.
  */
 export class UsageService {
   /**
@@ -19,10 +24,10 @@ export class UsageService {
   }
 
   /**
-   * Track feature usage
-   */
-  /**
-   * Track feature usage
+   * Track feature usage (analytics-only).
+   *
+   * This writes to the legacy usageTracking table for historical analytics.
+   * Billing enforcement lives in BillingGateway (UsageEvent ledger).
    */
   static async trackUsage(userId: string, feature: string) {
     const { period_start, period_end } = this.getCurrentPeriod();
@@ -49,28 +54,30 @@ export class UsageService {
       },
     });
 
-    // SYNC TO ENTITLEMENTS (Consume)
-    await EntitlementService.consumeEntitlement(userId, feature);
-
-    logger.info("Usage tracked", { userId, feature, count: usage.count });
+    logger.info("Usage tracked (analytics)", { userId, feature, count: usage.count });
 
     return usage;
   }
 
   /**
-   * Get current usage for user
+   * Get current usage for user.
+   *
+   * Reads from the UsageEvent ledger (source of truth) and maps gateway
+   * feature names to the frontend-expected keys (e.g. "scan" → "scan",
+   * "citation_check" → "citation_audit").
    */
   static async getCurrentUsage(userId: string, subscription?: any) {
     const now = new Date();
 
-    // Default to Calendar Month
-    let period_start = new Date(now.getFullYear(), now.getMonth(), 1);
-    // Remove strict period_end check to capture everything in the current cycle
-    // or set it loosely.
+    // Default to Calendar Month. Build as UTC so the comparison against the
+    // UTC-stored usageTracking.period_start / UsageEvent.confirmed_at columns
+    // is timezone-correct. (Using `new Date(year, month, 1)` produces a
+    // local-time Date; on a UTC+offset server that shifts the filter window
+    // and lets the previous month's legacy rows leak into the current month.)
+    let period_start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
     // Try to get subscription billing cycle to align with recording logic
     try {
-      // If subscription not provided, try to fetch it
       if (subscription === undefined) {
         subscription = await SubscriptionService.getUserSubscription(userId);
       }
@@ -82,39 +89,66 @@ export class UsageService {
       // Fallback to calendar month
     }
 
-    const usageRecords = await prisma.usageTracking.findMany({
+    // ── Primary: read from UsageEvent ledger (source of truth) ──
+    let consumedEvents: { feature: string; _count: number }[] = [];
+    try {
+      consumedEvents = await prisma.usageEvent.groupBy({
+        by: ["feature"],
+        where: {
+          user_id: userId,
+          status: "CONSUMED",
+          confirmed_at: { gte: period_start },
+        },
+        _count: true,
+      });
+    } catch (e: any) {
+      // If usage_events table doesn't exist yet (migration pending), fall back
+      // to usageTracking entirely.
+      logger.warn("UsageEvent query failed, falling back to usageTracking", {
+        error: e.message,
+      });
+    }
+
+    // Map gateway feature names to frontend-expected keys.
+    // The gateway stores: scan, originality_scan, citation_check, rephrase,
+    // ai_chat, ai_web_search, certificate, paper_search, etc.
+    // The frontend expects: scan, citation_audit, rephrase_suggestions,
+    // ai_chat, originality_scan, etc.
+    const featureToUsageKey: Record<string, string> = {
+      scan: "scan",
+      originality_scan: "scan",
+      citation_audit: "citation_audit",
+      citation_check: "citation_audit",
+      rephrase: "rephrase_suggestions",
+      ai_chat: "ai_chat",
+      ai_web_search: "ai_web_search",
+      certificate: "certificate",
+      paper_search: "paper_search",
+      create_project: "create_project",
+    };
+
+    const usage: Record<string, number> = {};
+    for (const row of consumedEvents) {
+      const key = featureToUsageKey[row.feature] ?? row.feature;
+      usage[key] = (usage[key] ?? 0) + row._count;
+    }
+
+    // ── Fallback: merge in any usageTracking records not yet in UsageEvent ──
+    // This covers pre-migration data. UsageEvent entries take precedence.
+    const legacyRecords = await prisma.usageTracking.findMany({
       where: {
         user_id: userId,
-        // Only check start time. This is robust enough because we reset/rollover based on start time.
         period_start: { gte: period_start },
       },
     });
 
-    // Convert to object for easy access
-    const usage: Record<string, number> = {};
-    usageRecords.forEach((record: any) => {
-      usage[record.feature] = record.count;
-    });
+    for (const record of legacyRecords) {
+      if (!(record.feature in usage)) {
+        usage[record.feature] = record.count;
+      }
+    }
 
     return usage;
-  }
-
-  /**
-   * Check if user can use a feature
-   */
-  static async checkUsageLimit(
-    userId: string,
-    feature: string
-  ): Promise<{ allowed: boolean; current: number; limit: number }> {
-    // NEW: Entitlement-Based Check
-    const result = await EntitlementService.checkEligibility(userId, feature);
-
-    // Convert to legacy return format for compatibility
-    return {
-      allowed: result.allowed,
-      current: 0, // Deprecated/Unknown in this view, or we fetch it if needed.
-      limit: result.unlimited ? -1 : (result.remaining !== undefined ? result.remaining : 0) // Approximation
-    };
   }
 
   /**

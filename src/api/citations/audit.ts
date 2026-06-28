@@ -8,6 +8,7 @@ import {
 } from "../../types/citationAudit";
 import { getStyleRules } from "../../services/citationAudit/styleRules";
 import { runUnifiedAudit } from "../../audit/unified-audit";
+import { BillingGateway, BillingError } from "../../billing/BillingGateway";
 
 const router = express.Router();
 
@@ -45,42 +46,40 @@ router.post("/audit", async (req: Request, res: Response) => {
 
         const { declaredStyle, patterns, referenceList, sections, wordCount, documentId, projectId } = req.body as AuditRequest & { wordCount?: number; documentId?: string; projectId?: string };
 
-        // 2. Pre-flight Limit Check
+        // 2. Run the audit through the single billing pipeline.
+        // BillingGateway.withFeature holds quota, runs the feature, then
+        // confirms on success or releases the hold on failure. This is the
+        // only allowed lifecycle and it eliminates the old double-consume bug
+        // (checkActionEligibility + consumeAction) in a single call.
         const docWordCount = wordCount || 1000;
 
-        const { SubscriptionService } = await import("../../services/subscriptionService.js");
-
-        const eligibility = await SubscriptionService.checkActionEligibility(userId, "citation_audit", { wordCount: docWordCount });
-
-        if (!eligibility.allowed) {
-            let status = 403;
-            if (eligibility.code === "INSUFFICIENT_CREDITS") {
-                status = 402;
+        let unifiedReport;
+        try {
+            unifiedReport = await BillingGateway.withFeature(
+                userId,
+                "citation_audit",
+                { wordCount: docWordCount },
+                () => runUnifiedAudit({
+                    documentId: documentId ?? "unknown",
+                    projectId: projectId ?? "unknown",
+                    userId,
+                    style: declaredStyle,
+                    includeForensic: true,
+                    includeSemantic: true,
+                    docState: patterns ? { content: [{ type: "paragraph", text: patterns.map(p => p.text).join(" ") }] } : null,
+                }),
+            );
+        } catch (e: any) {
+            if (e instanceof BillingError) {
+                const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+                return res.status(status).json({
+                    error: e.message || "Plan limit reached.",
+                    code: e.code,
+                    data: e.data || { upgrade_url: "/pricing" },
+                });
             }
-
-            return res.status(status).json({
-                error: eligibility.message || "Plan limit reached.",
-                code: eligibility.code || "PLAN_LIMIT_REACHED",
-                data: {
-                    upgrade_url: "/pricing",
-                    limit_info: eligibility
-                }
-            });
+            throw e;
         }
-
-        // 3. Delegate to unified audit
-        const unifiedReport = await runUnifiedAudit({
-            documentId: documentId ?? "unknown",
-            projectId: projectId ?? "unknown",
-            userId,
-            style: declaredStyle,
-            includeForensic: true,
-            includeSemantic: true,
-            docState: patterns ? { content: [{ type: "paragraph", text: patterns.map(p => p.text).join(" ") }] } : null,
-        });
-
-        // 4. Consume credits
-        const finalConsumption = await SubscriptionService.consumeAction(userId, "citation_audit", { wordCount: docWordCount });
 
         // 5. Map unified report back to the legacy response shape for backwards compatibility
         const flags: CitationFlag[] = unifiedReport.forensic.patterns.map((p: any, idx: number) => ({
@@ -215,40 +214,39 @@ router.post("/audit/unified", async (req: Request, res: Response) => {
             return res.status(400).json({ success: false, error: "Missing documentId or projectId" });
         }
 
-        // 2. Pre-flight credit check
-        const { SubscriptionService } = await import("../../services/subscriptionService.js");
-        const eligibility = await SubscriptionService.checkActionEligibility(userId, "citation_audit", { wordCount: 1000 });
+        // 2. Run the audit through the single billing pipeline (hold → execute
+        // → confirm/release). Pass the real word count so credit cost scales
+        // with document size instead of the old flat 1000-word floor.
+        const docWordCount = (req.body as any)?.wordCount;
 
-        if (!eligibility.allowed) {
-            let status = 403;
-            if (eligibility.code === "INSUFFICIENT_CREDITS") {
-                status = 402;
+        try {
+            const unifiedReport = await BillingGateway.withFeature(
+                userId,
+                "citation_audit",
+                { wordCount: docWordCount },
+                () => runUnifiedAudit({
+                    documentId,
+                    projectId,
+                    userId,
+                    style,
+                    includeForensic,
+                    includeSemantic,
+                    docState,
+                }),
+            );
+
+            return res.status(200).json({ success: true, data: unifiedReport });
+        } catch (e: any) {
+            if (e instanceof BillingError) {
+                const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+                return res.status(status).json({
+                    success: false,
+                    error: e.message || "Plan limit reached.",
+                    code: e.code,
+                });
             }
-            return res.status(status).json({
-                success: false,
-                error: eligibility.message || "Plan limit reached.",
-                code: eligibility.code || "PLAN_LIMIT_REACHED",
-            });
+            throw e;
         }
-
-        // 3. Run unified audit
-        const unifiedReport = await runUnifiedAudit({
-            documentId,
-            projectId,
-            userId,
-            style,
-            includeForensic,
-            includeSemantic,
-            docState,
-        });
-
-        // 4. Consume credits
-        await SubscriptionService.consumeAction(userId, "citation_audit", { wordCount: 1000 });
-
-        return res.status(200).json({
-            success: true,
-            data: unifiedReport,
-        });
 
     } catch (error) {
         console.error("Unified Audit Backend Error:", error);

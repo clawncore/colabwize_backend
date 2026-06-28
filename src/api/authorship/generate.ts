@@ -7,6 +7,7 @@ import { SubscriptionService } from "../../services/subscriptionService";
 import { randomUUID } from "crypto";
 import { SecretsService } from "../../services/secrets-service";
 import { EntitlementService } from "../../services/EntitlementService";
+import { BillingGateway, BillingError } from "../../billing/BillingGateway";
 
 export const generateCertificate = async (req: Request, res: Response) => {
   try {
@@ -71,151 +72,154 @@ export const generateCertificate = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "User profile not found" });
     }
 
-    // Check Plan Limits (Atomic Pre-flight)
-    try {
-      await EntitlementService.assertCanUse(user.id, "certificate");
-    } catch (e: any) {
-      console.log("Blocking certificate generation:", e.message);
-      let status = 403;
-      if (e.code === "INSUFFICIENT_CREDITS") status = 402;
-      return res.status(status).json({
-        error: e.message || "Monthly limit reached",
-        code: "PLAN_LIMIT_REACHED",
-        data: { upgrade_url: "/pricing" }
-      });
-    }
-
     // Fetch plan details for metadata and watermark logic
     const plan = await SubscriptionService.getActivePlan(user.id);
     const limits = SubscriptionService.getPlanLimits(plan);
 
-    // WRAP EVERYTHING in try/catch for timeout mapping
+    // Run the entire generation through the single billing pipeline. The
+    // gateway holds certificate quota, runs generation, then confirms on
+    // success or releases the hold on failure (including timeouts). This is
+    // the correct lifecycle: the user is only charged for a certificate that
+    // actually completed.
     try {
-      // Generate Certificate HTML (reuse for both PDF and preview)
-      const stats = await import("../../services/authorshipReportService.js").then(
-        (m) =>
-          m.AuthorshipReportService.generateAuthorshipReport(projectId, user.id)
-      );
-      const confidenceReport = await AuthorshipConfidenceService.generateProjectReport(
-        projectId,
-        user.id
-      );
-      const frontendUrl = await SecretsService.getFrontendUrl();
-      const qrCodeDataUrl = includeQRCode
-        ? await import("qrcode").then((qr) =>
-          qr.default.toDataURL(`${frontendUrl}/verify/${projectId}`, {
-            errorCorrectionLevel: "H",
-            margin: 1,
-            width: 200,
-            color: { dark: "#000000", light: "#FFFFFF" },
-          })
-        )
-        : null;
+      await BillingGateway.withFeature(
+        user.id,
+        "certificate",
+        undefined,
+        async () => {
+          // Generate Certificate HTML (reuse for both PDF and preview)
+          const stats = await import("../../services/authorshipReportService.js").then(
+            (m) =>
+              m.AuthorshipReportService.generateAuthorshipReport(projectId, user.id)
+          );
+          const confidenceReport = await AuthorshipConfidenceService.generateProjectReport(
+            projectId,
+            user.id
+          );
+          const frontendUrl = await SecretsService.getFrontendUrl();
+          const qrCodeDataUrl = includeQRCode
+            ? await import("qrcode").then((qr) =>
+              qr.default.toDataURL(`${frontendUrl}/verify/${projectId}`, {
+                errorCorrectionLevel: "H",
+                margin: 1,
+                width: 200,
+                color: { dark: "#000000", light: "#FFFFFF" },
+              })
+            )
+            : null;
 
-      // Generate HTML first
-      const html = await AuthorshipCertificateGenerator.generateCertificateHTML(
-        {
-          projectId,
-          userId: user.id,
-          userName: prismaUser.full_name || "ColabWize User",
-          projectTitle: project.title || "Untitled Project",
-          certificateType,
-          includeQRCode,
-          verificationUrl: `${frontendUrl}/verify/${projectId}`,
-          watermark: limits.watermark,
-          confidenceReport,
-        },
-        stats,
-        qrCodeDataUrl
-      );
-
-      // Generate PDF from HTML
-      const buffer = await AuthorshipCertificateGenerator.convertHTMLToPDF(html);
-
-      // Generate preview image from same HTML
-      const previewBuffer =
-        await AuthorshipCertificateGenerator.generatePreviewImage(html);
-
-      // Upload PDF to Supabase
-      const fileName = `certificate-${projectId}-${randomUUID()}.pdf`;
-      const { path: pdfPath } =
-        await import("../../services/supabaseStorageService.js").then((m) =>
-          m.SupabaseStorageService.uploadFile(
-            buffer,
-            fileName,
-            "application/pdf",
-            user.id,
+          // Generate HTML first
+          const html = await AuthorshipCertificateGenerator.generateCertificateHTML(
             {
+              projectId,
               userId: user.id,
-              fileName: fileName,
-              fileType: "application/pdf",
-              fileSize: buffer.length,
-              projectId: projectId,
-              createdAt: new Date(),
-            }
-          )
-        );
-
-      // Upload Preview Image to Supabase
-      const previewFileName = `preview-${projectId}-${randomUUID()}.png`;
-      const { publicUrl: previewPublicUrl } =
-        await import("../../services/supabaseStorageService.js").then((m) =>
-          m.SupabaseStorageService.uploadFile(
-            previewBuffer,
-            previewFileName,
-            "image/png",
-            user.id,
-            {
-              userId: user.id,
-              fileName: previewFileName,
-              fileType: "image/png",
-              fileSize: previewBuffer.length,
-              projectId: projectId,
-              createdAt: new Date(),
-            }
-          )
-        );
-
-      // Create Certificate Record with preview URL
-      await prisma.certificate.create({
-        data: {
-          user_id: user.id,
-          project_id: projectId,
-          title: `${certificateType} Certificate - ${project.title}`,
-          file_name: fileName,
-          file_path: pdfPath, // Path in Supabase bucket
-          file_size: buffer.length,
-          status: "completed",
-          certificate_type: certificateType,
-          metadata: {
-            generated_at: new Date().toISOString(),
-            plan_at_generation: plan,
-            previewUrl: previewPublicUrl, // Public URL for frontend display
-            confidenceReport: {
-              overallReliability: confidenceReport.overallReliability.label,
-              overallReliabilityScore: confidenceReport.overallReliability.score,
-              attributionConfidence: confidenceReport.attributionConfidence.score,
-              contributionConfidence: confidenceReport.contributionConfidence.score,
-              collaborationClarity: confidenceReport.collaborationClarity.score,
-              evidenceCompleteness: confidenceReport.evidenceCompleteness.score,
-              aiTransparency: confidenceReport.aiAssistanceTransparency.score,
-              anomalyRisk: confidenceReport.anomalyRisk.score,
-              evidenceSummary: confidenceReport.evidenceSummary,
+              userName: prismaUser.full_name || "ColabWize User",
+              projectTitle: project.title || "Untitled Project",
+              certificateType,
+              includeQRCode,
+              verificationUrl: `${frontendUrl}/verify/${projectId}`,
+              watermark: limits.watermark,
+              confidenceReport,
             },
-          },
+            stats,
+            qrCodeDataUrl
+          );
+
+          // Generate PDF from HTML
+          const buffer = await AuthorshipCertificateGenerator.convertHTMLToPDF(html);
+
+          // Generate preview image from same HTML
+          const previewBuffer =
+            await AuthorshipCertificateGenerator.generatePreviewImage(html);
+
+          // Upload PDF to Supabase
+          const fileName = `certificate-${projectId}-${randomUUID()}.pdf`;
+          const { path: pdfPath } =
+            await import("../../services/supabaseStorageService.js").then((m) =>
+              m.SupabaseStorageService.uploadFile(
+                buffer,
+                fileName,
+                "application/pdf",
+                user.id,
+                {
+                  userId: user.id,
+                  fileName: fileName,
+                  fileType: "application/pdf",
+                  fileSize: buffer.length,
+                  projectId: projectId,
+                  createdAt: new Date(),
+                }
+              )
+            );
+
+          // Upload Preview Image to Supabase
+          const previewFileName = `preview-${projectId}-${randomUUID()}.png`;
+          const { publicUrl: previewPublicUrl } =
+            await import("../../services/supabaseStorageService.js").then((m) =>
+              m.SupabaseStorageService.uploadFile(
+                previewBuffer,
+                previewFileName,
+                "image/png",
+                user.id,
+                {
+                  userId: user.id,
+                  fileName: previewFileName,
+                  fileType: "image/png",
+                  fileSize: previewBuffer.length,
+                  projectId: projectId,
+                  createdAt: new Date(),
+                }
+              )
+            );
+
+          // Create Certificate Record with preview URL
+          await prisma.certificate.create({
+            data: {
+              user_id: user.id,
+              project_id: projectId,
+              title: `${certificateType} Certificate - ${project.title}`,
+              file_name: fileName,
+              file_path: pdfPath, // Path in Supabase bucket
+              file_size: buffer.length,
+              status: "completed",
+              certificate_type: certificateType,
+              metadata: {
+                generated_at: new Date().toISOString(),
+                plan_at_generation: plan,
+                previewUrl: previewPublicUrl, // Public URL for frontend display
+                confidenceReport: {
+                  overallReliability: confidenceReport.overallReliability.label,
+                  overallReliabilityScore: confidenceReport.overallReliability.score,
+                  attributionConfidence: confidenceReport.attributionConfidence.score,
+                  contributionConfidence: confidenceReport.contributionConfidence.score,
+                  collaborationClarity: confidenceReport.collaborationClarity.score,
+                  evidenceCompleteness: confidenceReport.evidenceCompleteness.score,
+                  aiTransparency: confidenceReport.aiAssistanceTransparency.score,
+                  anomalyRisk: confidenceReport.anomalyRisk.score,
+                  evidenceSummary: confidenceReport.evidenceSummary,
+                },
+              },
+            },
+          });
+
+          // Send PDF buffer directly
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+          res.setHeader("Content-Length", buffer.length);
+          return res.send(buffer);
         },
-      });
-
-      // Deduct Credits / Entitlement (HANDLED AT START NOW)
-      // const consumption = await SubscriptionService.consumeAction(user.id, "certificate");
-
-      // Send PDF buffer directly
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-      res.setHeader("Content-Length", buffer.length);
-      return res.send(buffer);
-
+      );
+      return;
     } catch (innerError: any) {
+      if (innerError instanceof BillingError) {
+        const status = innerError.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+        return res.status(status).json({
+          error: innerError.message || "Monthly limit reached",
+          code: innerError.code,
+          data: innerError.data || { upgrade_url: "/pricing" },
+        });
+      }
+
       console.error("Generation internal error:", innerError);
 
       // TIMEOUT MAPPING RULE
