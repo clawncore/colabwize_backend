@@ -226,7 +226,7 @@ router.patch("/items/:itemKey", authenticateHybridRequest, async (req: Request, 
 router.get("/file/:itemKey", authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
-        const { itemKey } = req.params;
+        const itemKey = req.params.itemKey as string;
 
         // Validate itemKey format (Zotero keys are alphanumeric)
         if (!/^[a-zA-Z0-9]+$/.test(itemKey)) {
