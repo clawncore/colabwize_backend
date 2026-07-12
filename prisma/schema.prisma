@@ -40,6 +40,12 @@ model User {
   ai_usage              AIUsage[]
   analytics_events      AnalyticsEvent[]
   authorship_activities AuthorshipActivity[]
+  authorship_collaboration_sessions AuthorshipCollaborationSession[]
+  authorship_evidence_batches AuthorshipEvidenceBatch[]
+  authorship_evidence AuthorshipEvidence[]
+  authorship_contributions AuthorshipContribution[]
+  authorship_anomalies AuthorshipAnomaly[]
+  authorship_confidence_reports AuthorshipConfidenceReport[]
   certificates          Certificate[]
   chat_sessions         ChatSession[]
   citations             Citation[]
@@ -57,6 +63,7 @@ model User {
   subscription          Subscription?
   support_tickets       SupportTicket[]
   usage_tracking        UsageTracking[]
+  usage_events          UsageEvent[]
   feedback              UserFeedback[]
   user_metrics          UserMetrics?
   user_sessions         UserSession[]
@@ -67,12 +74,14 @@ model User {
   credit_transactions   CreditTransaction[]
   annotations           Annotation[]
   source_interactions   SourceInteraction[]
+  reference_collections ReferenceCollection[]
   entitlement           UserEntitlement?
   search_alerts         SearchAlert[]
   research_topics       ResearchTopic[]
   pdf_documents            PdfDocument[]
   collaborators            CollaboratorPresence[]
   document_versions        DocumentVersion[]
+  audit_jobs               AuditJob[]
 
   // Workspace Relations
   owned_workspaces           Workspace[]           @relation("WorkspaceOwner")
@@ -401,6 +410,12 @@ model Project {
   updated_at            DateTime             @updatedAt
   analytics_events      AnalyticsEvent[]
   authorship_activities AuthorshipActivity[]
+  authorship_collaboration_sessions AuthorshipCollaborationSession[]
+  authorship_evidence_batches AuthorshipEvidenceBatch[]
+  authorship_evidence AuthorshipEvidence[]
+  authorship_contributions AuthorshipContribution[]
+  authorship_anomalies AuthorshipAnomaly[]
+  authorship_confidence_reports AuthorshipConfidenceReport[]
   certificates          Certificate[]
   chat_messages         ChatMessage[]
   team_chat_messages    TeamChatMessage[]
@@ -420,10 +435,85 @@ model Project {
   version_schedules   VersionSchedule[]
   tasks               WorkspaceTask[] // Tasks linked to this research project
   ydoc                  Bytes?               // Hocuspocus Y.Doc binary state
+  audit_jobs          AuditJob[]
+  reference_collections ReferenceCollection[]
 
   @@index([user_id])
   @@index([created_at])
   @@map("projects")
+}
+
+model AuditJob {
+  id             String            @id @default(uuid())
+  user_id        String?
+  project_id     String?
+  document_id    String?
+  status         String
+  current_stage  String
+  progress       Int               @default(0)
+  started_at     DateTime          @default(now())
+  completed_at   DateTime?
+  created_at     DateTime          @default(now())
+  error          String?
+  report         AuditReport?
+  verification_evidence VerificationEvidence[]
+  score_snapshots IntegrityScoreSnapshot[]
+  user           User?             @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  project        Project?          @relation(fields: [project_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([project_id])
+  @@index([document_id])
+  @@index([status])
+  @@index([created_at])
+  @@map("audit_jobs")
+}
+
+model AuditReport {
+  id           String    @id @default(uuid())
+  audit_job_id String    @unique
+  report_json  Json
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  audit_job    AuditJob  @relation(fields: [audit_job_id], references: [id], onDelete: Cascade)
+
+  @@index([audit_job_id])
+  @@index([created_at])
+  @@map("audit_reports")
+}
+
+model VerificationEvidence {
+  id              String   @id @default(uuid())
+  audit_job_id    String
+  reference_index Int?
+  inline_start    Int?
+  inline_end      Int?
+  inline_text     String?
+  status          String
+  message         String
+  evidence_json   Json?
+  created_at      DateTime @default(now())
+  audit_job       AuditJob @relation(fields: [audit_job_id], references: [id], onDelete: Cascade)
+
+  @@index([audit_job_id])
+  @@index([status])
+  @@index([created_at])
+  @@map("verification_evidence")
+}
+
+model IntegrityScoreSnapshot {
+  id               String   @id @default(uuid())
+  audit_job_id     String
+  integrity_index Float
+  compliance_score Float
+  score_breakdown  Json?
+  summary          Json
+  created_at       DateTime @default(now())
+  audit_job        AuditJob @relation(fields: [audit_job_id], references: [id], onDelete: Cascade)
+
+  @@index([audit_job_id])
+  @@index([created_at])
+  @@map("integrity_score_snapshots")
 }
 
 model Citation {
@@ -431,7 +521,8 @@ model Citation {
   project_id     String
   user_id        String
   title          String
-  author         String
+  author         String?  @map("author")  // Legacy flat author string — kept for migration compat
+  authors        Json?    // Structured authors: [{ family, given, literal }]
   year           Int
   type           String
   doi            String?
@@ -443,13 +534,28 @@ model Citation {
   journal        String?
   citation_count Int?
   source         String?
-  abstract       String?  // Summary of the paper
+  abstract       String?
   formatted_citations Json?
-  themes         Json?    // Array of themes like ["Gap", "Method", "Result"]
-  matrix_notes   String?  // Qualitative notes for the Literature Matrix
+  raw_reference_text  String?  @map("raw_reference_text")
+  ieee_number         Int?     @map("ieee_number")
+  themes         Json?
+  matrix_notes   String?
   vault_verified  Boolean  @default(true)
+
+  // --- Canonical Citation Model additions ---
+  provider       String?  @default("manual")  // "zotero" | "mendeley" | "manual" | "crossref"
+  providerId     String?  // Original provider item/document ID
+  rawMetadata    Json?    // Original provider data for round-trip export fidelity
+  identifiers    Json?    // { doi, isbn, pmid, pmcid, arxiv, issn, ... }
+  attachments    Json?    // [{ type, title, url, mimeType, size }]
+  tags           Json?    // Array of user-defined tags
+  isFavorite     Boolean  @default(false)
+  readingStatus  String?  @default("unread")  // "unread" | "reading" | "read"
+  authenticityScore Float? @default(0)        // 0-100 source integration score
+
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
+  collections    CollectionCitation[]
   project        Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
   user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
@@ -457,7 +563,52 @@ model Citation {
   @@index([user_id])
   @@index([year])
   @@index([doi])
+  @@index([provider])
+  @@index([providerId])
+  @@index([isFavorite])
   @@map("citations")
+}
+
+model ReferenceCollection {
+  id          String   @id @default(uuid())
+  project_id  String
+  user_id     String
+  name        String
+  description String?
+  icon        String?
+  type        String   @default("collection")  // "collection" | "reading_list" | "citation_bundle" | "literature_review"
+  is_smart    Boolean  @default(false)
+  smart_rules Json?
+  color       String?
+  sort_order  Int      @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  citations   CollectionCitation[]
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([type])
+  @@map("reference_collections")
+}
+
+model CollectionCitation {
+  id              String   @id @default(uuid())
+  collection_id   String
+  citation_id     String
+  note            String?
+  sort_order      Int      @default(0)
+  added_at        DateTime @default(now())
+
+  collection      ReferenceCollection @relation(fields: [collection_id], references: [id], onDelete: Cascade)
+  citation        Citation            @relation(fields: [citation_id], references: [id], onDelete: Cascade)
+
+  @@unique([collection_id, citation_id])
+  @@index([collection_id])
+  @@index([citation_id])
+  @@map("collection_citations")
 }
 
 model Subscription {
@@ -822,6 +973,177 @@ model RealTimeActivity {
   @@map("real_time_activities")
 }
 
+model AuthorshipCollaborationSession {
+  id                String   @id @default(uuid())
+  project_id        String
+  user_id           String
+  server_session_id String   @unique
+  client_session_id String?
+  socket_id         String?
+  status            String   @default("active")
+  authenticated_at  DateTime @default(now())
+  disconnected_at   DateTime?
+  metadata          Json?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  project Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  evidence AuthorshipEvidence[]
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([server_session_id])
+  @@index([authenticated_at])
+  @@map("authorship_collaboration_sessions")
+}
+
+model AuthorshipEvidenceBatch {
+  id                String   @id @default(uuid())
+  project_id        String
+  user_id           String
+  session_id        String?
+  client_session_id String?
+  source            String   @default("client_batch")
+  evidence_count    Int      @default(0)
+  raw_payload       Json?
+  status            String   @default("received")
+  received_at       DateTime @default(now())
+  processed_at      DateTime?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  project  Project               @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user     User                  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  evidence AuthorshipEvidence[]
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([session_id])
+  @@index([source])
+  @@index([received_at])
+  @@map("authorship_evidence_batches")
+}
+
+model AuthorshipEvidence {
+  id                  String   @id @default(uuid())
+  project_id          String
+  user_id             String
+  batch_id            String?
+  collaboration_session_id String?
+  evidence_id         String   @unique
+  evidence_type       String
+  evidence_hash       String?
+  source              String
+  strength            String   @default("weak")
+  server_received_at  DateTime @default(now())
+  event_timestamp     DateTime?
+  block_id            String?
+  section_title       String?
+  content_hash        String?
+  inserted_chars      Int      @default(0)
+  deleted_chars       Int      @default(0)
+  edit_count          Int      @default(0)
+  ai_assisted         Boolean  @default(false)
+  anomaly_score       Float    @default(0)
+  payload             Json?
+  created_at          DateTime @default(now())
+
+  project Project? @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  batch   AuthorshipEvidenceBatch? @relation(fields: [batch_id], references: [id], onDelete: SetNull)
+  collaborationSession AuthorshipCollaborationSession? @relation(fields: [collaboration_session_id], references: [id], onDelete: SetNull)
+  anomalies      AuthorshipAnomaly[]
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([evidence_type])
+  @@index([source])
+  @@index([strength])
+  @@index([server_received_at])
+  @@index([block_id])
+  @@map("authorship_evidence")
+}
+
+model AuthorshipContribution {
+  id                    String   @id @default(uuid())
+  project_id            String
+  user_id               String
+  block_id              String   @default("__document")
+  section_title         String?
+  inserted_chars        Int      @default(0)
+  deleted_chars         Int      @default(0)
+  edit_count            Int      @default(0)
+  server_observed_edits Int      @default(0)
+  ai_assisted_edits     Int      @default(0)
+  offline_edits         Int      @default(0)
+  contribution_score    Float    @default(0)
+  first_contribution_at DateTime?
+  last_contribution_at  DateTime?
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  project Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([project_id, user_id, block_id])
+  @@index([project_id])
+  @@index([user_id])
+  @@index([contribution_score])
+  @@map("authorship_contributions")
+}
+
+model AuthorshipAnomaly {
+  id          String   @id @default(uuid())
+  project_id  String
+  user_id     String?
+  evidence_id String?
+  anomaly_type String
+  severity    String
+  score       Float
+  message     String
+  metadata    Json?
+  detected_at DateTime @default(now())
+  created_at  DateTime @default(now())
+
+  project Project? @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  evidence AuthorshipEvidence? @relation(fields: [evidence_id], references: [id], onDelete: SetNull)
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([evidence_id])
+  @@index([severity])
+  @@index([detected_at])
+  @@map("authorship_anomalies")
+}
+
+model AuthorshipConfidenceReport {
+  id                       String   @id @default(uuid())
+  project_id               String
+  user_id                  String
+  certificate_id           String?
+  report_json              Json
+  attribution_confidence   Float    @default(0)
+  contribution_confidence  Float    @default(0)
+  collaboration_clarity    Float    @default(0)
+  evidence_completeness    Float    @default(0)
+  ai_transparency          Float    @default(0)
+  anomaly_risk             Float    @default(0)
+  overall_reliability      String   @default("Insufficient")
+  generated_at             DateTime @default(now())
+  created_at               DateTime @default(now())
+
+  project Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([certificate_id])
+  @@index([generated_at])
+  @@map("authorship_confidence_reports")
+}
+
 model ContactRequest {
   id          String    @id @default(uuid())
   name        String
@@ -867,6 +1189,33 @@ model CreditTransaction {
   @@index([type])
   @@index([created_at])
   @@map("credit_transactions")
+}
+
+// Immutable ledger of every billable feature execution. This is the single
+// source of truth for usage accounting; userEntitlement.features is a
+// read-model cache rebuilt from these events.
+model UsageEvent {
+  id          String   @id @default(uuid())
+  user_id     String
+  feature     String
+  source      String   // PLAN | CREDIT
+  cost        Int      @default(0) // credits charged (0 when covered by plan)
+  status      String   // HELD | CONSUMED | RELEASED | REFUNDED
+  reference_id String? // idempotency key — duplicate holds return the same event
+  metadata    Json?
+  error       String?
+  held_at     DateTime @default(now())
+  confirmed_at DateTime?
+  released_at DateTime?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([reference_id])
+  @@index([user_id, feature, held_at])
+  @@index([status])
+  @@index([reference_id])
+  @@map("usage_events")
 }
 
 model DocumentTemplate {
@@ -1583,5 +1932,33 @@ model Referral {
   @@index([reward_status])
   @@index([referred_at])
   @@map("referrals")
+}
+
+model VerificationCache {
+  id          String   @id @default(uuid())
+  hash        String   @unique
+  result_json Json
+  hits        Int      @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([hash])
+  @@index([created_at])
+  @@map("verification_cache")
+}
+
+model CitationPairHash {
+  id              String   @id @default(uuid())
+  document_id     String
+  project_id      String?
+  pair_hash       String
+  citation_text   String?
+  reference_text  String?
+  created_at      DateTime @default(now())
+
+  @@unique([document_id, pair_hash])
+  @@index([document_id])
+  @@index([project_id])
+  @@map("citation_pair_hashes")
 }
 

@@ -84,9 +84,13 @@ export interface CitationFlag {
 // Verification Results (separate from flags)
 export type VerificationStatus =
   | "VERIFIED" // Paper found and matches
+  | "UNVERIFIED" // Source could not be verified, but evidence is incomplete
   | "VERIFICATION_FAILED" // Paper not found or low similarity
   | "UNMATCHED_REFERENCE" // Inline citation has no matching reference
-  | "INSUFFICIENT_INFO"; // Citation too short to verify
+  | "INSUFFICIENT_INFO" // Citation too short to verify
+  | "INSUFFICIENT_EVIDENCE" // External checks did not provide enough evidence
+  | "RETRY_REQUIRED" // Temporary provider/rate-limit failure
+  | "POTENTIAL_FABRICATION"; // Strong mismatch/retraction signal, not a final accusation
 
 export interface VerificationResult {
   inlineLocation: {

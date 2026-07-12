@@ -1,11 +1,21 @@
 export type AuditSeverity = "CRITICAL" | "MAJOR" | "MINOR" | "INFO";
 export type AuditStatus = "RUNNING" | "COMPLETED" | "FAILED";
+export type AuditIssueCategory =
+    | "EXTRACTION"
+    | "MAPPING"
+    | "VERIFICATION"
+    | "DUPLICATES"
+    | "URL"
+    | "FORMATTING"
+    | "BIBLIOGRAPHY"
+    | "SCORING";
 
 export interface AuditMetadata {
     auditId: string;
     timestamp: string;
     documentId: string;
     projectId: string; // added projectId to help with db lookups if needed
+    userId?: string;
     style: string;
     version: string;
 }
@@ -24,6 +34,11 @@ export interface AuditSummaryMetrics {
         web: number;
         unknown: number;
     };
+    citationTypes?: {
+        structured: number;
+        mark: number;
+        manual: number;
+    };
     auditTime?: string;
 }
 
@@ -36,14 +51,14 @@ export interface AuditLocation {
 
 export interface AuditIssue {
     id: string;
-    category?: string;              // e.g., "VERIFICATION", "FORMATTING", "DUPLICATES"
+    category?: AuditIssueCategory | string;
     type: string;                 // e.g., "BROKEN_REFERENCE", "INVALID_URL", "FORMATTING"
     severity: AuditSeverity;
     location?: AuditLocation;
     referenceId?: string;         // e.g., "C12", or RefKey
     message: string;
     suggestedFix?: string;
-    suggestedItems?: any[];
+    suggestedItems?: unknown[];
     autoFixAvailable: boolean;
 }
 
@@ -71,16 +86,17 @@ export interface AuditReport {
     duplicates: DuplicateCluster[];
     // Extended fields for DB verification modal
     integrityIndex?: number;
-    scoreBreakdown?: any[];
-    flags?: any[];
-    verificationResults?: any[];
-    tierMetadata?: any;
+    scoreBreakdown?: unknown[];
+    flags?: unknown[];
+    verificationResults?: unknown[];
+    tierMetadata?: unknown;
 }
 
 export interface AuditJob {
     auditId: string;
     documentId: string;
     projectId: string;
+    userId?: string;
     status: AuditStatus;
     progress: number;            // 0 to 100
     currentStage: string;
@@ -96,11 +112,28 @@ export interface AuditPipelineStage {
     execute: (job: AuditJob, context: AuditContext) => Promise<void>;
 }
 
+export interface ExtractedCitation {
+    citationId?: string;
+    text: string;
+    start: number;
+    end: number;
+    source: "structured" | "mark" | "manual";
+}
+
+export interface ExtractedReference {
+    id?: string;
+    text: string;
+    url?: string | null;
+    doi?: string | null;
+    start: number;
+    end: number;
+}
+
 // Internal context passed between pipeline stages
 export interface AuditContext {
     userId: string;           // Required for user-specific lookups (Zotero)
-    docState: any;             // ProseMirror JSON Document
-    citations: any[];          // Extracted in-text citations
-    bibliography: any[];       // Extracted bibliography entries
-    citationIdMap: Map<string, any>; // Map for quick cross-referencing
+    docState: unknown;             // ProseMirror JSON Document
+    citations: ExtractedCitation[];          // Extracted in-text citations
+    bibliography: ExtractedReference[];       // Extracted bibliography entries
+    citationIdMap: Map<string, ExtractedReference>; // Map for quick cross-referencing
 }

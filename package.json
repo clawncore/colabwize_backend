@@ -4,12 +4,12 @@
   "description": "Backend API for CollaborateWise application",
   "main": "dist/hybrid/main-server.js",
   "engines": {
-    "node": ">=20.x"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "start": "node dist/hybrid/main-server.js",
     "dev": "tsx watch src/hybrid/main-server.ts",
-    "build": "npx rimraf dist && tsc",
+    "build": "npx rimraf dist && NODE_OPTIONS=--max-old-space-size=4096 tsc",
     "check-env": "node scripts/check-environment.js",
     "postinstall": "npx puppeteer browsers install chrome && node scripts/setup-puppeteer.js && prisma generate"
   },

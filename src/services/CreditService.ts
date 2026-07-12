@@ -26,19 +26,21 @@ export class CreditService {
         switch (feature) {
             case 'scan':
             case 'citation_audit':
-                // Citation audits: 1 credit per 1000 words
+                // Citation audits: 1 credit per 1000 words. Minimum 1 credit so
+                // sub-1000-word documents still incur a charge (a 0-cost call
+                // would otherwise bypass the credit ledger entirely).
                 words = metadata.wordCount || 0;
-                return Math.ceil(words / 1000);
+                return Math.max(1, Math.ceil(words / 1000));
 
             case 'rephrase':
-                // Rephrase: (Input + Output) / 1000
+                // Rephrase: (Input + Output) / 1000. Minimum 1 credit.
                 words = (metadata.inputWords || 0) + (metadata.outputWords || 0);
-                return Math.ceil(words / 1000);
+                return Math.max(1, Math.ceil(words / 1000));
 
             case 'ai_chat':
-                // AI Chat: (Input + Output) / 2000 (Cheaper)
+                // AI Chat: (Input + Output) / 2000 (Cheaper). Minimum 1 credit.
                 words = (metadata.inputWords || 0) + (metadata.outputWords || 0);
-                return Math.ceil(words / 2000);
+                return Math.max(1, Math.ceil(words / 2000));
 
             case 'originality':
             case 'originality_scan':

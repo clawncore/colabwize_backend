@@ -404,6 +404,117 @@ export class AnalyticsService {
   }
 
   /**
+   * Get citation audit statistics for the analytics dashboard
+   */
+  static async getAuditStats(userId: string): Promise<any> {
+    try {
+      const jobs = await (prisma as any).auditJob.findMany({
+        where: {
+          user_id: userId,
+          status: "completed",
+        },
+        select: {
+          id: true,
+          report: true,
+          started_at: true,
+          completed_at: true,
+        },
+      });
+
+      if (!jobs || jobs.length === 0) {
+        return {
+          totalAudits: 0,
+          avgComplianceScore: null,
+          avgIntegrityIndex: null,
+          avgCitationsPerAudit: null,
+          avgBrokenReferences: null,
+          avgUncitedReferences: null,
+          avgDuplicates: null,
+          avgInvalidUrls: null,
+          avgFormattingErrors: null,
+          avgAuditDurationSeconds: null,
+          avgVerifiedSources: null,
+          avgUnverifiedSources: null,
+          lastAuditDate: null,
+        };
+      }
+
+      let totalCompliance = 0;
+      let totalIntegrity = 0;
+      let totalCitations = 0;
+      let totalBroken = 0;
+      let totalUncited = 0;
+      let totalDuplicates = 0;
+      let totalInvalidUrls = 0;
+      let totalFormatting = 0;
+      let totalDuration = 0;
+      let totalVerified = 0;
+      let totalUnverified = 0;
+      let lastDate: Date | null = null;
+      let complianceCount = 0;
+      let integrityCount = 0;
+
+      jobs.forEach((job: any) => {
+        const report = job.report;
+        const summary = report?.summary || {};
+        const verResults = report?.verificationResults || [];
+
+        const compliance = summary.complianceScore ?? report?.integrityIndex;
+        if (typeof compliance === "number") {
+          totalCompliance += compliance;
+          complianceCount++;
+        }
+        if (typeof report?.integrityIndex === "number") {
+          totalIntegrity += report.integrityIndex;
+          integrityCount++;
+        }
+
+        totalCitations += summary.totalInTextCitations || 0;
+        totalBroken += summary.brokenCitations || 0;
+        totalUncited += summary.uncitedReferences || 0;
+        totalDuplicates += summary.duplicatesDetected || 0;
+        totalInvalidUrls += summary.invalidUrls || 0;
+        totalFormatting += summary.formattingErrors || 0;
+
+        if (job.started_at && job.completed_at) {
+          totalDuration += (new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 1000;
+        }
+
+        verResults.forEach((v: any) => {
+          if (v.status === "VERIFIED") totalVerified++;
+          else totalUnverified++;
+        });
+
+        const jobDate = job.completed_at ? new Date(job.completed_at) : null;
+        if (jobDate && (!lastDate || jobDate > lastDate)) {
+          lastDate = jobDate;
+        }
+      });
+
+      const count = jobs.length;
+
+      return {
+        totalAudits: count,
+        avgComplianceScore: complianceCount > 0 ? Math.round((totalCompliance / complianceCount) * 10) / 10 : null,
+        avgIntegrityIndex: integrityCount > 0 ? Math.round((totalIntegrity / integrityCount) * 10) / 10 : null,
+        avgCitationsPerAudit: Math.round((totalCitations / count) * 10) / 10,
+        avgBrokenReferences: Math.round((totalBroken / count) * 10) / 10,
+        avgUncitedReferences: Math.round((totalUncited / count) * 10) / 10,
+        avgDuplicates: Math.round((totalDuplicates / count) * 10) / 10,
+        avgInvalidUrls: Math.round((totalInvalidUrls / count) * 10) / 10,
+        avgFormattingErrors: Math.round((totalFormatting / count) * 10) / 10,
+        avgAuditDurationSeconds: Math.round(totalDuration / count),
+        avgVerifiedSources: Math.round((totalVerified / count) * 10) / 10,
+        avgUnverifiedSources: Math.round((totalUnverified / count) * 10) / 10,
+        lastAuditDate: lastDate ? (lastDate as Date).toISOString() : null,
+      };
+    } catch (error: any) {
+      logger.error("Error getting audit stats", { error: error.message });
+      return null;
+    }
+  }
+
+  /**
    * Get billing trends (payments per month)
    */
   static async getBillingTrends(userId: string): Promise<any[]> {

@@ -12,7 +12,7 @@ import webhookRouter from "./webhook";
 import { prisma } from "../../lib/prisma";
 import { EnhancedOriginalityDetectionService } from "../../services/enhancedOriginalityDetectionService";
 import { getSafeString } from "../../utils/requestHelpers";
-import { EntitlementService } from "../../services/EntitlementService";
+import { BillingGateway, BillingError } from "../../billing/BillingGateway";
 
 const router = express.Router();
 
@@ -89,36 +89,32 @@ router.post(
         });
       }
 
-      // Check Entitlement/Credits with Word Count (for Credit Cost)
       const wordCount = content.trim().split(/\s+/).length;
-      try {
-        await EntitlementService.assertCanUse(userId, "originality_scan", { wordCount });
-      } catch (e: any) {
-        let status = 403;
-        if (e.code === "INSUFFICIENT_CREDITS") status = 402;
-        return res.status(status).json({
-          success: false,
-          message: e.message || "Plan limit reached",
-          code: "PLAN_LIMIT_REACHED"
-        });
-      }
-
       logger.info("Starting originality scan", { userId, projectId, plan });
 
-      // Perform scan
-      const result = await OriginalityMapService.scanDocument(
-        projectId,
-        userId,
-        content,
-        plan
-      );
+      // Run the scan through the single billing pipeline (hold → execute →
+      // confirm/release). Replaces the old assertCanUse (which consumed
+      // before execution) with the correct lifecycle.
+      try {
+        const result = await BillingGateway.withFeature(
+          userId,
+          "originality_scan",
+          { wordCount },
+          () => OriginalityMapService.scanDocument(projectId, userId, content, plan),
+        );
 
-      // incrementFeatureUsage removed - assertCanUse consumed logic.
-
-      return res.status(200).json({
-        success: true,
-        data: result,
-      });
+        return res.status(200).json({ success: true, data: result });
+      } catch (e: any) {
+        if (e instanceof BillingError) {
+          const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+          return res.status(status).json({
+            success: false,
+            message: e.message || "Plan limit reached",
+            code: e.code,
+          });
+        }
+        throw e;
+      }
     } catch (error: any) {
       logger.error("Error in scan endpoint", { error: error.message });
 
@@ -302,31 +298,28 @@ router.post(
 
       const wordCount = originalText.trim().split(/\s+/).length;
 
-      // Check Entitlements & Credits (Replaces manual free tier logic)
+      // Run through the single billing pipeline (hold → execute →
+      // confirm/release).
       try {
-        await EntitlementService.assertCanUse(userId, "rephrase", { inputWords: wordCount });
+        const suggestions = await BillingGateway.withFeature(
+          userId,
+          "rephrase",
+          { inputWords: wordCount },
+          () => RephraseService.generateRephraseSuggestions(scanId, matchId, originalText, userId),
+        );
+
+        return res.status(200).json({ success: true, data: suggestions });
       } catch (e: any) {
-        let status = 403;
-        if (e.code === "INSUFFICIENT_CREDITS") status = 402;
-        return res.status(status).json({
-          success: false,
-          message: e.message,
-          code: "PLAN_LIMIT_REACHED"
-        });
+        if (e instanceof BillingError) {
+          const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+          return res.status(status).json({
+            success: false,
+            message: e.message,
+            code: e.code,
+          });
+        }
+        throw e;
       }
-
-      // Generate suggestions
-      const suggestions = await RephraseService.generateRephraseSuggestions(
-        scanId,
-        matchId,
-        originalText,
-        userId
-      );
-
-      return res.status(200).json({
-        success: true,
-        data: suggestions,
-      });
     } catch (error: any) {
       logger.error("Error generating rephrase suggestions", {
         error: error.message,
@@ -526,33 +519,34 @@ router.post(
         return res.status(400).json({ success: false, message: "Content too long (max 5000 chars)" });
       }
 
-      // Check Limits
       const wordCount = content.split(/\s+/).length;
-      try {
-        await EntitlementService.assertCanUse(userId, "rephrase", { inputWords: wordCount });
-      } catch (e: any) {
-        let status = 403;
-        if (e.code === "INSUFFICIENT_CREDITS") status = 402;
-        return res.status(status).json({
-          error: e.message,
-          code: "PLAN_LIMIT_REACHED",
-          data: { upgrade_url: "/pricing" }
-        });
-      }
-
       logger.info("Starting text humanization", { userId, length: content.length });
 
       // Import dynamically to avoid circular issues
       const { HumanizerService } = await import("../../services/humanizerService.js");
 
-      const result = await HumanizerService.humanizeText(content);
+      // Run through the single billing pipeline (hold → execute →
+      // confirm/release).
+      try {
+        const result = await BillingGateway.withFeature(
+          userId,
+          "rephrase",
+          { inputWords: wordCount },
+          () => HumanizerService.humanizeText(content),
+        );
 
-      // EntitlementService already consumed above.
-
-      return res.status(200).json({
-        success: true,
-        data: result
-      });
+        return res.status(200).json({ success: true, data: result });
+      } catch (e: any) {
+        if (e instanceof BillingError) {
+          const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+          return res.status(status).json({
+            error: e.message,
+            code: e.code,
+            data: e.data || { upgrade_url: "/pricing" },
+          });
+        }
+        throw e;
+      }
 
     } catch (error: any) {
       logger.error("Error in humanize endpoint", { error: error.message });
@@ -573,7 +567,8 @@ router.post(
 
 /**
  * POST /api/originality/section-check
- * Lightweight check for specific section
+ * Lightweight check for specific section. Metered under scan quota so the
+ * analysis pipeline isn't an ungated free surface.
  */
 router.post(
   "/section-check",
@@ -582,11 +577,23 @@ router.post(
       const userId = (req as any).user?.id;
       const { projectId, content } = req.body;
 
+      if (!userId) return res.status(401).json({ success: false, message: "Authentication required" });
       if (!content || !projectId) return res.status(400).json({ success: false, message: "Missing info" });
 
-      const result = await OriginalityMapService.checkSectionRisk(projectId, userId || "anonymous", content);
+      const wordCount = typeof content === "string" ? content.trim().split(/\s+/).length : 0;
+
+      const result = await BillingGateway.withFeature(
+        userId,
+        "originality_scan",
+        { wordCount },
+        () => OriginalityMapService.checkSectionRisk(projectId, userId, content),
+      );
       return res.status(200).json({ success: true, data: result });
     } catch (e: any) {
+      if (e instanceof BillingError) {
+        const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+        return res.status(status).json({ success: false, message: e.message, code: e.code });
+      }
       return res.status(500).json({ success: false, message: e.message });
     }
   }
@@ -610,25 +617,32 @@ router.post(
       if (!selection) return res.status(400).json({ success: false, message: "Selection required" });
 
       const wordCount = selection.split(/\s+/).length;
-      try {
-        await EntitlementService.assertCanUse(userId, "rephrase", { inputWords: wordCount });
-      } catch (e: any) {
-        let status = 403;
-        if (e.code === "INSUFFICIENT_CREDITS") status = 402;
-        return res.status(status).json({
-          error: e.message,
-          code: "PLAN_LIMIT_REACHED",
-          data: { upgrade_url: "/pricing" }
-        });
-      }
 
       // Dynamic import to handle circular deps if any
       const { HumanizerService } = await import("../../services/humanizerService.js");
-      const result = await HumanizerService.rewriteSelection(selection, context);
 
-      // EntitlementService already consumed above.
+      // Run through the single billing pipeline (hold → execute →
+      // confirm/release).
+      try {
+        const result = await BillingGateway.withFeature(
+          userId,
+          "rephrase",
+          { inputWords: wordCount },
+          () => HumanizerService.rewriteSelection(selection, context),
+        );
 
-      return res.status(200).json({ success: true, data: result });
+        return res.status(200).json({ success: true, data: result });
+      } catch (e: any) {
+        if (e instanceof BillingError) {
+          const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+          return res.status(status).json({
+            error: e.message,
+            code: e.code,
+            data: e.data || { upgrade_url: "/pricing" },
+          });
+        }
+        throw e;
+      }
     } catch (e: any) {
       const isTimeout = e.message?.includes("timeout") || e.name === "TimeoutError";
       if (isTimeout) {
@@ -658,11 +672,22 @@ router.post(
       const { matchText, sourceText, riskLevel } = req.body;
       if (!matchText || !sourceText) return res.status(400).json({ success: false, message: "Missing text to explain" });
 
-      // No credit usage for explanation - it's a value add for the scan
-      const Explanation = await EnhancedOriginalityDetectionService.explainRiskWithAI(matchText, sourceText, riskLevel || "Moderate");
+      // Gated behind scan entitlement — it is an AI call that must verify the
+      // user has originality_scan quota. Consumes one scan unit (same as a
+      // regular scan) since it invokes the AI pipeline.
+      const Explanation = await BillingGateway.withFeature(
+        userId,
+        "originality_scan",
+        undefined,
+        () => EnhancedOriginalityDetectionService.explainRiskWithAI(matchText, sourceText, riskLevel || "Moderate"),
+      );
 
       return res.status(200).json({ success: true, data: { explanation: Explanation } });
     } catch (e: any) {
+      if (e instanceof BillingError) {
+        const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+        return res.status(status).json({ success: false, message: e.message, code: e.code });
+      }
       logger.error("Error explaining risk", { error: e.message });
       return res.status(500).json({ success: false, message: "Failed to generate explanation" });
     }

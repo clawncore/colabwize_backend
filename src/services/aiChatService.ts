@@ -1,10 +1,12 @@
 import { streamText, tool } from "ai";
+import { BillingGateway, BillingError } from "../billing/BillingGateway";
 import { createOpenAI } from "@ai-sdk/openai";
 import { config } from "../config/env";
 import logger from "../monitoring/logger";
 import { SecretsService } from "./secrets-service";
 import { SubscriptionService } from "./subscriptionService";
 import { AcademicSearchService } from "./academicSearchService";
+import { SearchService } from "./searchService";
 import { z } from "zod";
 
 interface ChatContext {
@@ -23,6 +25,10 @@ interface ChatContext {
   academicLevel?: string;
   citationStyle?: string;
   discipline?: string;
+  // When true, the user opted into a real web search for this message. The
+  // backend runs SearchService.webSearch and injects the live results into the
+  // AI context so it can cite current sources. Bills 1 ai_web_search unit.
+  webSearchEnabled?: boolean;
 }
 
 import { prisma } from "../lib/prisma";
@@ -313,6 +319,11 @@ Claim Type: ${input.claimType}
     sessionId?: string,
     userId?: string
   ) {
+    // Reserve quota through the single billing pipeline. Declared at method
+    // scope (before the try below) so both the success-confirm and
+    // failure-release paths can see it regardless of nesting.
+    let billingEventId: string | null = null;
+
     try {
       // Check API Key
       const apiKey = await SecretsService.getOpenAiApiKey();
@@ -337,43 +348,32 @@ Claim Type: ${input.claimType}
       }
 
       // --- LIMIT ENFORCEMENT START ---
-      // --- LIMIT ENFORCEMENT START ---
+      // Reserve quota through the single billing pipeline. The hold is
+      // confirmed just before returning the success Response (see below) and
+      // released on any throw.
+      if (!userId) {
+        return new Response("System Error: User ID missing for AI request.", { status: 401 });
+      }
+
+      const inputWords = countInputWords(messages, context);
       try {
-        if (!userId) {
-          // Should not happen in authenticated context, but safe to ignore or block?
-          // Block to be safe.
-          throw new Error("User ID missing for AI request");
-        }
-
-        // 1. Check Usage Limits ("ai_chat" feature)
-        // This deducts from Plan first, then Credits if auto-use is on.
-        const consumption = await SubscriptionService.consumeAction(
-          userId,
-          "ai_chat"
+        const hold = await BillingGateway.hold(userId, "ai_chat", { inputWords });
+        billingEventId = hold.eventId;
+      } catch (billingError: any) {
+        const status = billingError.code === "INSUFFICIENT_CREDITS" ? 402 : billingError.code === "ENTITLEMENT_ERROR" ? 500 : 403;
+        return new Response(
+          JSON.stringify({
+            error: billingError.code || "LIMIT_REACHED",
+            message: billingError.message || "You have reached your AI usage limit.",
+          }),
+          { status, headers: { "Content-Type": "application/json" } },
         );
-
-        if (!consumption.allowed) {
-          // Return a structured error that the frontend can parse/display
-          // Since we are in a stream, we pipe this as a text chunk but the frontend should handle it.
-          // Ideally, we'd throw an http error, but for streamText we might need to be careful.
-          // Let's return a special system message.
-          return new Response(
-            JSON.stringify({
-              error: consumption.code || "LIMIT_REACHED",
-              message: consumption.message || "You have reached your AI usage limit."
-            }),
-            { status: 403, headers: { "Content-Type": "application/json" } }
-          );
-        }
-      } catch (error) {
-        console.error("AI Limit Check Failed:", error);
-        // Fallback: Allow if DB checks fail? Or Block?
-        // Block to be safe against abuse.
-        return new Response("System Error: Unable to verify usage limits.", { status: 500 });
       }
       // --- LIMIT ENFORCEMENT END ---
 
-      // Construct the full context system message
+      // Construct the full context system message. Declared here (before the
+      // web search block below) so the web search results can be appended to
+      // it when the user has the toggle ON.
       let contextMessage = `
 [DOCUMENT CONTEXT LOADER]
 Document type: ${context.documentType || "Research Paper"}
@@ -388,6 +388,71 @@ Excerpt (around cursor): "${context.selectedText || context.documentContent.slic
         }..."
 [END DOCUMENT CONTEXT]
 `;
+
+      // --- WEB SEARCH (user-opt-in) ---
+      // When the user toggles Web Search ON for this message, run a real web
+      // search and inject the live results into the AI context. This is a
+      // separate hold (ai_web_search) from the ai_chat hold above. Failures
+      // here never block the chat — we release the hold and continue without
+      // web results, surfacing the issue to the frontend via a response header.
+      let webSearchStatus: "ok" | "failed" | "skipped" = "skipped";
+      let webSearchMessage = "";
+      if (context.webSearchEnabled && messages.length > 0) {
+        const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+        const query = lastUserMsg && typeof lastUserMsg.content === "string"
+          ? lastUserMsg.content.trim()
+          : "";
+
+        if (query) {
+          let webBillingEventId: string | null = null;
+          try {
+            const hold = await BillingGateway.hold(userId, "ai_web_search");
+            webBillingEventId = hold.eventId;
+          } catch (billingErr: any) {
+            // Limit reached on web search quota — release nothing (no hold was
+            // written), flag as failed, continue without web results.
+            webSearchStatus = "failed";
+            webSearchMessage = billingErr.message || "Web search limit reached";
+            logger.info("Web search hold skipped (limit reached)", { userId, message: webSearchMessage });
+          }
+
+          if (webBillingEventId) {
+            try {
+              const webResults = await SearchService.webSearch(userId, query, 5);
+              // Confirm now that the search succeeded; the results are appended
+              // to contextMessage below.
+              await BillingGateway.confirm(webBillingEventId);
+              webSearchStatus = "ok";
+
+              if (webResults.length > 0) {
+                const resultsBlock = webResults
+                  .map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.snippet}`)
+                  .join("\n\n");
+                contextMessage += `
+[WEB SEARCH RESULTS]
+The following live web results were found for the user's query. You MAY cite these sources when relevant. Always include the URL when citing.
+${resultsBlock}
+[END WEB SEARCH RESULTS]
+`;
+              } else {
+                contextMessage += `
+[WEB SEARCH RESULTS]
+A web search was performed but returned no results.
+[END WEB SEARCH RESULTS]
+`;
+              }
+            } catch (searchErr: any) {
+              if (webBillingEventId) {
+                await BillingGateway.release(webBillingEventId, searchErr.message);
+              }
+              webSearchStatus = "failed";
+              webSearchMessage = searchErr.message || "Web search failed";
+              logger.warn("Web search failed, continuing without results", { userId, error: searchErr.message });
+            }
+          }
+        }
+      }
+      // --- END WEB SEARCH ---
 
       // Add project source library context
       if (context.projectSources && context.projectSources.length > 0) {
@@ -539,8 +604,31 @@ ${JSON.stringify(context.pdfAnnotations.slice(0, 15), null, 2)}
           },
         });
 
-        return result.toTextStreamResponse();
+        // Confirm the pre-acquired hold now that the stream was successfully
+        // constructed.
+        if (billingEventId) {
+          await BillingGateway.confirm(billingEventId);
+        }
+
+        // Re-wrap the AI SDK response so we can attach our own headers (web
+        // search status for the frontend). Reuse the original body stream and
+        // headers, then add ours on top.
+        const upstream = result.toTextStreamResponse();
+        const headers = new Headers(upstream.headers);
+        headers.set("X-Web-Search-Status", webSearchStatus);
+        if (webSearchMessage) {
+          headers.set("X-Web-Search-Message", encodeURIComponent(webSearchMessage));
+        }
+        return new Response(upstream.body, {
+          status: upstream.status,
+          statusText: upstream.statusText,
+          headers,
+        });
       } catch (streamError: any) {
+        // Release the hold on streaming setup failure.
+        if (billingEventId) {
+          await BillingGateway.release(billingEventId, streamError.message);
+        }
         logger.error("streamText failed", {
           error: streamError,
           message: streamError.message,
@@ -549,6 +637,10 @@ ${JSON.stringify(context.pdfAnnotations.slice(0, 15), null, 2)}
         throw streamError;
       }
     } catch (error: any) {
+      // Release the hold on any outer failure (e.g. message persistence).
+      if (billingEventId) {
+        await BillingGateway.release(billingEventId, error.message);
+      }
       logger.error("AI Chat Error (Outer)", {
         error: error.message,
         stack: error.stack,
@@ -696,4 +788,20 @@ ${documentContent.slice(0, 50000)} // Truncate to safety limit
 
     return result.toTextStreamResponse();
   }
+}
+
+// Approximate input word count for credit cost. Output words are only known
+// once the (detached) client stream finishes, so we charge on input as a
+// conservative floor — output overage is reconciled by the nightly job.
+function countInputWords(messages: any[], context: ChatContext): number {
+  let text = "";
+  for (const m of messages || []) {
+    if (typeof m?.content === "string") text += " " + m.content;
+  }
+  if (context?.documentContent) text += " " + context.documentContent;
+  if (context?.selectedText) text += " " + context.selectedText;
+  if (context?.projectTitle) text += " " + context.projectTitle;
+  if (context?.projectDescription) text += " " + context.projectDescription;
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  return words.length;
 }

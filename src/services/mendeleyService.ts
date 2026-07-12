@@ -1,14 +1,35 @@
 import axios from "axios";
 import { prisma } from "../lib/prisma.js";
+import { normalizeToCSL } from "../utils/cslNormalization.js";
 
 const MENDELEY_CLIENT_ID = (process.env.MENDELEY_CLIENT_ID || "").trim();
 const MENDELEY_CLIENT_SECRET = (process.env.MENDELEY_CLIENT_SECRET || "").trim();
-const MENDELEY_API_KEY = (process.env.MENDELEY_API_KEY || MENDELEY_CLIENT_SECRET).trim();
+const MENDELEY_API_KEY = (process.env.MENDELEY_API_KEY || "").trim();
+
+if (!MENDELEY_API_KEY && process.env.NODE_ENV === "production") {
+  console.warn("[Mendeley Service] WARNING: MENDELEY_API_KEY is not set. Mendeley API requests will fail.");
+}
 const TOKEN_URL = "https://api.mendeley.com/oauth/token";
+
+/**
+ * Map Mendeley document types to CSL item types.
+ */
+function mapMendeleyType(mendeleyType: string): string {
+    const typeMap: Record<string, string> = {
+        journal_article: "article-journal",
+        book: "book",
+        book_section: "chapter",
+        conference_proceedings: "paper-conference",
+        report: "report",
+        thesis: "thesis",
+        web_page: "webpage",
+    };
+    return typeMap[mendeleyType] || "article-journal";
+}
 
 export class MendeleyService {
     /**
-     * Get a valid access token for the user. 
+     * Get a valid access token for the user.
      * If the current token is expired, it attempts to refresh it.
      */
     static async getValidToken(userId: string): Promise<string> {
@@ -44,7 +65,7 @@ export class MendeleyService {
     static async refreshToken(userId: string, refreshToken: string): Promise<string> {
         try {
             console.log(`[Mendeley Service] Requesting new token from Elsevier for user: ${userId}`);
-            
+
             const params = new URLSearchParams();
             params.append("grant_type", "refresh_token");
             params.append("refresh_token", refreshToken);
@@ -57,8 +78,8 @@ export class MendeleyService {
             };
 
             // Only add Elsevier API Key if it's explicitly provided and not just fallback to secret
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.post(TOKEN_URL, params.toString(), {
@@ -106,14 +127,14 @@ export class MendeleyService {
     static async fetchLibrary(userId: string, limit: number = 50, start: number = 0) {
         try {
             const accessToken = await this.getValidToken(userId);
-            
+
             const headers: any = {
                 Authorization: `Bearer ${accessToken}`,
                 Accept: "application/json", // Use standard JSON
             };
 
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.get("https://api.mendeley.com/documents", {
@@ -140,8 +161,8 @@ export class MendeleyService {
                 Accept: "application/json"
             };
 
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.get("https://api.mendeley.com/search/catalog", {
@@ -161,29 +182,70 @@ export class MendeleyService {
     }
 
     /**
-     * Import a Mendeley item into the project's citation list
+     * Import a Mendeley item into the project's citation list.
+     * Normalizes the Mendeley data through the CSL normalization pipeline
+     * before creating the citation record, matching Zotero import behavior.
      */
     static async importItem(colabUserId: string, projectId: string, itemData: any) {
         try {
-            const authors = itemData.authors?.map((a: any) => `${a.last_name}, ${a.first_name}`).join("; ") || "Unknown Author";
-            const year = itemData.year || 0;
+            // Build a normalized input object from Mendeley data
+            const normalizedInput = {
+                ...itemData,
+                id: itemData.id,
+                title: itemData.title,
+                authors: itemData.authors?.map((a: any) => ({
+                    given: a.first_name,
+                    family: a.last_name,
+                })) || [],
+                year: itemData.year,
+                type: mapMendeleyType(itemData.type),
+                DOI: itemData.identifiers?.doi,
+                URL: itemData.websites?.[0],
+                journal: itemData.source,
+                publisher: itemData.publisher,
+                volume: itemData.volume,
+                issue: itemData.issue,
+            };
+
+            // Run through the CSL normalization pipeline
+            const csl = normalizeToCSL(normalizedInput);
+
+            // Extract structured fields from the normalized CSL object
+            const authors = csl.author?.map((a: any) => {
+                if (a.family && a.given) return `${a.family}, ${a.given}`;
+                return a.family || a.given || a.literal || "Unknown";
+            }).join("; ") || "Unknown Author";
+            const year = csl.issued?.["date-parts"]?.[0]?.[0] || parseInt(csl.year) || 0;
+
+            // Extract identifiers
+            const identifiers: Record<string, string> = {};
+            if (csl.DOI || csl.doi) identifiers.doi = csl.DOI || csl.doi;
+            if (csl.ISBN || csl.isbn) identifiers.isbn = csl.ISBN || csl.isbn;
+            if (csl.ISSN || csl.issn) identifiers.issn = csl.ISSN || csl.issn;
 
             const citation = await prisma.citation.create({
                 data: {
                     user_id: colabUserId,
                     project_id: projectId,
-                    title: itemData.title || "Untitled",
+                    title: csl.title || "Untitled",
                     author: authors,
+                    authors: csl.author ?? undefined,
                     year: Number(year),
-                    type: itemData.type || "article",
-                    doi: itemData.identifiers?.doi || null,
-                    url: itemData.websites?.[0] || null,
-                    journal: itemData.source,
-                    publisher: itemData.publisher,
-                    abstract: itemData.abstract,
+                    type: csl.type || "article-journal",
+                    doi: csl.DOI || csl.doi,
+                    url: csl.URL || csl.url,
+                    journal: csl["container-title"],
+                    publisher: csl.publisher,
+                    abstract: csl.abstract,
+                    volume: csl.volume,
+                    issue: csl.issue,
+                    pages: csl.pages,
                     source: "Mendeley",
-                    vault_verified: true, // Mark as verified since it comes from their vault
-                    formatted_citations: itemData // Store raw Mendeley for high-fidelity export later
+                    vault_verified: true,
+                    provider: "mendeley",
+                    providerId: itemData.id,
+                    rawMetadata: itemData,
+                    formatted_citations: itemData,
                 }
             });
 
@@ -205,8 +267,8 @@ export class MendeleyService {
                 Accept: "application/json"
             };
 
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.get("https://api.mendeley.com/folders", {
@@ -231,8 +293,13 @@ export class MendeleyService {
                 Accept: "application/json"
             };
 
+<<<<<<< HEAD
             if (process.env.MENDELEY_API_KEY) {
                 headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+=======
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
+>>>>>>> 9d3c7b44029cd7eacb223708e70071b440f57e45
             }
 
             const response = await axios.get(`https://api.mendeley.com/folders/${folderId}/documents`, {
@@ -258,8 +325,8 @@ export class MendeleyService {
                 Accept: "application/json"
             };
 
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            if (MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
             }
 
             const response = await axios.post("https://api.mendeley.com/documents", documentData, {

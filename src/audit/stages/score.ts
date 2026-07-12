@@ -18,6 +18,7 @@ export const ScoreStage: AuditPipelineStage = {
         if (finalScore > 100) finalScore = 100;
 
         job.report!.summary.complianceScore = finalScore;
+        job.report!.integrityIndex = finalScore;
 
         console.log(`[Stage] SCORE_GENERATION: Final Compliance Score calculated at ${finalScore}/100.`);
     }

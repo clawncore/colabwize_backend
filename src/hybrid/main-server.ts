@@ -5,6 +5,8 @@ dotenv.config();
 
 import express, { Application, Request, Response, NextFunction } from "express";
 import * as url from "url";
+import path from "path";
+import fs from "fs";
 import cors from "cors";
 import logger from "../monitoring/logger";
 import { authenticateExpressRequest } from "../middleware/auth";
@@ -23,6 +25,7 @@ import { scheduleSearchAlertsTask } from "../scheduledTasks/checkSearchAlerts";
 import { scheduleVersionSchedulingTask } from "../scheduledTasks/versionSchedulingTask";
 import { scheduleTaskReminderTask } from "../scheduledTasks/taskReminderTask";
 import { scheduleInboxWorkerTask } from "../scheduledTasks/inboxWorker";
+import { scheduleActivityCleanupTask } from "../scheduledTasks/activityCleanupTask";
 import grammarRouter from "../api/grammar/index";
 // Import collaboration server
 import { HocuspocusCollaborationServer } from "./websockets/hocuspocus-server";
@@ -71,9 +74,37 @@ import adminRouter from "../api/admin/index";
 import publicBlogsRouter from "../api/blogs/index";
 import zoteroRouter from "../api/zotero/index";
 import mendeleyRouter from "../api/mendeley/index";
+import referencesRouter from "../api/references/index";
+import collectionsRouter from "../api/references/collections";
 import googleDriveApiRouter from "../api/google-drive/index";
+import onedriveApiRouter from "../api/onedrive/index";
 
 const app: Application = express();
+
+/** Clean up stale temp files from previous runs (files older than 1 hour) */
+function cleanupStaleTempFiles(): void {
+  const uploadsDir = path.join(__dirname, "../uploads");
+  if (!fs.existsSync(uploadsDir)) return;
+  const now = Date.now();
+  const maxAge = 60 * 60 * 1000; // 1 hour
+  try {
+    const files = fs.readdirSync(uploadsDir);
+    let cleaned = 0;
+    for (const file of files) {
+      const filePath = path.join(uploadsDir, file);
+      try {
+        const stat = fs.statSync(filePath);
+        if (now - stat.mtimeMs > maxAge) {
+          fs.unlinkSync(filePath);
+          cleaned++;
+        }
+      } catch { /* skip files we can't stat/unlink */ }
+    }
+    if (cleaned > 0) {
+      console.log(`[Startup] Cleaned up ${cleaned} stale temp files from uploads/`);
+    }
+  } catch { /* best-effort cleanup */ }
+}
 
 // Start Scheduled Tasks
 scheduleSearchAlertsTask();
@@ -82,8 +113,10 @@ scheduleVersionCleanupTask();
 scheduleVersionSchedulingTask();
 scheduleTaskReminderTask();
 scheduleInboxWorkerTask();
+scheduleActivityCleanupTask(); // 7-day retention: purges realTimeActivity + authorshipActivity older than 7 days
 
-app.set("trust proxy", true);
+// Trust only the Render/Cloudflare proxy chain (not open to all)
+app.set("trust proxy", ["loopback", "linklocal", "uniquelocal"]);
 
 // Middleware
 // Robust CORS Configuration
@@ -137,6 +170,8 @@ const corsOptions = {
     "x-auth-google",
     "x-auth-microsoft",
   ],
+  // Expose custom response headers so the frontend can read web search status.
+  exposedHeaders: ["X-Web-Search-Status", "X-Web-Search-Message"],
   maxAge: 86400, // Cache preflight response for 24 hours
 };
 
@@ -427,9 +462,13 @@ app.use("/api/research", authMiddleware, researchRouter);
 // Apply auth middleware to notification routes
 app.use("/api/notifications", authMiddleware);
 
-app.use("/api/zotero", authMiddleware, zoteroRouter);
-app.use("/api/mendeley", authMiddleware, mendeleyRouter);
-app.use("/api/google-drive", authMiddleware, googleDriveApiRouter);
+app.use("/api/zotero", zoteroRouter);
+app.use("/api/mendeley", mendeleyRouter);
+app.use("/api/references", referencesRouter);
+app.use("/api/references/collections", collectionsRouter);
+// Cloud routes have their own authenticateHybridRequest middleware per-route
+app.use("/api/google-drive", googleDriveApiRouter);
+app.use("/api/onedrive", onedriveApiRouter);
 
 // 404 handler
 app.use((req, res) => {
@@ -444,8 +483,11 @@ app.use((req, res) => {
 
 // Start server
 const startServer = async () => {
+  // Clean up stale temp files from previous runs
+  cleanupStaleTempFiles();
   // Schedule the cleanup task for expired recycle bin items
   scheduleCleanupTask();
+
 
   // Schedule the version cleanup task based on subscription plans
   scheduleVersionCleanupTask(); // Added import and function call
@@ -459,6 +501,11 @@ const startServer = async () => {
       logger.info(`Server running on port ${PORT}`);
       console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
     });
+
+    // Increase max HTTP header size to 64KB (default is 16KB)
+    // Prevents 431 errors when auth tokens/cookies are large
+    server.maxHeadersCount = 100;
+    (server as any).maxHeaderSize = 64 * 1024;
 
     // PRIORITY 2: Initialize Database and Services in background
     // This prevents startup timeouts if DB connection is slow

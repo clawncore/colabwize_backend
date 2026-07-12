@@ -4,6 +4,7 @@ import {
   onStoreDocumentPayload,
   onDisconnectPayload,
   onAwarenessUpdatePayload,
+  onChangePayload,
 } from "@hocuspocus/server";
 import { WebSocketServer } from "ws";
 import logger from "../../monitoring/logger";
@@ -27,6 +28,9 @@ import Color from "@tiptap/extension-color";
 import FontFamily from "@tiptap/extension-font-family";
 import { generateJSON } from "@tiptap/html";
 import { Window } from "happy-dom";
+import { createHash, randomUUID } from "crypto";
+import * as Y from "yjs";
+import { AuthorshipEvidenceService } from "../../services/authorshipEvidenceService";
 
 // Initialize a DOM environment for Tiptap's generateJSON to work in Node.js
 const dom = new Window();
@@ -74,6 +78,17 @@ interface onAuthenticatePayload {
   [key: string]: any; // Allow additional properties in the payload
 }
 
+interface QueuedAuthorshipUpdate {
+  projectId: string;
+  documentName: string;
+  context: {
+    id?: string;
+    serverSessionId?: string;
+    clientSessionId?: string;
+  };
+  receivedAt: Date;
+}
+
 // Cache to store content hashes to avoid unnecessary database writes
 const lastStoredContentHashes = new Map<string, string>();
 
@@ -81,8 +96,9 @@ export class HocuspocusCollaborationServer {
   private server: Hocuspocus;
   private wss: WebSocketServer;
   private port: number;
-  private updateQueue = new Map<string, any>();
+  private updateQueue = new Map<string, QueuedAuthorshipUpdate>();
   private isProcessingQueue = false;
+  private updateQueueTimer: NodeJS.Timeout | null = null;
 
   private getExtensions() {
     return [
@@ -344,6 +360,31 @@ export class HocuspocusCollaborationServer {
             timestamp: new Date().toISOString(),
           });
         }
+      },
+      async onChange(data: onChangePayload) {
+        if (!data.documentName.startsWith("project-")) return;
+
+        const projectId = data.documentName.replace("project-", "");
+        const context = (data.context || {}) as {
+          id?: string;
+          serverSessionId?: string;
+          clientSessionId?: string;
+        };
+
+        if (!context.id || !context.serverSessionId) {
+          logger.warn("Skipping authorship update evidence: missing context", {
+            projectId,
+            context,
+          });
+          return;
+        }
+
+        self.queueAuthorshipUpdate({
+          projectId,
+          documentName: data.documentName,
+          context,
+          receivedAt: new Date(),
+        });
       },
       async onAuthenticate(data: onAuthenticatePayload) {
         const { token, documentName, parameters } = data;
@@ -747,17 +788,48 @@ export class HocuspocusCollaborationServer {
           }
 
           const authDuration = Date.now() - authStartTime;
+          const serverSessionId = randomUUID();
+          const socketId = (data as any).connection?.socketId || (data as any).socketId || null;
+
           logger.info("[HP] User authenticated successfully", {
             documentName,
             userId: userRecord.id,
             userEmail: userRecord.email,
             id: authenticatedId,
             type,
+            serverSessionId,
             duration_ms: authDuration,
             timestamp: new Date().toISOString(),
           });
 
-          // Return user information for the WebSocket connection
+          if (type === "project") {
+            try {
+              await prisma.authorshipCollaborationSession.create({
+                data: {
+                  project_id: authenticatedId,
+                  user_id: userRecord.id,
+                  server_session_id: serverSessionId,
+                  client_session_id: parameters?.sessionId || null,
+                  socket_id: socketId,
+                  status: "active",
+                  metadata: {
+                    documentName,
+                    authenticatedAt: new Date().toISOString(),
+                  },
+                },
+              });
+            } catch (sessionError) {
+              logger.warn("Failed to create authorship collaboration session", {
+                error: sessionError,
+                projectId: authenticatedId,
+                userId: userRecord.id,
+                serverSessionId,
+              });
+            }
+          }
+
+          // Return user information for the WebSocket connection.
+          // This context is used by Hocuspocus hooks and future authorship attribution.
           return {
             id: userRecord.id,
             name:
@@ -765,6 +837,8 @@ export class HocuspocusCollaborationServer {
               userRecord.email?.split("@")[0] ||
               "User",
             email: userRecord.email,
+            serverSessionId,
+            clientSessionId: parameters?.sessionId || null,
           };
         } catch (error) {
           logger.error("Authentication error", {
@@ -779,6 +853,11 @@ export class HocuspocusCollaborationServer {
 
       async onDisconnect(data: onDisconnectPayload) {
         const { documentName, socketId, context } = data;
+        const disconnectContext = (context || {}) as {
+          id?: string;
+          serverSessionId?: string;
+          clientSessionId?: string;
+        };
         logger.info("Client disconnected", {
           documentName,
           socketId,
@@ -789,21 +868,37 @@ export class HocuspocusCollaborationServer {
         if (documentName.startsWith("project-")) {
           try {
             const projectId = documentName.replace("project-", "");
-            const userId = (context as any)?.user?.id;
+            const userId = disconnectContext.id;
             if (projectId && userId) {
               // Update user presence to offline in the database
               try {
-                await prisma.collaboratorPresence.update({
-                  where: {
-                    project_id_user_id: {
+                await prisma.$transaction([
+                  prisma.collaboratorPresence.update({
+                    where: {
+                      project_id_user_id: {
+                        project_id: projectId,
+                        user_id: userId,
+                      },
+                    },
+                    data: {
+                      last_active_at: new Date(),
+                    },
+                  }).catch(() => undefined),
+                  prisma.authorshipCollaborationSession.updateMany({
+                    where: {
                       project_id: projectId,
                       user_id: userId,
+                      status: "active",
+                      ...(disconnectContext.serverSessionId
+                        ? { server_session_id: disconnectContext.serverSessionId }
+                        : {}),
                     },
-                  },
-                  data: {
-                    last_active_at: new Date(),
-                  },
-                });
+                    data: {
+                      status: "disconnected",
+                      disconnected_at: new Date(),
+                    },
+                  }),
+                ]);
 
                 logger.info("User marked as offline in presence database", {
                   project_id: projectId,
@@ -920,18 +1015,72 @@ export class HocuspocusCollaborationServer {
     return this.server;
   }
 
+  private queueAuthorshipUpdate(update: QueuedAuthorshipUpdate) {
+    const queueKey = `${update.projectId}:${update.context.id}:${update.context.serverSessionId}`;
+    this.updateQueue.set(queueKey, update);
+
+    if (this.updateQueueTimer) {
+      clearTimeout(this.updateQueueTimer);
+    }
+
+    this.updateQueueTimer = setTimeout(() => {
+      void this.processUpdateQueue();
+    }, 5000);
+  }
+
+  private hashYjsDocument(document: Y.Doc): string {
+    const stateVector = Y.encodeStateVector(document);
+    return createHash("sha256")
+      .update(Buffer.from(stateVector))
+      .digest("hex");
+  }
+
   private async processUpdateQueue() {
     if (this.isProcessingQueue) return;
     this.isProcessingQueue = true;
 
     try {
-      for (const [projectId, updateData] of this.updateQueue.entries()) {
-        logger.debug("Processing queued update", {
-          projectId,
-          timestamp: new Date().toISOString(),
-        });
-      }
+      const queuedUpdates = Array.from(this.updateQueue.values());
       this.updateQueue.clear();
+      this.updateQueueTimer = null;
+
+      for (const updateData of queuedUpdates) {
+        try {
+          logger.debug("Processing queued update", {
+            projectId: updateData.projectId,
+            timestamp: updateData.receivedAt.toISOString(),
+          });
+
+          const document = await this.server.documents.get(updateData.projectId);
+          if (!document) {
+            logger.warn("Skipping authorship update evidence: document not loaded", {
+              projectId: updateData.projectId,
+            });
+            continue;
+          }
+
+          const updateHash = this.hashYjsDocument(document);
+          await AuthorshipEvidenceService.recordServerObservedEdit({
+            projectId: updateData.projectId,
+            userId: updateData.context.id || "",
+            sessionId: updateData.context.serverSessionId || "",
+            clientSessionId: updateData.context.clientSessionId,
+            updateHash,
+            payload: {
+              documentName: updateData.documentName,
+              serverReceivedAt: updateData.receivedAt.toISOString(),
+              evidenceKind: "hocuspocus_state_vector",
+            },
+          });
+        } catch (error) {
+          logger.error("Error recording authorship update evidence", {
+            projectId: updateData.projectId,
+            userId: updateData.context.id,
+            error: (error as Error).message,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
     } catch (error) {
       logger.error("Error processing update queue", {
         error: (error as Error).message,

@@ -3,12 +3,9 @@ import { EnhancedOriginalityDetectionService } from "../../services/enhancedOrig
 import { RephraseService } from "../../services/rephraseService";
 import logger from "../../monitoring/logger";
 import rateLimit from "express-rate-limit";
-import {
-  checkUsageLimit,
-  incrementFeatureUsage,
-} from "../../middleware/usageMiddleware";
 import { SubscriptionService } from "../../services/subscriptionService";
 import { getSafeString } from "../../utils/requestHelpers";
+import { BillingGateway, BillingError } from "../../billing/BillingGateway";
 
 const router = express.Router();
 
@@ -36,7 +33,6 @@ const rephraseLimiter = rateLimit({
 router.post(
   "/scan",
   scanLimiter,
-  checkUsageLimit("originality_scan"),
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
@@ -80,31 +76,35 @@ router.post(
 
       logger.info("Starting enhanced originality scan", { userId, projectId });
 
-      // Plan fetched above
-      // const plan = await SubscriptionService.getActivePlan(userId);
-
-      // Perform enhanced scan with academic database integration + Copyleaks
-      // Use OriginalityMapService to orchestrate both
-      const { OriginalityMapService } = await import("../../services/originalityMapService.js");
-      const result = await OriginalityMapService.startScan(
-        projectId,
+      // Run the scan through the single billing pipeline (hold → execute →
+      // confirm/release). Removes the old checkUsageLimit + incrementFeatureUsage
+      // double-consume that the middleware comments themselves flagged.
+      const wordCount = content.trim().split(/\s+/).length;
+      const result = await BillingGateway.withFeature(
         userId,
-        content
+        "originality_scan",
+        { wordCount },
+        async () => {
+          const { OriginalityMapService } = await import("../../services/originalityMapService.js");
+          return OriginalityMapService.startScan(projectId, userId, content);
+        },
       );
 
-      // Increment usage counter after successful scan
-      await incrementFeatureUsage("originality_scan")(req, res, () => { });
-
-      return res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (error: any) {
-      logger.error("Error in enhanced scan endpoint", { error: error.message });
+      return res.status(200).json({ success: true, data: result });
+    } catch (e: any) {
+      if (e instanceof BillingError) {
+        const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+        return res.status(status).json({
+          success: false,
+          message: e.message || "Plan limit reached",
+          code: e.code,
+        });
+      }
+      logger.error("Error in enhanced scan endpoint", { error: e.message });
 
       return res.status(500).json({
         success: false,
-        message: error.message || "Failed to scan document",
+        message: e.message || "Failed to scan document",
       });
     }
   }
@@ -217,7 +217,6 @@ router.get("/project/:projectId", async (req: Request, res: Response) => {
 router.post(
   "/rephrase",
   rephraseLimiter,
-  checkUsageLimit("rephrase_suggestions"),
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
@@ -255,29 +254,33 @@ router.post(
         matchId,
       });
 
-      // Generate suggestions using enhanced analysis
-      const suggestions = await RephraseService.generateRephraseSuggestions(
-        scanId,
-        matchId,
-        originalText,
-        userId
+      // Run through the single billing pipeline (hold → execute →
+      // confirm/release).
+      const wordCount = originalText.trim().split(/\s+/).length;
+      const suggestions = await BillingGateway.withFeature(
+        userId,
+        "rephrase",
+        { inputWords: wordCount },
+        () => RephraseService.generateRephraseSuggestions(scanId, matchId, originalText, userId),
       );
 
-      // Increment usage counter
-      await incrementFeatureUsage("rephrase_suggestions")(req, res, () => { });
-
-      return res.status(200).json({
-        success: true,
-        data: suggestions,
-      });
-    } catch (error: any) {
+      return res.status(200).json({ success: true, data: suggestions });
+    } catch (e: any) {
+      if (e instanceof BillingError) {
+        const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+        return res.status(status).json({
+          success: false,
+          message: e.message,
+          code: e.code,
+        });
+      }
       logger.error("Error generating enhanced rephrase suggestions", {
-        error: error.message,
+        error: e.message,
       });
 
       if (
-        error.message.includes("not found") ||
-        error.message.includes("access denied")
+        e.message.includes("not found") ||
+        e.message.includes("access denied")
       ) {
         return res.status(404).json({
           success: false,
@@ -287,7 +290,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        message: error.message || "Failed to generate rephrase suggestions",
+        message: e.message || "Failed to generate rephrase suggestions",
       });
     }
   }

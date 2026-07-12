@@ -199,12 +199,23 @@ export class ZoteroService {
         try {
             // Unbox native Zotero JSON if wrapped in data object
             const targetData = itemData.data ? { ...itemData.data, authors: itemData.meta?.creatorSummary } : itemData;
-            
+
             // 1. Normalize CSL data
             const csl = normalizeToCSL(targetData);
 
-            const authors = csl.author?.map((a: any) => a.family || a.literal).join(", ") || "Unknown Author";
+            const authors = csl.author?.map((a: any) => {
+                if (a.family && a.given) return `${a.family}, ${a.given}`;
+                return a.family || a.given || a.literal || "Unknown";
+            }).join("; ") || "Unknown Author";
             const year = csl.issued?.["date-parts"]?.[0]?.[0] || parseInt(csl.year) || 0;
+
+            // Extract identifiers
+            const identifiers: Record<string, string> = {};
+            if (csl.DOI || csl.doi) identifiers.doi = csl.DOI || csl.doi;
+            if (csl.ISBN || csl.isbn) identifiers.isbn = csl.ISBN || csl.isbn;
+            if (csl.ISSN || csl.issn) identifiers.issn = csl.ISSN || csl.issn;
+            if (csl.PMID || csl.pmid) identifiers.pmid = csl.PMID || csl.pmid;
+            if (csl.PMCID || csl.pmcid) identifiers.pmcid = csl.PMCID || csl.pmcid;
 
             const citation = await prisma.citation.create({
                 data: {
@@ -212,16 +223,24 @@ export class ZoteroService {
                     project_id: projectId,
                     title: csl.title || "Untitled",
                     author: authors,
+                    authors: csl.author ?? undefined,
                     year: Number(year),
-                    type: csl.type || "article",
+                    type: csl.type || "article-journal",
                     doi: csl.DOI || csl.doi,
                     url: csl.URL || csl.url,
                     journal: csl["container-title"],
                     publisher: csl.publisher,
                     abstract: csl.abstract,
+                    volume: csl.volume,
+                    issue: csl.issue,
+                    pages: csl.pages,
                     source: "Zotero",
-                    vault_verified: true, // Mark as verified since it comes from their vault
-                    formatted_citations: itemData // Store raw Zotero for high-fidelity export later
+                    provider: "zotero",
+                    providerId: itemData.key || itemData.data?.key || null,
+                    rawMetadata: itemData,
+                    identifiers: Object.keys(identifiers).length > 0 ? identifiers : undefined,
+                    vault_verified: true,
+                    formatted_citations: itemData,
                 }
             });
 

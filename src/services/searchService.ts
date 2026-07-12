@@ -2,6 +2,7 @@ import logger from "../monitoring/logger";
 import { prisma } from "../lib/prisma";
 import { SubscriptionService } from "./subscriptionService";
 import SecretsService from "./secrets-service";
+import { BillingGateway, BillingError } from "../billing/BillingGateway";
 // Node.js 20+ has native fetch globally available — no import needed
 
 interface SearchResult {
@@ -94,17 +95,20 @@ export class SearchService {
     query: string,
     maxResults: number = 10
   ): Promise<SearchResult[]> {
+    // Reserve quota through the single billing pipeline (hold → execute →
+    // confirm). checkActionEligibility was a dry-run gate that did not
+    // consume; the gateway does both atomically. Declared before the outer
+    // try so both the success-confirm and failure-release paths can see it.
+    let billingEventId: string | null = null;
     try {
-      // Check if user can perform web search based on their subscription
-      const canPerform = await SubscriptionService.checkActionEligibility(
-        userId,
-        "ai_web_search"
-      );
-      if (!canPerform.allowed) {
-        throw new Error(canPerform.message || "Web search limit reached");
-      }
+      const hold = await BillingGateway.hold(userId, "ai_web_search");
+      billingEventId = hold.eventId;
+    } catch (billingError: any) {
+      throw new Error(billingError.message || "Web search limit reached");
+    }
 
-      // Track search usage
+    try {
+      // Track analytics usage (non-billing).
       await this.trackSearchUsage(userId, "web");
 
       // Use a real search API if available
@@ -169,8 +173,14 @@ export class SearchService {
         }
       }
 
+      if (billingEventId) {
+        await BillingGateway.confirm(billingEventId);
+      }
       return searchResults.slice(0, maxResults);
     } catch (error: any) {
+      if (billingEventId) {
+        await BillingGateway.release(billingEventId, error.message);
+      }
       logger.error("Error performing web search:", error);
       throw new Error(`Failed to perform web search: ${error.message}`);
     }
@@ -183,16 +193,22 @@ export class SearchService {
     limit: number = 10,
     offset: number = 0
   ): Promise<any[]> {
+    let billingEventId: string | null = null;
     try {
-      // Check subscription
-      const canPerform = await SubscriptionService.checkActionEligibility(
-        userId,
-        "ai_web_search" // Reuse web search quota for now
-      );
-      if (!canPerform.allowed) return [];
+      // Reserve quota through the single billing pipeline. Preserves the
+      // soft-return-[] behavior on limit reached (existing UX).
+      try {
+        const hold = await BillingGateway.hold(userId, "ai_web_search");
+        billingEventId = hold.eventId;
+      } catch {
+        return [];
+      }
 
       const serpApiKey = await SecretsService.getSerpApiKey();
-      if (!serpApiKey) return [];
+      if (!serpApiKey) {
+        if (billingEventId) await BillingGateway.release(billingEventId, "no api key");
+        return [];
+      }
 
       const searchUrl = `https://serpapi.com/search.json?engine=google_scholar&q=${encodeURIComponent(
         query
@@ -201,8 +217,14 @@ export class SearchService {
       const response = await fetch(searchUrl);
       const data: any = await response.json();
 
-      if (data.error || !data.organic_results) return [];
+      if (data.error || !data.organic_results) {
+        if (billingEventId) await BillingGateway.release(billingEventId, "no results");
+        return [];
+      }
 
+      if (billingEventId) {
+        await BillingGateway.confirm(billingEventId);
+      }
       return data.organic_results.map((result: any) => ({
         externalId:
           result.result_id || `gs-${Math.random().toString(36).substr(2, 9)}`,
@@ -221,7 +243,10 @@ export class SearchService {
         publicationTypes: ["Journal Article"],
         source: "Google Scholar",
       }));
-    } catch (error) {
+    } catch (error: any) {
+      if (billingEventId) {
+        await BillingGateway.release(billingEventId, error.message);
+      }
       logger.error("Error performing scholar search:", error);
       return [];
     }

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { AuditJob, AuditContext, AuditPipelineStage } from "../types";
+import { AuditJob, AuditContext, AuditPipelineStage, ExtractedReference } from "../types";
 
 /**
  * Stage 5: URL Validation
@@ -13,7 +13,7 @@ export const UrlCheckStage: AuditPipelineStage = {
         const { bibliography } = context;
         let invalidUrls = 0;
 
-        for (const ref of bibliography) {
+        for (const ref of bibliography as ExtractedReference[]) {
             if (!ref.url && !ref.doi && !ref.text.includes("http")) continue;
 
             let targetUrl = ref.url || ref.text.match(/https?:\/\/[^\s]+/)?.[0];
@@ -92,10 +92,9 @@ export const UrlCheckStage: AuditPipelineStage = {
 
         job.report!.summary.invalidUrls = invalidUrls;
 
-        // Penalize score for invalid URLs (HTTP or Malformed)
-        if (invalidUrls > 0) {
-            job.report!.summary.complianceScore -= (invalidUrls * 5);
-        }
+        // Note: Score penalties for invalid URLs are already accounted for in VerificationStage's
+        // scoreBreakdown. We only add issues here for the UI — no direct complianceScore
+        // mutation to avoid double-counting.
 
         console.log(`[Stage] URL_VALIDATION: Inspected Links, found ${invalidUrls} issues.`);
     }

@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { EmailService } from "./emailService";
 import { UsageService } from "./usageService";
+import { BillingGateway, BillingError } from "../billing/BillingGateway";
 import axios from "axios";
 import { SecretsService } from "./secrets-service";
 
@@ -238,29 +239,18 @@ export class CitationConfidenceService {
       outdated: number;
     };
   }> {
+    // Reserve quota through the single billing pipeline (hold → execute →
+    // confirm). Replaces the old dry-run checkUsageLimit + trackUsage
+    // two-path consumption.
+    let billingEventId: string | null = null;
     try {
-      // Check usage limits
-      const usageCheck = await UsageService.checkUsageLimit(
-        userId,
-        "citation_check"
-      );
+      const hold = await BillingGateway.hold(userId, "citation_audit");
+      billingEventId = hold.eventId;
+    } catch (billingError: any) {
+      throw new Error(billingError.message || "Usage limit reached for Citation Checks.");
+    }
 
-      // Special handling for 0 limit (feature not available) vs limit reached
-      if (!usageCheck.allowed) {
-        if (usageCheck.limit === 0) {
-          throw new Error(
-            "Citation Confidence Check is not available on your current plan. Please upgrade to access this feature."
-          );
-        } else {
-          throw new Error(
-            `Usage limit reached for Citation Checks. Limit: ${usageCheck.limit}`
-          );
-        }
-      }
-
-      // Track usage
-      await UsageService.trackUsage(userId, "citation_check");
-
+    try {
       // Fetch project citations
       const citations = await prisma.citation.findMany({
         where: {
@@ -350,16 +340,27 @@ export class CitationConfidenceService {
         });
       }
 
+      // Confirm the pre-acquired hold on success.
+      if (billingEventId) {
+        await BillingGateway.confirm(billingEventId);
+      }
       return {
         totalCitations: citations.length,
         overallConfidence,
         citationBreakdown: breakdown,
       };
     } catch (error: any) {
-      logger.error("Error analyzing project citations", {
-        error: error.message,
-        projectId,
-      });
+      // Release the hold on any failure so the user isn't charged for an
+      // analysis that didn't complete.
+      if (billingEventId) {
+        await BillingGateway.release(billingEventId, error.message);
+      }
+      if (!(error instanceof BillingError)) {
+        logger.error("Error analyzing project citations", {
+          error: error.message,
+          projectId,
+        });
+      }
       throw new Error(`Failed to analyze citations: ${error.message}`);
     }
   }
