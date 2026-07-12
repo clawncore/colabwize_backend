@@ -89,7 +89,9 @@ async function handleSearch(req: Request, res: Response) {
         return res.status(status).json({
           success: false,
           message: e.message || "Monthly search limit reached",
+          code: e.code,
           requiresUpgrade: true,
+          ...e.data,
         });
       }
       throw e;
@@ -151,7 +153,9 @@ router.post("/legitimize", async (req: Request, res: Response) => {
       return res.status(status).json({
         success: false,
         message: e.message || "Monthly search limit reached",
+        code: e.code,
         requiresUpgrade: true,
+        ...e.data,
       });
     }
     logger.error("Error legitimizing claim", { error: e.message });

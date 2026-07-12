@@ -67,22 +67,28 @@ export class ActivityTrackingService {
       // If we found a recent session, update it
       if (recentActivity) {
         if (data.isDelta) {
-          // DELTA LOGIC: Increment existing values
+          // DELTA LOGIC: ALWAYS increment — never drop. The old code had a
+          // guard that silently discarded deltas when timeSpent wasn't larger
+          // than the stored value, which caused the certificate to show
+          // stale/false keystroke and edit counts. Every delta represents
+          // real work that must be recorded.
           await prisma.authorshipActivity.update({
             where: { id: recentActivity.id },
             data: {
               time_spent: { increment: data.timeSpent },
               edit_count: { increment: data.editCount },
               keystrokes: { increment: data.keystrokes || 0 },
-              // word_count is usually absolute state, so we replace it unless specified otherwise
+              // word_count is absolute state, so we replace it
               word_count: data.wordCount,
               session_end: new Date(),
               ai_assisted_edits: { increment: data.aiAssistedEdits || 0 },
               manual_edits: { increment: data.manualEdits || 0 },
             },
           });
-        } else if (data.timeSpent > recentActivity.time_spent) {
-          // LEGACY/ABSOLUTE LOGIC: Replace with new total (if greater)
+        } else {
+          // ABSOLUTE LOGIC: Replace with new values. Always write — the
+          // unmount handler sends absolute final totals that must never be
+          // silently dropped.
           await prisma.authorshipActivity.update({
             where: { id: recentActivity.id },
             data: {
@@ -358,8 +364,11 @@ export class ActivityTrackingService {
         (sum: number, a: any) => sum + (a.ai_assisted_edits || 0),
         0
       );
+      // word_count is ABSOLUTE (current document state), NOT a delta — so
+      // summing it across sessions would massively inflate the number.
+      // Take the max, which represents the latest known document size.
       const totalWordCount = activities.reduce(
-        (sum: number, a: any) => sum + (a.word_count || 0),
+        (max: number, a: any) => Math.max(max, a.word_count || 0),
         0
       );
 

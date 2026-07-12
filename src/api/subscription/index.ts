@@ -954,6 +954,7 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
       documentsThisMonth,
       documentsLastMonth,
       dailyTrend,
+      creditBalance,
     ] = await Promise.all([
       SubscriptionService.getUserSubscription(user.id),
       UsageService.getCurrentUsage(user.id),
@@ -1012,6 +1013,7 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
 
         return dailyCounts;
       })(),
+      CreditService.getBalance(user.id),
     ]);
 
     // Get plan info using central service logic
@@ -1058,6 +1060,10 @@ router.get("/billing/overview", authenticateHybridRequest, async (req, res) => {
       },
       trends: {
         documentsDaily: dailyTrend,
+      },
+      credits: {
+        balance: creditBalance,
+        autoUse: user.auto_use_credits ?? true,
       },
       paymentMethod:
         paymentMethods.length > 0

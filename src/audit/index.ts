@@ -37,9 +37,11 @@ router.post("/start", async (req, res) => {
                 const status = billingError.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
                 return res.status(status).json({
                     success: false,
-                    error: billingError.message,
+                    message: billingError.message,
                     code: billingError.code,
-                });
+                
+        ...billingError.data,
+    });
             }
             // Non-billing error from hold (e.g. DB issue) — log but allow the
             // feature to run so billing infrastructure doesn't block the audit.

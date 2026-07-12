@@ -68,9 +68,11 @@ router.get(
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
           success: false,
-          error: e.message || "Plan limit reached",
+          message: e.message || "Plan limit reached",
           code: e.code,
-        });
+        
+        ...e.data,
+    });
       }
       logger.error("Error getting citation confidence", {
         error: e.message,
@@ -149,9 +151,11 @@ router.get(
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
           success: false,
-          error: e.message || "Plan limit reached",
+          message: e.message || "Plan limit reached",
           code: e.code,
-        });
+        
+        ...e.data,
+    });
       }
       logger.error("Error getting citation recency", {
         error: e.message,
