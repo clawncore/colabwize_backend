@@ -1,4 +1,4 @@
-﻿import express, { Router } from "express";
+import express, { Router } from "express";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
 import { sendEmail } from "../../services/email/baseMailer";
 import { SENDER_IDENTITIES, EmailSender } from "../../services/email/emailConfig";

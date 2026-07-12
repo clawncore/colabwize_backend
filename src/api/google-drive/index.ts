@@ -20,8 +20,7 @@ const router = express.Router();
  * List files from Google Drive
  */
 router.get("/list", async (req: Request, res: Response) => {
-  // Temporary debug override
-  const userId = "41083c9a-ad01-411e-8883-12e23432e8f7"; // req.user.id
+  const userId = (req as any).user?.id;
   try {
     const { folderId } = req.query;
 

@@ -159,10 +159,14 @@ export class HocuspocusCollaborationServer {
     this.server = new Hocuspocus({
       // Only bind port if not multiplexing (handled by main server)
       port: port ? this.port : undefined,
-      debounce: 1000,
-      maxDebounce: 5000,
+      debounce: 2000,
+      maxDebounce: 10000,
       timeout: 30000,
-      unloadImmediately: true, // CRITICAL: Unload documents immediately when all clients disconnect to prevent stale data
+      // Keep the in-memory Y.Doc alive while at least one client is connected.
+      // Setting this to true was the primary cause of content duplication:
+      // it destroyed the CRDT state on disconnect, forcing onLoadDocument to
+      // re-convert JSON → Y.Doc on every reconnect, which re-inserts content.
+      unloadImmediately: false,
       stopOnSignals: true,
       async onLoadDocument(data: onLoadDocumentPayload) {
         if (!data.documentName.startsWith("project-")) return null;
@@ -177,97 +181,76 @@ export class HocuspocusCollaborationServer {
 
           const project = await prisma.project.findUnique({
             where: { id: projectId },
-            select: { content: true },
+            select: { content: true, ydoc: true },
           });
 
-          // Define extensions locally for the static context if needed,
-          // or use instance bound method if Hocuspocus allows it (which it does via constructor closure)
           const extensions = self.getExtensions();
 
-          if (project && project.content) {
+          if (!project) {
+            logger.warn(`[HP] Project ${projectId} not found in database`);
+            return null;
+          }
+
+          // ─── PRIMARY PATH: Binary Yjs state ────────────────────────────────
+          // Binary state is a perfect, lossless snapshot of the Yjs CRDT. Loading
+          // it via Y.applyUpdate avoids the JSON → Yjs re-insertion that caused
+          // content duplication on every reconnect.
+          if (project.ydoc && project.ydoc.length > 0) {
+            const Y = await import("yjs");
+            const ydoc = new Y.Doc();
+            Y.applyUpdate(ydoc, project.ydoc);
+            const duration = Date.now() - startTime;
+            logger.info(
+              `[HP] Document ${projectId} loaded from binary ydoc state in ${duration}ms`,
+              { binarySize: project.ydoc.length },
+            );
+            return ydoc;
+          }
+
+          // ─── FALLBACK PATH: JSON content (existing documents) ──────────────
+          // Used for documents that have never been saved in binary mode yet.
+          // After the first onStoreDocument call, they will have a ydoc field
+          // and will use the primary path on all subsequent loads.
+          if (project.content) {
             let content = project.content;
 
             // Handle legacy HTML content (common in uploaded documents)
             if (typeof content === "string") {
               logger.info(
-                `[HP] Document ${projectId} content is HTML, generating JSON...`,
+                `[HP] Document ${projectId} content is HTML string, converting to JSON...`,
               );
               try {
                 content = generateJSON(content, extensions);
-                logger.info(
-                  `[HP] Successfully transformed HTML to JSON for document ${projectId}`,
-                );
               } catch (convError) {
                 logger.error(
                   `[HP] Failed to convert HTML to JSON for ${projectId}:`,
                   convError,
                 );
-                // Fallback to empty doc if conversion fails
                 content = { type: "doc", content: [{ type: "paragraph" }] };
               }
             }
 
-            // CRITICAL DIAGNOSTIC: Check for duplicate content in database
-            const contentStr = JSON.stringify(content);
-            const contentObj = typeof content === "string" ? JSON.parse(content) : content;
-            const paragraphs = contentObj?.content || [];
-
-            // Check for consecutive duplicates
-            let dupes = 0;
-            if (paragraphs.length > 1) {
-              for (let i = 0; i < paragraphs.length - 1; i++) {
-                if (JSON.stringify(paragraphs[i]) === JSON.stringify(paragraphs[i + 1])) {
-                  dupes++;
-                }
-              }
-            }
-
-            // Check for full document duplication
-            let fullDupe = false;
-            if (paragraphs.length > 3) {
-              const mid = Math.floor(paragraphs.length / 2);
-              const firstHalf = paragraphs.slice(0, mid);
-              const secondHalf = paragraphs.slice(mid);
-              if (JSON.stringify(firstHalf) === JSON.stringify(secondHalf)) {
-                fullDupe = true;
-              }
-            }
-
-            if (dupes > 0 || fullDupe) {
-              logger.error(
-                `[HP] CRITICAL: Database content for ${projectId} has duplication:`,
-                { dupes, fullDupe, paragraphs: paragraphs.length }
-              );
-            }
-
             const duration = Date.now() - startTime;
             logger.info(
-              `[HP] Document ${projectId} loaded and transformed in ${duration}ms`,
-              {
-                contentSize: contentStr.length,
-                paragraphs: paragraphs.length,
-                dupes,
-                fullDupe,
-              },
+              `[HP] Document ${projectId} loaded from JSON (first-time binary migration) in ${duration}ms`,
+              { contentSize: JSON.stringify(content).length },
             );
             return TiptapTransformer.extensions(extensions as any).toYdoc(
               content,
               "default",
             );
-          } else if (project) {
-            logger.info(
-              `Project ${projectId} exists but content is empty, returning default structure`,
-            );
-            // Return empty project structure if project exists but content is null
-            return TiptapTransformer.extensions(extensions as any).toYdoc(
-              { type: "doc", content: [{ type: "paragraph" }] },
-              "default",
-            );
-          } else {
-            logger.warn(`Project ${projectId} not found in database`);
           }
+
+          // Empty project — return a blank document
+          logger.info(
+            `[HP] Project ${projectId} has no content, returning empty document`,
+          );
+          return TiptapTransformer.extensions(extensions as any).toYdoc(
+            { type: "doc", content: [{ type: "paragraph" }] },
+            "default",
+          );
         } catch (error) {
-          logger.error(`Failed to load document ${projectId}:`, error);
+          logger.error(`[HP] Failed to load document ${projectId}:`, error);
         }
         return null;
       },
@@ -277,95 +260,84 @@ export class HocuspocusCollaborationServer {
           if (!documentName.startsWith("project-")) return;
           const projectId = documentName.replace("project-", "");
 
-          // Use TiptapTransformer to correctly serialize Yjs document to Tiptap JSON
+          // ─── BINARY STATE (primary, lossless) ─────────────────────────────
+          // Encode the live Yjs document as a compact binary update. This is the
+          // canonical, lossless representation of the CRDT state. Loading it back
+          // via Y.applyUpdate perfectly reconstructs the document without any
+          // re-insertion or duplication.
+          const Y = await import("yjs");
+          const binaryState = Buffer.from(Y.encodeStateAsUpdate(document));
+
+          // ─── JSON CONTENT (secondary, for REST API / exports) ─────────────
+          // Also serialize to JSON so that REST endpoints, version history,
+          // exports, and word-count still work without changes.
           const extensions = self.getExtensions();
           const content = TiptapTransformer.extensions(
             extensions as any,
           ).fromYdoc(document, "default");
 
-          logger.info(`Attempting to store document ${projectId}`, {
+          logger.info(`[HP] Storing document ${projectId}`, {
             documentName,
+            binarySize: binaryState.length,
             contentSize: content ? JSON.stringify(content).length : 0,
             timestamp: new Date().toISOString(),
           });
 
           if (!content || (content as any).content?.length === 0) {
             logger.warn(
-              "Attempted to store empty or invalid document, skipping",
+              "[HP] Attempted to store empty or invalid document, skipping",
               { projectId },
             );
             return;
           }
 
-          // Manual validation logic removed in favor of TiptapTransformer.fromYdoc
-          // which correctly handles the schema and type mappings
-
-          // Calculate hash and word count OUTSIDE the transaction to minimize lock time
-          const contentHash = JSON.stringify(content);
+          // Deduplicate using a hash of the binary state (more reliable than JSON)
+          const binaryHash = binaryState.toString("base64");
           const lastHash = lastStoredContentHashes.get(projectId);
           const wordCount = self.calculateWordCount(content);
 
-          // Skip storing if content hasn't changed
-          if (contentHash === lastHash && lastHash !== undefined) {
-            logger.info("Document content unchanged, skipping store", {
+          if (binaryHash === lastHash && lastHash !== undefined) {
+            logger.info("[HP] Document unchanged (binary hash match), skipping store", {
               projectId,
               timestamp: new Date().toISOString(),
             });
             return;
           }
 
-          lastStoredContentHashes.set(projectId, contentHash);
+          lastStoredContentHashes.set(projectId, binaryHash);
 
-          logger.info(`Starting database transaction for ${projectId}`);
-
-          // Use a database transaction to ensure consistency
-          // Increased timeout to 30s to handle database latency spikes
+          // Persist both binary CRDT state and JSON in a single transaction
           await prisma.$transaction(
             async (tx: any) => {
-              const current = await tx.project.findUnique({
+              const exists = await tx.project.findUnique({
                 where: { id: projectId },
-                select: { id: true, content: true, updated_at: true },
+                select: { id: true },
               });
 
-              if (!current) {
-                throw new Error(`Project not found: ${projectId}`);
+              if (!exists) {
+                throw new Error(`[HP] Project not found: ${projectId}`);
               }
 
-              const currentContentHash = JSON.stringify(current.content);
-
-              // Check if content has changed since we last read it (to detect parallel saves)
-              if (currentContentHash !== lastHash && lastHash !== undefined) {
-                logger.warn(
-                  "Parallel save detected in onStoreDocument - Hocuspocus overwriting",
-                  {
-                    projectId,
-                    timestamp: new Date().toISOString(),
-                  },
-                );
-              }
-
-              // Update the project with new content and updated word count
               await tx.project.update({
                 where: { id: projectId },
                 data: {
-                  content: content,
+                  ydoc: binaryState,      // Binary CRDT state — primary load path
+                  content: content,       // JSON — for REST API / exports / word count
                   word_count: wordCount,
                   updated_at: new Date(),
                 },
               });
             },
-            {
-              timeout: 30000, // 30 seconds
-            },
+            { timeout: 30000 },
           );
 
-          logger.info("Document stored in database (no version created)", {
+          logger.info("[HP] Document stored successfully (binary + JSON)", {
             projectId,
+            binarySize: binaryState.length,
             timestamp: new Date().toISOString(),
-            message: "Frequent save for CRDT protection, not versioning",
           });
         } catch (error) {
-          logger.error("Error storing document:", {
+          logger.error("[HP] Error storing document:", {
             error: (error as Error).message || error,
             stack: (error as Error).stack,
             documentName,
