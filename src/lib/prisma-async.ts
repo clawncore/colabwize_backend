@@ -1,4 +1,6 @@
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 import logger from "../monitoring/logger";
 import { SecretsService } from "../services/secrets-service";
 
@@ -113,14 +115,20 @@ export async function initializePrisma(): Promise<PrismaClient> {
         // Fallback to original string if parsing fails, though unlikely
     }
 
+    process.env.DATABASE_URL = databaseUrl;
     const redactedUrl = databaseUrl.replace(/:([^:@]+)@/, ":****@");
     console.log(`DEBUG: Configured Prisma with URL: ${redactedUrl}`);
 
     // [AUDIT] Lazy Initialization
     // We do NOT call $connect() here. Prisma connects on the first query.
     // This prevents startup crashes if the DB is momentarily unreachable.
+    
+    // Use driver adapter for Prisma 7 compatibility
+    const pool = new Pool({ connectionString: databaseUrl });
+    const adapter = new PrismaPg(pool);
+
     const prisma = new PrismaClient({
-        datasources: { db: { url: databaseUrl } },
+        adapter,
         log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
         errorFormat: "pretty",
     });

@@ -221,6 +221,32 @@ export class MendeleyService {
     }
 
     /**
+     * Fetch items from a specific Mendeley folder
+     */
+    static async fetchFolderItems(userId: string, folderId: string) {
+        try {
+            const accessToken = await this.getValidToken(userId);
+            const headers: any = {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: "application/json"
+            };
+
+            if (process.env.MENDELEY_API_KEY) {
+                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
+            }
+
+            const response = await axios.get(`https://api.mendeley.com/folders/${folderId}/documents`, {
+                headers,
+                timeout: 15000
+            });
+            return response.data || [];
+        } catch (error: any) {
+            console.error("[Mendeley Service] fetchFolderItems Error:", error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    /**
      * Create a new document in Mendeley
      */
     static async createDocument(userId: string, documentData: any) {
