@@ -115,13 +115,16 @@ async function handleDirectExport(fileData: any, userId: string, format: "pdf" |
     if (format === "pdf") {
       const isPaid = user.subscription?.status === "active" && user.subscription?.plan !== "free";
       if (!isPaid) {
-        // Flat 1 credit charge for free users, unlimited if paid
+        // Flat 1 credit charge for free users, unlimited if paid. Uses the
+        // ledger-based reserve path so the spend is idempotent and rolls back
+        // via refundCredits if the export fails.
         const { CreditService } = await import("../../services/CreditService.js");
-        const balance = await CreditService.getBalance(userId);
         const COST = 1;
 
-        if (balance < COST) throw new Error("INSUFFICIENT_CREDITS");
-        await CreditService.addCredits(userId, -COST, "USAGE", `export_pdf_${Date.now()}`, "PDF Export");
+        if (!(await CreditService.hasEnoughCredits(userId, COST))) {
+          throw new Error("INSUFFICIENT_CREDITS");
+        }
+        await CreditService.reserveCredits(userId, COST, `export_pdf_${userId}`);
       }
     }
 

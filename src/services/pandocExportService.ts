@@ -41,24 +41,24 @@ export class PandocExportService {
   ): Promise<{ buffer: Buffer; fileSize: number }> {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "colabwize-export-"));
     const htmlContent = options.htmlContent || "";
-    
+
     try {
       const extension = options.format === 'pdf' ? 'pdf' : options.format;
       const outputPath = path.join(tempDir, `output.${extension}`);
 
       logger.info(`[Pandoc] Exporting via HTML direct path to ${options.format}`);
-      
+
       const htmlPath = path.join(tempDir, "input.html");
       await fs.writeFile(htmlPath, htmlContent);
-      
+
       const pandocPath = await getPandocPath();
-      
-      // For PDF, we might need to specify a pdf-engine. 
+
+      // For PDF, we might need to specify a pdf-engine.
       // We'll let Pandoc try its default first, but we can't use Puppeteer anymore.
-      const pandocCmd = options.format === "pdf" 
+      const pandocCmd = options.format === "pdf"
         ? `"${pandocPath}" "${htmlPath}" -f html -s -o "${outputPath}"`
         : `"${pandocPath}" "${htmlPath}" -f html -s -o "${outputPath}"`;
-      
+
       logger.info(`[Pandoc] Running command: ${pandocCmd}`);
       
       await execAsync(pandocCmd);

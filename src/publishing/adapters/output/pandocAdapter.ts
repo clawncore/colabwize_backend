@@ -17,6 +17,7 @@ import { writeFile, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import JSZip from "jszip";
 import { cdmToHtml } from "../../serializers/html";
 import { buildCitationMetadata } from "../../citations/htmlCitation";
 import { CanonicalDocument, OutputFormat } from "../../cdm";
@@ -137,6 +138,20 @@ export class PandocOutputAdapter implements OutputAdapter {
 
   async generate(doc: CanonicalDocument, ctx: GenCtx): Promise<GenResult> {
     const target = ctx.format ?? this.format;
+
+    // HTML target: the serializer IS the HTML, so return it directly with the
+    // embedded PRINT_CSS (in-text citations black, reference DOIs blue). This
+    // guarantees a standalone .html export looks identical to the on-screen
+    // preview instead of falling back to browser-default blue links.
+    if (target === "html") {
+      const html = cdmToHtml(doc, {
+        fullDocument: true,
+        placeholderLabels: ctx.placeholderLabels,
+        citeproc: false,
+      });
+      return buildResult("html", Buffer.from(html, "utf8"));
+    }
+
     // ColabWize owns citations: the HTML already carries the enriched, linked
     // bibliography, so Pandoc only converts (no --citeproc). This guarantees the
     // in-text `#ref-<id>` anchors survive as Word bookmarks / PDF links.
@@ -155,10 +170,15 @@ export class PandocOutputAdapter implements OutputAdapter {
       args.push("-M", `${key}=${value}`);
     }
 
-    // Publication-clean hyperlink styling for Word: a reference-doc whose
-    // Hyperlink character style inherits body text (no blue underline) for
-    // in-text citations, while DOI/URL links keep standard styling. Optional —
-    // export still works without it (links just render blue-underlined in Word).
+    // Word applies a single "Hyperlink" character style to every link — both
+    // in-text citations and reference DOIs. The reference-doc gives "Hyperlink"
+    // a standard blue+underline look (for the clickable DOIs/URLs), and defines
+    // a black "CitationLink" style for in-text citations. We then post-process
+    // the generated .docx to retarget internal (#anchor) links — the in-text
+    // citations and the "↩ Back" jumps — onto CitationLink, so in-text
+    // citations stay plain black while reference links remain blue. Optional —
+    // export still works without the reference-doc (links just render
+    // blue-underlined in Word for every link).
     const refDoc = resolveReferenceDoc();
     if (target === "docx" && refDoc) {
       args.push("--reference-doc", refDoc);
@@ -166,14 +186,21 @@ export class PandocOutputAdapter implements OutputAdapter {
 
     try {
       const buffer = await this.runner.run(args, html);
+      if (target === "docx") {
+        const styled = await applyDocxCitationStyling(buffer);
+        return buildResult(target, styled);
+      }
       return buildResult(target, buffer);
     } catch (e) {
       if (isPandocMissing(e)) {
         // Pandoc not installed: degrade to pure-JS HTML so the export still
         // succeeds instead of crashing with a cryptic `ENOENT`. The HTML already
-        // carries the enriched bibliography, so it remains linked.
+        // carries the enriched bibliography, so it remains linked. Embed
+        // PRINT_CSS so the fallback matches the on-screen preview styling
+        // (in-text citations black, reference DOIs blue) rather than defaulting
+        // to browser-blue links.
         const fallbackHtml = cdmToHtml(doc, {
-          fullDocument: false,
+          fullDocument: true,
           placeholderLabels: ctx.placeholderLabels,
           citeproc: false,
         });
@@ -205,4 +232,35 @@ function isPandocMissing(e: unknown): boolean {
     (e as NodeJS.ErrnoException)?.code === "ENOENT" ||
     /pandoc/i.test(String((e as Error)?.message))
   );
+}
+
+/**
+ * Post-process a generated .docx so in-text citations stay plain black while
+ * reference DOIs/URLs remain blue. Word applies one "Hyperlink" character style
+ * to every link (in-text + reference), so we retarget the *internal* (`#anchor`)
+ * links — in-text citations and the "↩ Back" jumps — onto the black
+ * "CitationLink" style defined in the reference-doc, leaving external links on
+ * the blue "Hyperlink" style. Defensive: returns the input unchanged if it is
+ * not a loadable .docx (e.g. a test mock or non-zip buffer).
+ */
+async function applyDocxCitationStyling(buffer: Buffer): Promise<Buffer> {
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const docFile = zip.file("word/document.xml");
+    if (!docFile) return buffer;
+    const xml = await docFile.async("string");
+    const out = xml.replace(
+      /<w:hyperlink\b[^>]*\bw:anchor=[^>]*>([\s\S]*?)<\/w:hyperlink>/g,
+      (block) =>
+        block.replace(
+          /<w:rStyle\s+w:val="Hyperlink"\s*\/?>/g,
+          '<w:rStyle w:val="CitationLink"/>',
+        ),
+    );
+    if (out === xml) return buffer;
+    zip.file("word/document.xml", out);
+    return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+  } catch {
+    return buffer;
+  }
 }

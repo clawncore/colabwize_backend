@@ -233,6 +233,10 @@ export async function buildSubmissionPackage(
   const tablePlacement = settings.placement?.tables ?? profile.tablePlacement;
   const targetFormat = settings.targetFormat ?? "docx";
   const warnings: string[] = [];
+  // ColabWize bookkeeping/integrity files (manifest, metadata, audit report,
+  // references) are for the author — off by default? No: keep them on unless the
+  // caller explicitly opts out, so the audit trail is preserved by default.
+  const includeAudit = settings.includeAuditFiles !== false;
 
   // 1. Stable ids
   const { doc: augmented } = assignStableIds(doc);
@@ -299,30 +303,34 @@ export async function buildSubmissionPackage(
     files.push({ path: `Tables.${tab.ext}`, bytes: tab.bytes, mime: tab.mime });
   }
 
-  // 7. References
-  const hasCsl = doc.references.some((r) => r.cslJson && Object.keys(r.cslJson).length > 0);
-  if (hasCsl) {
-    files.push({
-      path: "References.bib",
-      bytes: Buffer.from(toBibtex(doc.references), "utf8"),
-      mime: "application/x-bibtex",
-    });
-  } else if (doc.references.length > 0) {
-    const txt = doc.references.map((r) => r.raw ?? r.id).join("\n\n");
-    files.push({ path: "References.txt", bytes: Buffer.from(txt, "utf8"), mime: "text/plain" });
+  // 7. References (ColabWize bookkeeping — gated by includeAuditFiles)
+  if (includeAudit) {
+    const hasCsl = doc.references.some((r) => r.cslJson && Object.keys(r.cslJson).length > 0);
+    if (hasCsl) {
+      files.push({
+        path: "References.bib",
+        bytes: Buffer.from(toBibtex(doc.references), "utf8"),
+        mime: "application/x-bibtex",
+      });
+    } else if (doc.references.length > 0) {
+      const txt = doc.references.map((r) => r.raw ?? r.id).join("\n\n");
+      files.push({ path: "References.txt", bytes: Buffer.from(txt, "utf8"), mime: "text/plain" });
+    }
   }
 
-  // 8. Metadata.json
-  const metadata = {
-    ...augmented.metadata,
-    profileId: profile.id,
-    generatedAt: new Date().toISOString(),
-  };
-  files.push({
-    path: "Metadata.json",
-    bytes: Buffer.from(JSON.stringify(metadata, null, 2), "utf8"),
-    mime: "application/json",
-  });
+  // 8. Metadata.json (ColabWize bookkeeping — gated by includeAuditFiles)
+  if (includeAudit) {
+    const metadata = {
+      ...augmented.metadata,
+      profileId: profile.id,
+      generatedAt: new Date().toISOString(),
+    };
+    files.push({
+      path: "Metadata.json",
+      bytes: Buffer.from(JSON.stringify(metadata, null, 2), "utf8"),
+      mime: "application/json",
+    });
+  }
 
   // 9. Manifest.json
   const manifest: PackageManifest = {
@@ -357,11 +365,13 @@ export async function buildSubmissionPackage(
       warnings: a.warnings,
     })),
   };
-  files.push({
-    path: "manifest.json",
-    bytes: Buffer.from(JSON.stringify(manifest, null, 2), "utf8"),
-    mime: "application/json",
-  });
+  if (includeAudit) {
+    files.push({
+      path: "manifest.json",
+      bytes: Buffer.from(JSON.stringify(manifest, null, 2), "utf8"),
+      mime: "application/json",
+    });
+  }
 
   // 10. Cover letter
   if (profile.coverPage) {
@@ -384,13 +394,15 @@ export async function buildSubmissionPackage(
     files.push({ path: `CoverLetter.${cover.ext}`, bytes: cover.bytes, mime: cover.mime });
   }
 
-  // 11. Audit report
-  const audit = buildAuditReport(manifest, findings);
-  files.push({
-    path: "ExportReport.md",
-    bytes: Buffer.from(auditToMarkdown(audit, warnings), "utf8"),
-    mime: "text/markdown",
-  });
+  // 11. Audit report (ColabWize bookkeeping — gated by includeAuditFiles)
+  if (includeAudit) {
+    const audit = buildAuditReport(manifest, findings);
+    files.push({
+      path: "ExportReport.md",
+      bytes: Buffer.from(auditToMarkdown(audit, warnings), "utf8"),
+      mime: "text/markdown",
+    });
+  }
 
   // 12. Images folder
   for (const a of assets) {

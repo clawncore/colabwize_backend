@@ -1962,3 +1962,47 @@ model CitationPairHash {
   @@map("citation_pair_hashes")
 }
 
+
+// ─────────────────── Phase 3: Export Job System ───────────────────
+// Mirrors the live DB table from migration 20260709010000_add_export_job
+// (and 20260710000000_make_export_job_doc_version_id_nullable).
+// The pre-check gate (precheck_report / precheck_override / NEEDS_REVIEW)
+// was removed post-MVP, so this matches the table as-is.
+
+enum ExportJobStatus {
+  QUEUED
+  RUNNING
+  RETRYING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+model ExportJob {
+  id               String          @id
+  userId           String          @map("user_id")
+  projectId        String?         @map("project_id")
+  docVersionId     String?         @map("doc_version_id")
+  format           String          @map("format")
+  status           ExportJobStatus @default(QUEUED) @map("status")
+  attempts         Int             @default(0) @map("attempts")
+  maxAttempts     Int             @default(3) @map("max_attempts")
+  progress         Int             @default(0) @map("progress")
+  statusMessage    String?         @map("status_message")
+  settings         Json            @map("settings")
+  artifactPath     String?         @map("artifact_path")
+  artifactUrl      String?         @map("artifact_url")
+  artifactMimeType String?         @map("artifact_mime_type")
+  artifactSize     Int?            @map("artifact_size")
+  artifactChecksum String?         @map("artifact_checksum")
+  billingEventId   String?         @map("billing_event_id")
+  error            String?         @map("error")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  startedAt        DateTime?       @map("started_at")
+  completedAt      DateTime?       @map("completed_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([docVersionId])
+}

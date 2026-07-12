@@ -192,6 +192,70 @@ router.post(
   },
 );
 
+// Cloud Export: OneDrive
+router.post(
+  "/export/onedrive",
+  authenticateExpressRequest,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { projectId, format = "pdf", htmlContent, metadata } = req.body;
+      const userId = req.user!.id;
+
+      if (!projectId || !htmlContent) {
+        return res
+          .status(400)
+          .json({ error: "Missing projectId or htmlContent" });
+      }
+
+      const { ExportService } = await import("../../services/exportService.js");
+      const { OneDriveService } = await import(
+        "../../services/onedriveService.js"
+      );
+      const { Readable } = await import("stream");
+
+      // 1. Generate the file buffer
+      const exportResult = await ExportService.exportProject(
+        projectId,
+        userId,
+        {
+          format: format as any,
+          htmlContent,
+          metadata,
+        },
+      );
+
+      // 2. Upload to OneDrive
+      const fileName = `${metadata?.title || "Exported Document"}.${format}`;
+      const mimeType =
+        format === "pdf"
+          ? "application/pdf"
+          : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+      const odResult = await OneDriveService.uploadFile(
+        userId,
+        fileName,
+        Readable.from(exportResult.buffer),
+        mimeType,
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Project successfully exported to OneDrive",
+        url: odResult.webUrl || null,
+        data: odResult,
+      });
+    } catch (error: any) {
+      logger.error("Error exporting to OneDrive", {
+        error: error.message,
+        userId: req.user?.id,
+      });
+      return res
+        .status(500)
+        .json({ success: false, message: error.message });
+    }
+  },
+);
+
 // Cloud Export: Zotero
 router.post(
   "/export/zotero",
