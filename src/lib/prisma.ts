@@ -1,9 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-<<<<<<< Updated upstream
-=======
 import { Pool } from "pg";
->>>>>>> Stashed changes
 import logger from "../monitoring/logger";
 import { SecretsService } from "../services/secrets-service";
 
@@ -84,12 +81,8 @@ const connectionString = process.env.DATABASE_URL;
 let adapter: PrismaPg | undefined;
 
 if (connectionString) {
-<<<<<<< Updated upstream
-  adapter = new PrismaPg({ connectionString });
-=======
   const pool = new Pool({ connectionString });
   adapter = new PrismaPg(pool);
->>>>>>> Stashed changes
 }
 
 export const prisma =
