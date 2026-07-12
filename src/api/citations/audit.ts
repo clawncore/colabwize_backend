@@ -73,9 +73,10 @@ router.post("/audit", async (req: Request, res: Response) => {
             if (e instanceof BillingError) {
                 const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
                 return res.status(status).json({
-                    error: e.message || "Plan limit reached.",
+                    success: false,
+                    message: e.message || "Plan limit reached.",
                     code: e.code,
-                    data: e.data || { upgrade_url: "/pricing" },
+                    ...e.data,
                 });
             }
             throw e;
@@ -241,9 +242,11 @@ router.post("/audit/unified", async (req: Request, res: Response) => {
                 const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
                 return res.status(status).json({
                     success: false,
-                    error: e.message || "Plan limit reached.",
+                    message: e.message || "Plan limit reached.",
                     code: e.code,
-                });
+                
+        ...e.data,
+    });
             }
             throw e;
         }

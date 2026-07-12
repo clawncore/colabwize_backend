@@ -2,7 +2,7 @@ import { prisma } from "../lib/prisma";
 import { EntitlementService } from "./EntitlementService";
 import logger from "../monitoring/logger";
 import { LemonSqueezyService } from "./lemonSqueezyService";
-import { CreditService, CREDIT_COSTS } from "./CreditService";
+import { CreditService } from "./CreditService";
 
 export type ConsumptionResult = {
   allowed: boolean;
@@ -45,6 +45,9 @@ export const plans = {
     advanced_analytics: false,
     research_gaps: false,
     insight_map: false,
+
+    // Publishing Platform (Phase 3): exports are disabled on Free; upgrade required.
+    publish_export: 0,
   },
   payg: {
     // Scan Limits (Credit-based)
@@ -70,6 +73,8 @@ export const plans = {
     advanced_analytics: false,
     research_gaps: false,
     insight_map: false,
+
+    publish_export: -2, // credit-based (overflow) on PAYG
   },
   plus: {
     // Scan Limits
@@ -95,6 +100,8 @@ export const plans = {
     advanced_analytics: false,
     research_gaps: false,
     insight_map: false,
+
+    publish_export: 25,
   },
   premium: {
     // Scan Limits
@@ -120,6 +127,8 @@ export const plans = {
     advanced_analytics: true,
     research_gaps: true,
     insight_map: true,
+
+    publish_export: 100,
   },
   premium_pro: {
     // Scan Limits
@@ -145,6 +154,8 @@ export const plans = {
     advanced_analytics: true,
     research_gaps: true,
     insight_map: true,
+
+    publish_export: 50,
   },
 };
 

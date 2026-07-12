@@ -363,8 +363,10 @@ Claim Type: ${input.claimType}
         const status = billingError.code === "INSUFFICIENT_CREDITS" ? 402 : billingError.code === "ENTITLEMENT_ERROR" ? 500 : 403;
         return new Response(
           JSON.stringify({
-            error: billingError.code || "LIMIT_REACHED",
+            success: false,
+            code: billingError.code || "LIMIT_REACHED",
             message: billingError.message || "You have reached your AI usage limit.",
+            ...billingError.data,
           }),
           { status, headers: { "Content-Type": "application/json" } },
         );

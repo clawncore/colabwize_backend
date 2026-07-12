@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import multer from "multer";
 import { DraftComparisonController } from "../../controllers/draftComparisonController";
-import { BillingGateway, BillingError } from "../../billing/BillingGateway";
+import { BillingError } from "../../billing/BillingGateway";
 
 const upload = multer({ dest: "uploads/" }); // Temporary storage for comparisons
 
@@ -23,12 +23,14 @@ router.post(
         return res.status(401).json({ success: false, message: "Authentication required" });
       }
 
-      await BillingGateway.withFeature(
-        userId,
-        "originality_scan",
-        undefined,
-        () => DraftComparisonController.compareDrafts(req, res),
-      );
+      // ── Originality billing disabled per request (code preserved) ──
+      // await BillingGateway.withFeature(
+      //   userId,
+      //   "originality_scan",
+      //   undefined,
+      //   () => DraftComparisonController.compareDrafts(req, res),
+      // );
+      await DraftComparisonController.compareDrafts(req, res);
     } catch (e: any) {
       if (e instanceof BillingError) {
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
@@ -36,7 +38,9 @@ router.post(
           success: false,
           message: e.message || "Plan limit reached",
           code: e.code,
-        });
+        
+        ...e.data,
+    });
       }
       if (!res.headersSent) {
         return res.status(500).json({

@@ -92,29 +92,35 @@ router.post(
       const wordCount = content.trim().split(/\s+/).length;
       logger.info("Starting originality scan", { userId, projectId, plan });
 
+      // ── Originality billing/limit gating DISABLED per request (code preserved) ──
       // Run the scan through the single billing pipeline (hold → execute →
       // confirm/release). Replaces the old assertCanUse (which consumed
       // before execution) with the correct lifecycle.
-      try {
-        const result = await BillingGateway.withFeature(
-          userId,
-          "originality_scan",
-          { wordCount },
-          () => OriginalityMapService.scanDocument(projectId, userId, content, plan),
-        );
+      // try {
+      //   const result = await BillingGateway.withFeature(
+      //     userId,
+      //     "originality_scan",
+      //     { wordCount },
+      //     () => OriginalityMapService.scanDocument(projectId, userId, content, plan),
+      //   );
+      //
+      //   return res.status(200).json({ success: true, data: result });
+      // } catch (e: any) {
+      //   if (e instanceof BillingError) {
+      //     const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+      //     return res.status(status).json({
+      //       success: false,
+      //       message: e.message || "Plan limit reached",
+      //       code: e.code,
+      //       ...e.data,
+      //     });
+      //   }
+      //   throw e;
+      // }
 
-        return res.status(200).json({ success: true, data: result });
-      } catch (e: any) {
-        if (e instanceof BillingError) {
-          const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
-          return res.status(status).json({
-            success: false,
-            message: e.message || "Plan limit reached",
-            code: e.code,
-          });
-        }
-        throw e;
-      }
+      // Originality scan now runs without billing/quota gating:
+      const result = await OriginalityMapService.scanDocument(projectId, userId, content, plan);
+      return res.status(200).json({ success: true, data: result });
     } catch (error: any) {
       logger.error("Error in scan endpoint", { error: error.message });
 
@@ -316,6 +322,7 @@ router.post(
             success: false,
             message: e.message,
             code: e.code,
+            ...e.data,
           });
         }
         throw e;
@@ -540,9 +547,10 @@ router.post(
         if (e instanceof BillingError) {
           const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
           return res.status(status).json({
-            error: e.message,
+            success: false,
+            message: e.message,
             code: e.code,
-            data: e.data || { upgrade_url: "/pricing" },
+            ...e.data,
           });
         }
         throw e;
@@ -582,17 +590,19 @@ router.post(
 
       const wordCount = typeof content === "string" ? content.trim().split(/\s+/).length : 0;
 
-      const result = await BillingGateway.withFeature(
-        userId,
-        "originality_scan",
-        { wordCount },
-        () => OriginalityMapService.checkSectionRisk(projectId, userId, content),
-      );
+      // ── Originality billing disabled per request (code preserved) ──
+      // const result = await BillingGateway.withFeature(
+      //   userId,
+      //   "originality_scan",
+      //   { wordCount },
+      //   () => OriginalityMapService.checkSectionRisk(projectId, userId, content),
+      // );
+      const result = await OriginalityMapService.checkSectionRisk(projectId, userId, content);
       return res.status(200).json({ success: true, data: result });
     } catch (e: any) {
       if (e instanceof BillingError) {
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
-        return res.status(status).json({ success: false, message: e.message, code: e.code });
+        return res.status(status).json({ success: false, message: e.message, code: e.code, ...e.data });
       }
       return res.status(500).json({ success: false, message: e.message });
     }
@@ -636,9 +646,10 @@ router.post(
         if (e instanceof BillingError) {
           const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
           return res.status(status).json({
-            error: e.message,
+            success: false,
+            message: e.message,
             code: e.code,
-            data: e.data || { upgrade_url: "/pricing" },
+            ...e.data,
           });
         }
         throw e;
@@ -675,18 +686,20 @@ router.post(
       // Gated behind scan entitlement — it is an AI call that must verify the
       // user has originality_scan quota. Consumes one scan unit (same as a
       // regular scan) since it invokes the AI pipeline.
-      const Explanation = await BillingGateway.withFeature(
-        userId,
-        "originality_scan",
-        undefined,
-        () => EnhancedOriginalityDetectionService.explainRiskWithAI(matchText, sourceText, riskLevel || "Moderate"),
-      );
+      // ── Originality billing disabled per request (code preserved) ──
+      // const Explanation = await BillingGateway.withFeature(
+      //   userId,
+      //   "originality_scan",
+      //   undefined,
+      //   () => EnhancedOriginalityDetectionService.explainRiskWithAI(matchText, sourceText, riskLevel || "Moderate"),
+      // );
+      const Explanation = await EnhancedOriginalityDetectionService.explainRiskWithAI(matchText, sourceText, riskLevel || "Moderate");
 
       return res.status(200).json({ success: true, data: { explanation: Explanation } });
     } catch (e: any) {
       if (e instanceof BillingError) {
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
-        return res.status(status).json({ success: false, message: e.message, code: e.code });
+        return res.status(status).json({ success: false, message: e.message, code: e.code, ...e.data });
       }
       logger.error("Error explaining risk", { error: e.message });
       return res.status(500).json({ success: false, message: "Failed to generate explanation" });

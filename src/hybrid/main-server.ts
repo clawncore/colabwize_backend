@@ -72,6 +72,11 @@ import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
 import adminRouter from "../api/admin/index";
 import publicBlogsRouter from "../api/blogs/index";
+// Publishing Platform (Phase 3): export job system + router
+import {
+  createExportJobSystem,
+  createPublishingRouter,
+} from "../publishing/jobs";
 import zoteroRouter from "../api/zotero/index";
 import mendeleyRouter from "../api/mendeley/index";
 import referencesRouter from "../api/references/index";
@@ -133,6 +138,8 @@ const allowedOrigins = [
   "http://localhost:3000/",
   "http://localhost:3001",
   "http://localhost:3001/",
+  "http://localhost:3002",
+  "http://localhost:3002/",
   "http://localhost:5173",
   "http://localhost:5173/",
   /\.vercel\.app$/,
@@ -470,6 +477,17 @@ app.use("/api/references/collections", collectionsRouter);
 app.use("/api/google-drive", googleDriveApiRouter);
 app.use("/api/onedrive", onedriveApiRouter);
 
+// Publishing Platform (Phase 3) — export job API. The router applies its own
+// authentication; the worker is started once the DB is ready (see startServer).
+export const exportJobSystem = createExportJobSystem();
+app.use(
+  "/api/publishing",
+  createPublishingRouter(exportJobSystem.service, {
+    cdmResolver: exportJobSystem.resolver,
+    templateResolver: exportJobSystem.templateResolver,
+  }),
+);
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
@@ -522,6 +540,11 @@ const startServer = async () => {
         initializeSubscriptionJobs();
         initializeSearchAlertJobs();
         logger.info("✅ Scheduled jobs initialized");
+
+        // Publishing Platform (Phase 3): start the async export worker pool.
+        // Only runs in processes that have booted with a DB; safe to call once.
+        exportJobSystem.worker.start();
+        logger.info("✅ Export job worker started");
       } catch (initError: any) {
         logger.error("❌ Failed to initialize services:", initError);
         console.error("❌ Critical Service Failure:", initError);

@@ -385,21 +385,58 @@ router.post("/export", providerApiLimiter, authenticateHybridRequest, async (req
             return res.status(404).json({ error: "Citation not found" });
         }
 
-        // Reconstruct Zotero item from rawMetadata or formatted data
-        const itemData = citation.rawMetadata || {
-            itemType: citation.type || 'article-journal',
-            title: citation.title,
-            creators: [],
-            date: citation.year?.toString() || '',
-            DOI: citation.doi,
-            url: citation.url,
-            publicationTitle: citation.journal,
-            volume: citation.volume,
-            issue: citation.issue,
-            pages: citation.pages,
-            publisher: citation.publisher,
-            abstractNote: citation.abstract,
-        };
+        // Reconstruct Zotero item from rawMetadata or formatted data.
+        // rawMetadata is only present for citations originally imported from Zotero.
+        // For all others (document upload, manual entry, auto-enrichment) we rebuild
+        // a valid CSL-JSON payload from the columns we have. Zotero 403s on empty
+        // creators arrays, so we always build a proper creators list.
+        const rebuiltCreators = (citation.authors || [])
+            .map((a: any) => {
+                if (typeof a === 'string') {
+                    const parts = a.split(',').map((s: string) => s.trim());
+                    return parts.length === 2
+                        ? { name: '', family: parts[0], given: parts[1], creatorType: 'author' }
+                        : { name: parts[0] || a, family: '', given: '', creatorType: 'author' };
+                }
+                const family = a.family || (a.literal ? '' : a.name || '');
+                const given = a.given || '';
+                if (!family && a.literal) return { name: a.literal, family: '', given: '', creatorType: 'creatorType' in a ? a.creatorType : 'author' };
+                return { name: '', family, given, creatorType: 'creatorType' in a ? a.creatorType : 'author' };
+            });
+
+        const formatAuthorsString = (citation.author || '')
+            .split(/[;&]/)
+            .map((s: string) => s.trim())
+            .filter(Boolean);
+        const fallbackCreators = formatAuthorsString.length > 0
+            ? formatAuthorsString.map((name: string) => {
+                const parts = name.split(',').map((s: string) => s.trim());
+                return parts.length === 2
+                    ? { name: '', family: parts[0], given: parts[1], creatorType: 'author' }
+                    : { name: name, family: '', given: '', creatorType: 'author' };
+              })
+            : [{ name: 'Unknown', family: '', given: '', creatorType: 'author' }];
+
+        const creators = rebuiltCreators.length > 0 ? rebuiltCreators : fallbackCreators;
+
+        const itemData = citation.rawMetadata
+            ? (citation.rawMetadata.data
+                ? { ...citation.rawMetadata.data, creators: citation.rawMetadata.data.creators?.length ? citation.rawMetadata.data.creators : creators }
+                : { ...citation.rawMetadata, creators: citation.rawMetadata.creators?.length ? citation.rawMetadata.creators : creators })
+            : {
+                itemType: citation.type || 'article-journal',
+                title: citation.title || 'Untitled',
+                creators,
+                date: citation.year?.toString() || '',
+                DOI: citation.doi,
+                url: citation.url,
+                publicationTitle: citation.journal,
+                volume: citation.volume,
+                issue: citation.issue,
+                pages: citation.pages,
+                publisher: citation.publisher,
+                abstractNote: citation.abstract,
+            };
 
         const user = await prisma.user.findUnique({
             where: { id: userId },
@@ -421,8 +458,13 @@ router.post("/export", providerApiLimiter, authenticateHybridRequest, async (req
             zoteroItemKey: typeof created === 'string' ? created : created?.key || 'unknown',
         });
     } catch (error: any) {
-        console.error("[Zotero Export] Error:", error.message);
-        return res.status(500).json({ error: error.message });
+        const zoteroMsg = error.response?.data?.failed?.[0]?.message
+            || error.response?.data?.message
+            || error.message;
+        console.error("[Zotero Export] Error:", zoteroMsg, error.response?.data || '');
+        return res.status(error.response?.status || 500).json({
+            error: `Zotero export failed: ${zoteroMsg}`,
+        });
     }
 });
 

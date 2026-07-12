@@ -214,9 +214,10 @@ export const generateCertificate = async (req: Request, res: Response) => {
       if (innerError instanceof BillingError) {
         const status = innerError.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
-          error: innerError.message || "Monthly limit reached",
+          success: false,
+          message: innerError.message || "Monthly limit reached",
           code: innerError.code,
-          data: innerError.data || { upgrade_url: "/pricing" },
+          ...innerError.data,
         });
       }
 

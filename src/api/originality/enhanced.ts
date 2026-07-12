@@ -80,15 +80,18 @@ router.post(
       // confirm/release). Removes the old checkUsageLimit + incrementFeatureUsage
       // double-consume that the middleware comments themselves flagged.
       const wordCount = content.trim().split(/\s+/).length;
-      const result = await BillingGateway.withFeature(
-        userId,
-        "originality_scan",
-        { wordCount },
-        async () => {
-          const { OriginalityMapService } = await import("../../services/originalityMapService.js");
-          return OriginalityMapService.startScan(projectId, userId, content);
-        },
-      );
+      // ── Originality billing disabled per request (code preserved) ──
+      // const result = await BillingGateway.withFeature(
+      //   userId,
+      //   "originality_scan",
+      //   { wordCount },
+      //   async () => {
+      //     const { OriginalityMapService } = await import("../../services/originalityMapService.js");
+      //     return OriginalityMapService.startScan(projectId, userId, content);
+      //   },
+      // );
+      const { OriginalityMapService } = await import("../../services/originalityMapService.js");
+      const result = await OriginalityMapService.startScan(projectId, userId, content);
 
       return res.status(200).json({ success: true, data: result });
     } catch (e: any) {
@@ -98,7 +101,9 @@ router.post(
           success: false,
           message: e.message || "Plan limit reached",
           code: e.code,
-        });
+        
+        ...e.data,
+    });
       }
       logger.error("Error in enhanced scan endpoint", { error: e.message });
 
@@ -272,7 +277,9 @@ router.post(
           success: false,
           message: e.message,
           code: e.code,
-        });
+        
+        ...e.data,
+    });
       }
       logger.error("Error generating enhanced rephrase suggestions", {
         error: e.message,

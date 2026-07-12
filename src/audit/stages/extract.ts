@@ -152,13 +152,19 @@ export const ExtractStage: AuditPipelineStage = {
             }
 
             // 2. Extract Inline Citations
+            // NOTE: a `citation` node is an atom (inline leaf, size 1) in ProseMirror.
+            // Its rendered display text (the "text" attr) can be arbitrarily long
+            // (e.g. "[Smith 2020]"), but it occupies exactly ONE position in the
+            // document model. Recording end = start + displayText.length would
+            // produce a range that overshoots the node and highlights whatever
+            // text follows — the "hallucinated highlight" bug. Use start + 1.
             if (node.type === "citation") {
                 const citationText = getStringAttr(node, "text") || text || "[Citation]";
                 addCitation(citations, seenCitations, {
                     citationId: getStringAttr(node, "citationId"),
                     text: citationText,
                     start: startPos,
-                    end: startPos + citationText.length,
+                    end: startPos + 1,
                     source: "structured",
                     key: `structured:${startPos}:${citationText}`,
                 });
