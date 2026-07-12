@@ -4,8 +4,16 @@ import { EmailService } from "./emailService";
 import logger from "../monitoring/logger";
 import { SecretsService } from "./secrets-service";
 import { EntitlementService } from "./EntitlementService";
+<<<<<<< Updated upstream
 import { clearSubscriptionCache } from "../api/subscription";
 import { SubscriptionService } from "./subscriptionService";
+=======
+<<<<<<< HEAD
+=======
+import { clearSubscriptionCache } from "../api/subscription";
+import { SubscriptionService } from "./subscriptionService";
+>>>>>>> origin/craig-update
+>>>>>>> Stashed changes
 
 /**
  * Service for Hybrid Authentication (Supabase + Custom Backend)
@@ -323,10 +331,20 @@ export class HybridAuthService {
         where: { user_id: referrer.id },
       });
       
+<<<<<<< Updated upstream
+=======
+<<<<<<< HEAD
+      if (referrerSub?.plan === "free" || !referrerSub) {
+=======
+>>>>>>> Stashed changes
       // Use getActivePlan to check the EFFECTIVE plan (handles expired subscriptions)
       const effectivePlan = await SubscriptionService.getActivePlan(referrer.id, referrerSub);
       
       if (effectivePlan === "free" || !referrerSub) {
+<<<<<<< Updated upstream
+=======
+>>>>>>> origin/craig-update
+>>>>>>> Stashed changes
         // If no subscription exists, create one
         if (!referrerSub) {
           await prisma.subscription.create({
@@ -338,7 +356,15 @@ export class HybridAuthService {
             },
           });
         } else {
+<<<<<<< Updated upstream
           // Update existing subscription to plus with expiry
+=======
+<<<<<<< HEAD
+          // Update existing free subscription to plus with expiry
+=======
+          // Update existing subscription to plus with expiry
+>>>>>>> origin/craig-update
+>>>>>>> Stashed changes
           await prisma.subscription.update({
             where: { user_id: referrer.id },
             data: {
@@ -352,9 +378,18 @@ export class HybridAuthService {
         // Rebuild entitlements so user gets plus features immediately
         await EntitlementService.rebuildEntitlements(referrer.id);
         
+<<<<<<< Updated upstream
         // Clear subscription cache so the user sees updated plan immediately
         clearSubscriptionCache(referrer.id);
         
+=======
+<<<<<<< HEAD
+=======
+        // Clear subscription cache so the user sees updated plan immediately
+        clearSubscriptionCache(referrer.id);
+        
+>>>>>>> origin/craig-update
+>>>>>>> Stashed changes
         // Send reward email
         await EmailService.sendReferralRewardEmail(referrer.email, referrer.full_name || "", 5);
         
@@ -362,13 +397,29 @@ export class HybridAuthService {
           referrerId: referrer.id,
           refereeId,
           expiresAt: rewardExpiresAt,
+<<<<<<< Updated upstream
           previousEffectivePlan: effectivePlan,
+=======
+<<<<<<< HEAD
+=======
+          previousEffectivePlan: effectivePlan,
+>>>>>>> origin/craig-update
+>>>>>>> Stashed changes
         });
       } else {
         logger.info("Referrer already on paid plan, referral logged without upgrade", {
           referrerId: referrer.id,
+<<<<<<< Updated upstream
           effectivePlan: effectivePlan,
           rawPlan: referrerSub?.plan,
+=======
+<<<<<<< HEAD
+          currentPlan: referrerSub.plan,
+=======
+          effectivePlan: effectivePlan,
+          rawPlan: referrerSub?.plan,
+>>>>>>> origin/craig-update
+>>>>>>> Stashed changes
         });
       }
     } catch (error: any) {
