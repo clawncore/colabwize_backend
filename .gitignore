@@ -66,4 +66,5 @@ yarn-error.log*
 .cache/
 
 # Large binaries — Pandoc executable (142MB, exceeds GitHub's 100MB limit)
-bin/
+bin/
+node_modules
