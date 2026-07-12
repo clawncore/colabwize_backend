@@ -1395,6 +1395,11 @@ export async function getReferralData(request: Request) {
       });
     }
 
+<<<<<<< Updated upstream
+=======
+<<<<<<< HEAD
+=======
+>>>>>>> Stashed changes
     // Generate referral code if user doesn't have one (for existing users)
     let referralCode = userData.referral_code;
     if (!referralCode) {
@@ -1439,6 +1444,10 @@ export async function getReferralData(request: Request) {
       }
     }
 
+<<<<<<< Updated upstream
+=======
+>>>>>>> origin/craig-update
+>>>>>>> Stashed changes
     // Calculate stats
     const totalReferrals = userData.referrals_made.length;
     const activeRewards = userData.referrals_made.filter(
@@ -1450,7 +1459,15 @@ export async function getReferralData(request: Request) {
     return new Response(
       JSON.stringify({
         success: true,
+<<<<<<< Updated upstream
         referralCode: referralCode,
+=======
+<<<<<<< HEAD
+        referralCode: userData.referral_code,
+=======
+        referralCode: referralCode,
+>>>>>>> origin/craig-update
+>>>>>>> Stashed changes
         totalReferrals,
         activeRewards,
         totalDaysEarned,
