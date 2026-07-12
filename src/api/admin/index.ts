@@ -2,6 +2,7 @@ import express, { Router } from "express";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
 import { sendEmail } from "../../services/email/baseMailer";
 import { SENDER_IDENTITIES, EmailSender } from "../../services/email/emailConfig";
+import { wrapInPremiumLayout } from "../../services/email/emailLayout";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { processBroadcast } from "../../services/admin/broadcastService";
@@ -33,25 +34,30 @@ router.post("/email/send", async (req, res) => {
       return res.status(400).json({ error: "Invalid sender alias" });
     }
 
-    // Determine fallback text to bypass raw HTML spam triggers if none is supplied natively
+    // Wrap in premium layout (banner, styling, signature) so email clients
+    // render the HTML properly instead of showing raw text.
+    const finalHtml = wrapInPremiumLayout(message, senderAlias as EmailSender);
     const fallbackText = message.replace(/<[^>]+>/g, '');
 
     const result = await sendEmail({
       from: senderAlias as EmailSender,
       to,
       subject,
-      html: message,
+      html: finalHtml,
       text: fallbackText
     });
 
-    // Audit Log Entry
+    // Audit Log Entry — store the real "from" address and the message body so
+    // the admin Sentbox can show what was sent and from which address.
     await prisma.emailLog.create({
       data: {
         recipient: to,
         sender: senderAlias,
+        from_address: SENDER_IDENTITIES[senderAlias as EmailSender],
         subject,
         status: result.success ? "sent" : "failed",
-        error: result.success ? null : (result.error || "Unknown error")
+        error: result.success ? null : (result.error || "Unknown error"),
+        message_body: message,
       }
     });
 
@@ -83,12 +89,15 @@ router.post("/email/broadcast", async (req, res) => {
       return res.status(400).json({ error: "Invalid sender alias" });
     }
 
-    // Fire and forget: Process broadcast in background
+    // Fire and forget: Process broadcast in background. Pass the resolved
+    // "from" address so every log row records which mailbox sent it.
+    const fromAddress = SENDER_IDENTITIES[senderAlias as EmailSender];
     processBroadcast({
       userIds,
       senderAlias: senderAlias as EmailSender,
       subject,
-      message
+      message,
+      fromAddress,
     }).catch(err => logger.error("Background Broadcast Error:", err));
 
     res.status(202).json({
@@ -180,6 +189,8 @@ router.post("/inbox/reply", async (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
+    // Wrap in premium layout so the reply renders properly in email clients
+    const finalHtml = wrapInPremiumLayout(message, senderAlias as EmailSender);
     const fallbackText = message.replace(/<[^>]+>/g, '');
 
     // Send the email natively out through Resend
@@ -187,7 +198,7 @@ router.post("/inbox/reply", async (req, res) => {
       from: senderAlias as EmailSender,
       to,
       subject,
-      html: message,
+      html: finalHtml,
       text: fallbackText
     });
 
@@ -318,7 +329,18 @@ router.get("/email/logs", async (req, res) => {
     const logs = await prisma.emailLog.findMany({
       take: limit,
       skip: offset,
-      orderBy: { sent_at: "desc" }
+      orderBy: { sent_at: "desc" },
+      select: {
+        id: true,
+        recipient: true,
+        sender: true,
+        from_address: true,
+        subject: true,
+        status: true,
+        sent_at: true,
+        error: true,
+        message_body: true,
+      }
     });
 
     const total = await prisma.emailLog.count();

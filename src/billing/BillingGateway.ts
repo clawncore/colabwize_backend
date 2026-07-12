@@ -1,8 +1,7 @@
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { SubscriptionService } from "../services/subscriptionService";
-// CreditService is intentionally not imported: billing is plan-only until the
-// credit system is re-enabled. The credit ledger tables remain for later.
+import { CreditService, calculateCost } from "../services/CreditService";
 
 /**
  * BillingGateway — the single, centralized billing enforcement pipeline.
@@ -240,21 +239,19 @@ export class BillingGateway {
         break;
       }
 
-      // ---- Plan exhausted (or feature not on plan): hard-block ----
-      // Billing is driven entirely by the Lemon Squeezy plan. Credits are a
-      // future add-on; until then there is no overflow path.
+      // ---- Plan exhausted (or feature not on plan): overflow to credits ----
+      // The plan path is spent. Two distinct things can happen here:
+      //   (a) the feature isn't on this plan at all → hard block with upgrade
+      //   (b) the feature IS on this plan but monthly quota is exhausted →
+      //       automatically overflow to the credit wallet (if the user opted
+      //       in via auto_use_credits), otherwise prompt to upgrade/buy credits.
       const plan = await getPlanForEntitlement(tx, userId);
-      const limits = SubscriptionService.getPlanLimits(plan) as Record<string, any>;
-      const planLimit = typeof limits[targetFeature] === "number" ? limits[targetFeature] : 0;
 
-      // Feature not available on this plan at all (e.g. a premium-only feature
-      // on the free tier). Distinct from "available but exhausted" so the UI
-      // can show the right message.
-      const isPlanRestricted =
-        planLimit === 0 &&
-        !["scan", "rephrase", "citation_audit", "paper_search"].includes(feature);
-
-      if (isPlanRestricted) {
+      // Feature availability check: is this feature enabled on the user's plan
+      // at all? We recompute live rights (not the stale `rights` from the plan
+      // loop above) so a newly-active subscription is respected.
+      const availability = await computeAvailability(tx, userId, feature);
+      if (!availability.available) {
         throw new BillingError(
           "PLAN_LIMIT_REACHED",
           `This feature is not available on your current plan.`,
@@ -262,12 +259,72 @@ export class BillingGateway {
         );
       }
 
-      // Feature is on the plan but the user has used their full quota.
-      throw new BillingError(
-        "PLAN_LIMIT_REACHED",
-        `You've reached your ${plan} plan limit for ${feature}. Upgrade to continue.`,
-        { feature, plan, upgrade_url: "/pricing" },
-      );
+      // Feature is on the plan but monthly quota is exhausted. Fall back to
+      // credits when the user has opted in.
+      const autoUse = await tx.user.findUnique({
+        where: { id: userId },
+        select: { auto_use_credits: true },
+      });
+
+      const cost = calculateCost(feature, metadata);
+
+      if (autoUse?.auto_use_credits === false) {
+        // User opted out of auto-credit usage: treat exhaustion as a hard block
+        // that offers the manual "buy credits" path.
+        throw new BillingError(
+          "INSUFFICIENT_CREDITS",
+          `You've reached your ${plan} plan limit for ${feature}. Enable auto-use credits, or buy credits to continue.`,
+          { feature, plan, upgrade_url: "/pricing", buy_credits_url: "/dashboard/credits" },
+        );
+      }
+
+      // Attempt to reserve credits for the overflow unit.
+      let reservationId: string;
+      try {
+        reservationId = await CreditService.reserveCredits(
+          userId,
+          cost,
+          referenceId ?? undefined,
+        );
+      } catch (e) {
+        // Not enough credits (or reservation failed). Surface a 402-ish error
+        // telling the user to top up.
+        const balance = await CreditService.getBalance(userId);
+        throw new BillingError(
+          "INSUFFICIENT_CREDITS",
+          `You've reached your plan limit and don't have enough credits to run ${feature}. Buy more credits to continue.`,
+          {
+            feature,
+            plan,
+            cost,
+            balance,
+            upgrade_url: "/pricing",
+            buy_credits_url: "/dashboard/credits",
+          },
+        );
+      }
+
+      // Credit reserved. Write the HELD UsageEvent as a CREDIT-sourced hold so
+      // that release() refunds the reservation.
+      const event = await tx.usageEvent.create({
+        data: {
+          user_id: userId,
+          feature,
+          source: "CREDIT",
+          cost,
+          status: "HELD",
+          reference_id: referenceId,
+          metadata: metadata ? safeMetadata(metadata) : undefined,
+          held_at: new Date(),
+        },
+      });
+
+      return {
+        event,
+        source: "CREDIT" as const,
+        cost,
+        remaining: -1,
+      };
     });
 
     logger.info("Billing hold acquired", {
@@ -407,17 +464,19 @@ export class BillingGateway {
 export function mapFeatureKey(feature: string): string {
   const map: Record<string, string> = {
     scan: "scans_per_month",
-    originality_scan: "scans_per_month",
+    // ── Originality billing disabled per request (code preserved) ──
+    // originality_scan: "scans_per_month",
     citation_audit: "citation_audit",
     citation_check: "citation_audit",
     rephrase: "rephrase_suggestions",
-    originality: "originality_scan",
+    // originality: "originality_scan",
     chat: "ai_chat",
     ai_chat: "ai_chat",
     ai_web_search: "ai_web_search",
     paper_search: "paper_search",
     certificate: "certificate",
     create_project: "create_project",
+    publish_export: "publish_export",
   };
   return map[feature] ?? feature;
 }
@@ -430,6 +489,37 @@ async function getPlanForEntitlement(tx: any, userId: string): Promise<string> {
     return "free";
   }
   return sub.plan;
+}
+
+/**
+ * Determine whether a feature is available on the user's current plan at all
+ * (regardless of remaining quota). Returns `{ available, plan }`. A feature is
+ * "available" when the plan limit is a non-zero number, -1 (unlimited), or a
+ * boolean true. A limit of 0 (or false) means the feature is plan-restricted —
+ * except for a few core features that are always allowed on every plan.
+ */
+async function computeAvailability(
+  tx: any,
+  userId: string,
+  feature: string,
+): Promise<{ available: boolean; plan: string }> {
+  const plan = await getPlanForEntitlement(tx, userId);
+  const limits = SubscriptionService.getPlanLimits(plan) as Record<string, any>;
+  const targetFeature = mapFeatureKey(feature);
+  const limit = limits[targetFeature];
+
+  // Core features are always available on every plan (they overflow to credits
+  // when the monthly quota is exhausted, handled by the caller).
+  const alwaysAvailable = ["scan", "rephrase", "citation_audit", "paper_search"];
+  if (alwaysAvailable.includes(feature)) {
+    return { available: true, plan };
+  }
+
+  if (typeof limit === "boolean") return { available: limit, plan };
+  if (limit === -1) return { available: true, plan };
+  if (typeof limit === "number") return { available: limit > 0, plan };
+
+  return { available: false, plan };
 }
 
 function safeMetadata(metadata: Record<string, any>): Record<string, any> {

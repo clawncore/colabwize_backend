@@ -2,7 +2,7 @@ import { Router } from "express";
 import express from "express";
 import { LemonSqueezyService } from "../../services/lemonSqueezyService";
 import { SubscriptionService } from "../../services/subscriptionService";
-import { CreditService } from "../../services/CreditService";
+import { CreditService, CREDIT_PACKAGES } from "../../services/CreditService";
 import logger from "../../monitoring/logger";
 import { prisma } from "../../lib/prisma";
 
@@ -165,17 +165,7 @@ async function processWebhookAsync(payload: string): Promise<void> {
   }
 }
 
-// Credit plan mapping
-const CREDIT_PLAN_MAPPING: Record<string, number> = {
-  credits_10: 10,
-  credits_25: 25,
-  credits_50: 50,
-  credits_100: 100,
-  // New Plan Mappings
-  credits_trial: 10,
-  credits_standard: 25,
-  credits_power: 50,
-};
+// Credit plan mapping lives in CreditService (CREDIT_PACKAGES); imported above.
 
 /**
  * Handle order_created event (one-time purchases like credits)
@@ -199,7 +189,7 @@ async function handleOrderCreated(event: any) {
   let creditAmount = 0;
 
   if (plan && plan.startsWith("credits_")) {
-    creditAmount = CREDIT_PLAN_MAPPING[plan] || 0;
+    creditAmount = CREDIT_PACKAGES[plan] || 0;
   } else if (variantName) {
     // Fallback: parse from variant name
     const match = variantName.match(/CREDITS[_\s](\d+)/i);
@@ -210,7 +200,7 @@ async function handleOrderCreated(event: any) {
 
   if (creditAmount > 0) {
     try {
-      await CreditService.addCredits(
+      await CreditService.grantCredits(
         userId,
         creditAmount,
         "PURCHASE",
@@ -529,18 +519,38 @@ async function handleRefundEvent(event: any, eventName: string) {
   if (eventName === "order_refunded") {
     const plan = customData?.plan;
     if (plan?.startsWith("credits_")) {
-      const creditAmount = CREDIT_PLAN_MAPPING[plan];
+      const creditAmount = CREDIT_PACKAGES[plan];
       if (creditAmount) {
         try {
-          await CreditService.deductCredits(
-            userId,
-            creditAmount,
-            `REFUND_${orderId}`,
-            `Refund for ${plan}`,
-          );
+          // Revoke the granted credits by writing a negative USAGE ledger row,
+          // keyed on the refund reference so it's idempotent across webhook
+          // replays. If the user already spent some, this may drive the balance
+          // negative — that is intentional debt for a refunded purchase.
+          await prisma.creditTransaction.create({
+            data: {
+              user_id: userId,
+              amount: -creditAmount,
+              type: "USAGE",
+              reference_id: `REFUND_${orderId}`,
+              description: `Refund revocation for ${plan}`,
+            },
+          });
+          // Refresh the materialized cache to reflect the revocation.
+          const newBalance = await CreditService.computeBalance(userId);
+          await prisma.creditBalance.upsert({
+            where: { user_id: userId },
+            create: {
+              user_id: userId,
+              balance: newBalance,
+              lifetime_purchased: 0,
+              lifetime_used: 0,
+            },
+            update: { balance: newBalance },
+          });
           logger.info("Credits revoked due to refund", {
             userId,
             amount: creditAmount,
+            newBalance,
           });
         } catch (error: any) {
           logger.error("Failed to revoke credits", {

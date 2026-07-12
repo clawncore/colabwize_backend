@@ -12,6 +12,7 @@ interface BroadcastOptions {
   message: string;
   senderName?: string;
   senderTitle?: string;
+  fromAddress?: string; // the resolved "from" email, stored on each log row
 }
 
 /**
@@ -19,7 +20,7 @@ interface BroadcastOptions {
  * and prevent blocking the main event loop.
  */
 export const processBroadcast = async (options: BroadcastOptions) => {
-  const { userIds, senderAlias, subject, message, senderName, senderTitle } = options;
+  const { userIds, senderAlias, subject, message, senderName, senderTitle, fromAddress } = options;
   const BATCH_SIZE = 50;
   const DELAY_MS = 1000; // 1 second between batches
 
@@ -61,14 +62,17 @@ export const processBroadcast = async (options: BroadcastOptions) => {
           text: fallbackText
         });
 
-        // Log to DB
+        // Log to DB — store the broadcast template body + the real from
+        // address so the admin Sentbox shows exactly what was sent.
         await prisma.emailLog.create({
           data: {
             recipient: user.email,
             sender: senderAlias,
+            from_address: fromAddress || undefined,
             subject: personalizedSubject,
             status: result.success ? "sent" : "failed",
-            error: result.success ? null : (result.error || "Unknown error")
+            error: result.success ? null : (result.error || "Unknown error"),
+            message_body: personalizedMessage,
           }
         });
 

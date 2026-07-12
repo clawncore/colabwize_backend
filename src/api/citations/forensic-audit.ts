@@ -85,9 +85,11 @@ router.post("/forensic-audit", authenticate, async (req: Request, res: Response)
             const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
             return res.status(status).json({
               success: false,
-              error: e.message,
+              message: e.message,
               code: e.code,
-            });
+            
+        ...e.data,
+    });
           }
           throw e;
         }

@@ -36,7 +36,7 @@ const PRINT_CSS = `
   h1,h2,h3,h4,h5,h6 { line-height: 1.2; }
   a.citation { color: inherit; text-decoration: none; }
   a.back-ref { color: inherit; text-decoration: none; font-size: 0.85em; margin-left: 0.3em; }
-  a.doi-link, a.ext-link { color: #1d4ed8; text-decoration: underline; }
+  a.doi-link, a.ext-link { color: #1d4ed8; text-decoration: underline; text-underline-offset: 2px; }
   .references { margin-top: 2em; }
   .reference-list { padding-left: 1.5em; }
   .reference-list li { margin-bottom: 0.4em; }

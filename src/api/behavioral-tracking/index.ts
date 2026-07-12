@@ -125,7 +125,9 @@ router.post("/analyze/:projectId", async (req, res) => {
                     success: false,
                     message: billingError.message,
                     code: billingError.code,
-                });
+                
+        ...billingError.data,
+    });
             }
             throw billingError;
         }
