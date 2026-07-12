@@ -1,12 +1,9 @@
 import express, { Request, Response } from "express";
 import { CitationConfidenceService } from "../../services/citationConfidenceService";
 import logger from "../../monitoring/logger";
-import {
-  checkUsageLimit,
-  incrementFeatureUsage,
-} from "../../middleware/usageMiddleware";
 import { prisma } from "../../lib/prisma";
 import { checkProjectAccess } from "../../lib/auth-helpers";
+import { BillingGateway, BillingError } from "../../billing/BillingGateway";
 
 const router = express.Router();
 
@@ -16,7 +13,6 @@ const router = express.Router();
  */
 router.post(
   "/content-scan",
-  checkUsageLimit("citation_check"),
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
@@ -63,11 +59,16 @@ router.post(
         });
       }
 
-      const suggestions =
-        CitationConfidenceService.scanContentForCitations(textToScan);
-
-      // Increment usage
-      await incrementFeatureUsage("citation_check")(req, res, () => {});
+      // Run through the single billing pipeline (hold → execute →
+      // confirm/release). Removes the old checkUsageLimit + incrementFeatureUsage
+      // double-consume.
+      const wordCount = typeof textToScan === "string" ? textToScan.trim().split(/\s+/).length : 0;
+      const suggestions = await BillingGateway.withFeature(
+        userId,
+        "citation_audit",
+        { wordCount },
+        async () => CitationConfidenceService.scanContentForCitations(textToScan),
+      );
 
       return res.status(200).json({
         success: true,
@@ -76,15 +77,23 @@ router.post(
           matchCount: suggestions.length,
         },
       });
-    } catch (error: any) {
+    } catch (e: any) {
+      if (e instanceof BillingError) {
+        const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+        return res.status(status).json({
+          success: false,
+          error: e.message || "Plan limit reached",
+          code: e.code,
+        });
+      }
       logger.error("Error scanning content for citations", {
-        error: error.message,
-        stack: error.stack,
+        error: e.message,
+        stack: e.stack,
       });
 
       return res.status(500).json({
         success: false,
-        error: error.message || "Failed to scan content",
+        error: e.message || "Failed to scan content",
       });
     }
   }

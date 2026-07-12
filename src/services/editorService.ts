@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
 import { SubscriptionService } from "./subscriptionService";
 import { createNotification } from "./notificationService";
+import { BillingGateway, BillingError } from "../billing/BillingGateway";
 import { processFileContent } from "../utils/fileProcessor";
 import { WorkspaceActivityService } from "./workspaceActivityService";
 
@@ -1190,19 +1191,20 @@ export class EditorService {
       wordCount?: number;
     },
   ) {
+    // Reserve quota through the single billing pipeline (hold → execute →
+    // confirm). checkActionEligibility was a dry-run gate that did not
+    // consume; the gateway does both atomically. Declared at method scope so
+    // it is reachable by both the success-confirm and the failure-release
+    // paths.
+    let billingEventId: string | null = null;
     try {
-      // Check if user can create project
-      const canCreate = await SubscriptionService.checkActionEligibility(
-        userId,
-        "create_project",
-      );
+      const hold = await BillingGateway.hold(userId, "create_project");
+      billingEventId = hold.eventId;
+    } catch (billingError: any) {
+      throw new Error(billingError.message || "You cannot create a project at this time.");
+    }
 
-      if (!canCreate.allowed) {
-        throw new Error(
-          canCreate.message || "You cannot create a project at this time.",
-        );
-      }
-
+    try {
       // Process the file content through the file processor
       const { content: processedContent, wordCount: calculatedWordCount } =
         await processFileContent(fileData.content, fileData.fileType);
@@ -1277,8 +1279,17 @@ export class EditorService {
         true,
       ); // Mark as system operation
 
+      // Confirm the pre-acquired hold now that the project is created.
+      if (billingEventId) {
+        await BillingGateway.confirm(billingEventId);
+      }
       return project;
-    } catch (error) {
+    } catch (error: any) {
+      // Release the hold on any failure so the user isn't charged for an
+      // import that didn't complete.
+      if (billingEventId) {
+        await BillingGateway.release(billingEventId, error.message);
+      }
       logger.error("Error importing document:", {
         error,
         userId,

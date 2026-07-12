@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { AuditJob, AuditContext, AuditPipelineStage } from "../types";
+import { AuditJob, AuditContext, AuditPipelineStage, ExtractedReference } from "../types";
 
 /**
  * Stage 2: Cross-Reference Mapping
@@ -13,7 +13,7 @@ export const MapStage: AuditPipelineStage = {
         const { citations, bibliography, citationIdMap } = context;
 
         // Build fast lookup map for Bibliography entries
-        const refMap = new Map<string, any>();
+        const refMap = new Map<string, ExtractedReference>();
         bibliography.forEach(ref => {
             if (ref.id) refMap.set(ref.id, ref);
             // Fallback: match by raw text snippet

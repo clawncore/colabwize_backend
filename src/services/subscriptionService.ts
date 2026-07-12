@@ -31,7 +31,9 @@ export const plans = {
     paper_search: 25,
     ai_integrity: 0,
     ai_chat: 5,
+    ai_web_search: 10,
     certificate: 0,
+    create_project: 3,
     max_scan_characters: 20000,
 
     // Feature Flags
@@ -54,7 +56,9 @@ export const plans = {
     paper_search: -2,
     ai_integrity: -2,
     ai_chat: -2,
+    ai_web_search: -2,
     certificate: -2,
+    create_project: -2,
     max_scan_characters: 300000,
 
     // Feature Flags
@@ -77,7 +81,9 @@ export const plans = {
     paper_search: 100,
     ai_integrity: 25,
     ai_chat: 50,
+    ai_web_search: 50,
     certificate: 25,
+    create_project: 25,
     max_scan_characters: 80000,
 
     // Feature Flags
@@ -100,7 +106,9 @@ export const plans = {
     paper_search: 200,
     ai_integrity: 100,
     ai_chat: 100,
+    ai_web_search: 100,
     certificate: 100,
+    create_project: 100,
     max_scan_characters: 200000,
 
     // Feature Flags
@@ -123,7 +131,9 @@ export const plans = {
     paper_search: 50,
     ai_integrity: 25,
     ai_chat: 100,
+    ai_web_search: 50,
     certificate: 50,
+    create_project: 50,
     max_scan_characters: 150000,
 
     // Feature Flags
@@ -325,242 +335,6 @@ export class SubscriptionService {
   }
 
   /**
-   * Check if user can perform an action based on feature limits
-   */
-  /**
-   * Check if user can perform an action based on feature limits
-   * Canonical Rule: Subscription tier overrides scan limits.
-   */
-  /**
-   * Check if user can perform an action based on feature limits
-   * Canonical Rule: Subscription tier overrides scan limits.
-   */
-  /**
-   * Check if user is eligible to perform an action (Dry Run)
-   * Returns detailed result including blocking reason and error code.
-   * @deprecated USE EntitlementService.assertCanUse() INSTEAD.
-   */
-  static async checkActionEligibility(
-    userId: string,
-    feature: string,
-    metadata?: any,
-  ): Promise<ConsumptionResult> {
-    logger.warn(
-      "DEPRECATED: SubscriptionService.checkActionEligibility called. Switch to EntitlementService.",
-      { userId, feature },
-    );
-    const plan = await this.getActivePlan(userId);
-    const limits = this.getPlanLimits(plan);
-    const normalizedPlan = plan.toLowerCase();
-
-    // Development Bypass
-    if (
-      process.env.NODE_ENV === "development" ||
-      process.env.NODE_ENV === "test"
-    ) {
-      return { allowed: true, source: "PLAN" };
-    }
-
-    // Map feature to limit key
-    let limitKey = feature;
-    if (feature === "scan") limitKey = "scans_per_month";
-
-    let planLimit = 0;
-    if (limitKey in limits) {
-      const val = limits[limitKey as keyof typeof limits];
-      if (typeof val === "number") planLimit = val;
-    }
-
-    // 1. Unlimited Plan
-    if (planLimit === -1) {
-      return { allowed: true, source: "PLAN" };
-    }
-
-    // 2. Check Plan Usage
-    let planAvailable = false;
-    if (planLimit > 0) {
-      const currentUsage = await this.checkMonthlyUsage(userId, feature);
-      if (currentUsage < planLimit) {
-        planAvailable = true;
-      }
-    }
-
-    if (planAvailable) {
-      return { allowed: true, source: "PLAN" };
-    }
-
-    // 3. Fallback to Credits (if not allowed by plan)
-
-    // Check if feature is "Plan Restricted" (never allowed on this plan)
-    // Canonical Rule: If limit is 0, it's NOT allowed unless it's a base feature.
-    const isPlanRestricted =
-      planLimit === 0 &&
-      !["scan", "rephrase", "citation_audit"].includes(feature);
-
-    if (isPlanRestricted) {
-      return {
-        allowed: false,
-        source: "BLOCKED",
-        code: "FEATURE_NOT_ALLOWED",
-        message: "This feature is not available on your current plan.",
-      };
-    }
-
-    // 4. Entitlements Check (The New Truth)
-    const entitlement = await EntitlementService.checkEligibility(
-      userId,
-      feature,
-    );
-    if (entitlement.allowed) {
-      return {
-        allowed: true,
-        source: "PLAN",
-        remaining: Math.max(0, entitlement.remaining || 0),
-      };
-    }
-
-    // 5. Fallback logic for Plus/Payg (already handled by logic above/below or by Entitlement check?)
-    // In new architecture, Entitlements SHOULD handle the count.
-    // If Entitlements says NO, we check CREDITS.
-    // The "Plus Plan" Hard Block is an Entitlement Rule (no credits allowed for excess).
-
-    // Plus Plan: Hard Block if limit reached (No Pay-As-You-Go fallback)
-    if (normalizedPlan === "plus") {
-      return {
-        allowed: false,
-        source: "BLOCKED",
-        code: "PLAN_LIMIT_REACHED",
-        message: "Monthly plan limit reached. Upgrade to Premium for more.",
-      };
-    }
-
-    // Check Auto-Use Preference (for others)
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { auto_use_credits: true },
-    });
-    const autoUseEnabled = user?.auto_use_credits ?? true;
-
-    if (!autoUseEnabled) {
-      return {
-        allowed: false,
-        source: "BLOCKED",
-        code: "PLAN_LIMIT_REACHED",
-        message: "Plan limit reached. Enable Auto-Use Credits to continue.",
-      };
-    }
-
-    const cost = CreditService.calculateCost(feature, metadata);
-    if (cost > 0) {
-      const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
-      if (hasCredits) {
-        return { allowed: true, source: "CREDIT", cost };
-      } else {
-        return {
-          allowed: false,
-          source: "BLOCKED",
-          code: "INSUFFICIENT_CREDITS",
-          message: "Plan limit reached and insufficient credits.",
-        };
-      }
-    }
-
-    return {
-      allowed: false,
-      source: "BLOCKED",
-      code: "PLAN_LIMIT_REACHED",
-      message: "Plan limit reached.",
-    };
-  }
-
-  /**
-   * Check if user can perform an action based on feature limits
-   * Wrapper around checkActionEligibility for backward compatibility
-   */
-  static async canPerformAction(
-    userId: string,
-    feature: string,
-    metadata?: any,
-  ): Promise<boolean> {
-    const result = await this.checkActionEligibility(userId, feature, metadata);
-    return result.allowed;
-  }
-
-  /**
-   * Check if user can perform a scan (wrapper for backward compatibility)
-   */
-  static async canPerformScan(userId: string): Promise<boolean> {
-    return this.canPerformAction(userId, "scan");
-  }
-
-  /**
-   * Increment usage counter
-   */
-  static async incrementUsage(userId: string, feature: string): Promise<void> {
-    // Legacy: We still track in UsageTracking for history
-    const plan = await this.getActivePlan(userId);
-    const limits = this.getPlanLimits(plan);
-
-    // Map feature to limit key
-    let limitKey = feature;
-    if (feature === "scan") limitKey = "scans_per_month";
-    if (feature === "citation_check") limitKey = "citation_audit";
-    if (feature === "rephrase") limitKey = "rephrase_suggestions";
-
-    // 1. Upsert Usage Tracking (History)
-    const now = new Date();
-    // Default to Calendar Month logic for history consistency with internal tools
-    let periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    let periodEnd = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59,
-    );
-
-    try {
-      const subscription = await this.getUserSubscription(userId);
-      if (
-        subscription &&
-        subscription.current_period_start &&
-        subscription.current_period_end
-      ) {
-        periodStart = new Date(subscription.current_period_start);
-        periodEnd = new Date(subscription.current_period_end);
-      }
-    } catch (e) {
-      // Fallback
-    }
-
-    await prisma.usageTracking.upsert({
-      where: {
-        user_id_feature_period_start: {
-          user_id: userId,
-          feature: limitKey,
-          period_start: periodStart,
-        },
-      },
-      create: {
-        user_id: userId,
-        feature: limitKey,
-        count: 1,
-        period_start: periodStart,
-        period_end: periodEnd,
-      },
-      update: {
-        count: { increment: 1 },
-      },
-    });
-
-    // 2. Consume Entitlement (The Check Gate)
-    await EntitlementService.consumeEntitlement(userId, feature);
-
-    logger.info("Usage incremented", { userId, feature });
-  }
-
-  /**
    * Reset monthly usage (called by cron)
    */
   static async resetMonthlyUsage(): Promise<void> {
@@ -580,126 +354,6 @@ export class SubscriptionService {
    * Consume an action (Plan First, Then Credits)
    * This is the main entry point for feature consumption.
    */
-  static async consumeAction(
-    userId: string,
-    feature: string,
-    metadata?: any,
-  ): Promise<ConsumptionResult> {
-    const plan = await this.getActivePlan(userId);
-    const limits = this.getPlanLimits(plan);
-
-    // Development Bypass
-    if (
-      process.env.NODE_ENV === "development" ||
-      process.env.NODE_ENV === "test"
-    ) {
-      return { allowed: true, source: "PLAN" };
-    }
-
-    // 1. Determine Plan Limit
-    // Map feature to limit key (e.g., 'scan' -> 'scans_per_month')
-    let limitKey = feature;
-    if (feature === "scan") limitKey = "scans_per_month";
-    if (feature === "rephrase") limitKey = "rephrase_suggestions";
-
-    let planLimit = 0;
-    if (limitKey in limits) {
-      const val = limits[limitKey as keyof typeof limits];
-      if (typeof val === "number") planLimit = val;
-    }
-
-    // 2. Check Plan Usage
-    // -1 = Unlimited
-    if (planLimit === -1) {
-      await this.incrementUsage(userId, feature);
-      return { allowed: true, source: "PLAN" };
-    }
-
-    let planAvailable = false;
-    if (planLimit > 0) {
-      const currentUsage = await this.checkMonthlyUsage(userId, feature);
-      if (currentUsage < planLimit) {
-        planAvailable = true;
-      }
-    }
-
-    // 3. Consume Plan if Available
-    if (planAvailable) {
-      await this.incrementUsage(userId, feature);
-      const newUsage = await this.checkMonthlyUsage(userId, feature);
-      return {
-        allowed: true,
-        source: "PLAN",
-        remaining: Math.max(0, planLimit - newUsage),
-      };
-    }
-
-    // 4. If Plan Exhausted / Unavailable / -2 -> Check Credits (Auto-Fallback)
-
-    // Canonical Fallback Logic
-    // Rule: Credits can only be used for features allowed by the plan (or basic features available on Free tier).
-
-    // Check if feature is "Plan Restricted" (never allowed on this plan)
-    // We assume if planLimit is defined and > 0, it is allowed.
-    // If planLimit is 0 or undefined, effectively "Not Included".
-    // EXCEPTION: "scan", "rephrase", "citation_audit", "paper_search" are generally "Base Features" available to all via credits.
-
-    const isPlanRestricted =
-      planLimit === 0 &&
-      !["scan", "rephrase", "citation_audit", "paper_search"].includes(feature);
-
-    if (isPlanRestricted) {
-      return {
-        allowed: false,
-        source: "BLOCKED",
-        message: "This feature is not available on your current plan.",
-      };
-    }
-
-    // Check Auto-Use Preference
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { auto_use_credits: true },
-    });
-    const autoUseEnabled = user?.auto_use_credits ?? true; // Default True
-
-    if (!autoUseEnabled) {
-      return {
-        allowed: false,
-        source: "BLOCKED",
-        message: "Plan limit reached. Enable Auto-Use Credits to continue.",
-      };
-    }
-
-    const cost = CreditService.calculateCost(feature, metadata);
-    if (cost > 0) {
-      // Check if user has enough credits
-      const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
-
-      if (hasCredits) {
-        // Deduct credits as confirmed usage
-        await CreditService.deductCredits(
-          userId,
-          cost,
-          undefined,
-          `Auto-use: ${feature}`,
-        );
-        return { allowed: true, source: "CREDIT", cost };
-      } else {
-        return {
-          allowed: false,
-          source: "BLOCKED",
-          message: "You don't have enough credits.",
-        };
-      }
-    }
-
-    return {
-      allowed: false,
-      source: "BLOCKED",
-      message: "Plan limit reached and no credits available.",
-    };
-  }
 
   /**
    * Create or update subscription

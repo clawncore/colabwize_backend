@@ -1,11 +1,15 @@
 import { prisma } from "../lib/prisma";
 import { SubscriptionService } from "./subscriptionService";
-import { CreditService } from "./CreditService";
+import { mapFeatureKey } from "../billing/BillingGateway";
 import logger from "../monitoring/logger";
 
 /**
- * Entitlement Service
- * The Single Source of Truth for what a user can do.
+ * Entitlement Service — read-model cache layer.
+ *
+ * rebuildEntitlements recomputes the userEntitlement cache from the live
+ * subscription + the immutable UsageEvent ledger. getEntitlements reads that
+ * cache (with self-repair). All enforcement (hold/confirm/release) now lives
+ * in BillingGateway; this service no longer consumes entitlements.
  */
 export class EntitlementService {
 
@@ -44,14 +48,12 @@ export class EntitlementService {
             });
 
             let plan = "free";
-            let periodStart = new Date();
-            let periodEnd = new Date();
-            // Default to calendar month for free tier
-            periodStart.setDate(1);
-            periodStart.setHours(0, 0, 0, 0);
-            periodEnd.setMonth(periodEnd.getMonth() + 1);
-            periodEnd.setDate(0);
-            periodEnd.setHours(23, 59, 59, 999);
+            // Default to calendar month for free tier. Built in UTC so the
+            // window lines up with the UTC-stored confirmed_at timestamps —
+            // same timezone fix as usageService.getCurrentUsage.
+            const now = new Date();
+            let periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+            let periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
 
             if (subscription && ["active", "trialing", "on_trial", "past_due", "cancelled"].includes(subscription.status)) {
                 // Double check entitlement expiry if present
@@ -87,6 +89,55 @@ export class EntitlementService {
             // 3. Calculate Entitlements
             const features: Record<string, any> = {};
 
+            // Pre-fetch all CONSUMED UsageEvent counts for this billing cycle,
+            // grouped by feature. This is more efficient than one query per feature.
+            const entitlementToGatewayFeature: Record<string, string> = {
+                scans_per_month: "originality_scan",
+                citation_audit: "citation_audit",
+                rephrase_suggestions: "rephrase",
+                originality_scan: "originality_scan",
+                ai_chat: "ai_chat",
+                ai_web_search: "ai_web_search",
+                certificate: "certificate",
+                paper_search: "paper_search",
+                create_project: "create_project",
+            };
+
+            let consumedCounts: { feature: string; _count: number }[] = [];
+            try {
+                consumedCounts = await prisma.usageEvent.groupBy({
+                    by: ["feature"],
+                    where: {
+                        user_id: userId,
+                        status: "CONSUMED",
+                        confirmed_at: { gte: periodStart },
+                    },
+                    _count: true,
+                });
+            } catch (e: any) {
+                logger.warn("UsageEvent groupBy failed in rebuildEntitlements, falling back", {
+                    userId, error: e.message,
+                });
+            }
+
+            const usageByFeature: Record<string, number> = {};
+            for (const row of consumedCounts) {
+                usageByFeature[row.feature] = row._count;
+            }
+
+            // Also fetch legacy usageTracking counts for features that might
+            // have pre-migration data but no UsageEvent entries yet.
+            const legacyRecords = await prisma.usageTracking.findMany({
+                where: {
+                    user_id: userId,
+                    period_start: { gte: periodStart },
+                },
+            });
+            const legacyByFeature: Record<string, number> = {};
+            for (const rec of legacyRecords) {
+                legacyByFeature[rec.feature] = rec.count;
+            }
+
             for (const [feature, limit] of Object.entries(limits)) {
                 // Logic:
                 // -1 => Unlimited
@@ -109,16 +160,10 @@ export class EntitlementService {
                     limitValue = numericLimit;
                 }
 
-                // Check *Usage* for this cycle to calculate remaining
-                const currentUsage = await prisma.usageTracking.findFirst({
-                    where: {
-                        user_id: userId,
-                        feature: feature,
-                        period_start: { gte: periodStart }
-                    }
-                });
-
-                const used = currentUsage?.count || 0;
+                // Read usage from UsageEvent ledger (source of truth), falling
+                // back to usageTracking for pre-migration data.
+                const gatewayFeature = entitlementToGatewayFeature[feature] ?? feature;
+                const used = usageByFeature[gatewayFeature] ?? legacyByFeature[feature] ?? 0;
                 const remaining = unlimited ? -1 : Math.max(0, limitValue - used);
 
                 features[feature] = {
@@ -234,377 +279,8 @@ export class EntitlementService {
         return ent;
     }
 
-    /**
-     * Consume an entitlement
-     */
-    static async consumeEntitlement(userId: string, feature: string): Promise<boolean> {
-        const ent = await this.getEntitlements(userId);
-        if (!ent) return false;
-
-        const features = ent.features as Record<string, any>;
-
-        // Canonical mapping logic
-        let targetFeature = feature;
-        if (feature === 'scan') targetFeature = 'scans_per_month';
-        if (feature === 'citation_check') targetFeature = 'citation_audit'; // Legacy mapping
-        if (feature === 'rephrase') targetFeature = 'rephrase_suggestions';
-        if (feature === 'originality') targetFeature = 'originality_scan';
-        if (feature === 'chat') targetFeature = 'ai_chat';
-        // 'ai_integrity', 'paper_search', 'originality_scan' usually passed directly, so they work by default.
-
-        const rights = features[targetFeature];
-
-        if (!rights) return false;
-
-        if (rights.unlimited) return true;
-
-        if (rights.remaining > 0) {
-            // Decrement in DB
-            rights.used += 1;
-            rights.remaining -= 1;
-            features[targetFeature] = rights;
-
-            await prisma.userEntitlement.update({
-                where: { user_id: userId },
-                data: { features }
-            });
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Check eligibility (Dry Run)
-     */
-    static async checkEligibility(userId: string, feature: string): Promise<{ allowed: boolean; remaining?: number; unlimited?: boolean }> {
-        const ent = await this.getEntitlements(userId);
-        if (!ent) return { allowed: false };
-
-        const features = ent.features as Record<string, any>;
-        let targetFeature = feature;
-        if (feature === 'scan') targetFeature = 'scans_per_month';
-        if (feature === 'citation_check') targetFeature = 'citation_audit';
-        if (feature === 'rephrase') targetFeature = 'rephrase_suggestions';
-
-        const rights = features[targetFeature];
-
-        if (!rights) return { allowed: false };
-
-        if (rights.unlimited) return { allowed: true, unlimited: true, remaining: -1 };
-
-        const allowed = rights.remaining > 0;
-        return { allowed, remaining: rights.remaining, unlimited: false };
-    }
-
-    /**
-     * ASSERT that a user can use a feature.
-     * The SINGLE SOURCE OF TRUTH for enforcement.
-     */
-    static async assertCanUse(userId: string, feature: string, metadata?: any): Promise<boolean> {
-        // 0. SELF-HEALING CHECK
-        // Check if the actual Active Plan matches the Cached Entitlement Plan
-        // If mismatch (e.g. User is Researcher but Entitlement says Free), force rebuild BEFORE proceeding.
-        try {
-            const activePlan = await SubscriptionService.getActivePlan(userId);
-            let ent = await this.getEntitlements(userId);
-
-            if (ent && ent.plan !== activePlan) {
-                logger.warn(`Entitlement Plan Mismatch detected (Active: ${activePlan}, Cached: ${ent.plan}). Forcing Rebuild.`, { userId });
-                await this.rebuildEntitlements(userId);
-                ent = await this.getEntitlements(userId); // Refresh
-            }
-        } catch (e) {
-            logger.error("Self-healing check failed", { userId, error: e });
-        }
-
-        // 1. Get Entitlements (Refreshed)
-        let ent = await this.getEntitlements(userId);
-
-        // 🛡️ SAFE-ALLOW LOGIC (Innocent until proven guilty)
-        const status = (ent as any)?.rebuild_status || "idle";
-
-        if (ent && (status === "running" || status === "failed")) {
-            try {
-                const sub = await SubscriptionService.getUserSubscription(userId);
-                if (sub && ["active", "trialing", "on_trial", "past_due", "cancelled"].includes(sub.status) && sub.plan !== "free") {
-                    logger.warn("Optimistic Allow: Entitlements rebuilding/failed for paid user.", { userId, feature });
-                    return true;
-                }
-            } catch (err) {
-                logger.error("Safe-allow check failed", { userId, error: err });
-            }
-        }
-        if (!ent) throw new Error("Entitlements not found");
-
-        // SELF-HEALING: If user has an active paid subscription but entitlements say "free"
-        try {
-            const sub = await SubscriptionService.getUserSubscription(userId);
-            if (sub && ["active", "trialing", "on_trial", "past_due", "cancelled"].includes(sub.status) && ent?.plan === "free" && sub.plan !== "free") {
-                logger.warn("Self-healing: Active subscription with free entitlements found. Rebuilding.", { userId, subPlan: sub.plan });
-                await this.rebuildEntitlements(userId);
-                ent = await this.getEntitlements(userId);
-            }
-        } catch (e) {
-            logger.error("Self-healing check failed", { userId, error: e });
-        }
-
-        if (!ent) throw new Error("Entitlements not found");
-
-        // 2. Map Feature to Entitlement Key
-        let targetFeature = feature;
-        if (feature === 'scan') targetFeature = 'scans_per_month';
-        if (feature === 'citation_check') targetFeature = 'citation_audit';
-        if (feature === 'rephrase') targetFeature = 'rephrase_suggestions';
-
-        const features = ent.features as Record<string, any>;
-        let rights = features[targetFeature];
-
-        // 3. Double Check against Plan Definition (Generic Logic)
-        // If feature is missing but SHOULD be there, or if limits differ
-        if (!rights || (rights && !rights.unlimited)) {
-            try {
-                const currentLimits = SubscriptionService.getPlanLimits(ent.plan) as Record<string, any>;
-                const planLimit = currentLimits[targetFeature];
-
-                // FORCE OVERRIDE: If Plan Code says Unlimited (-1), ignore DB limits
-                if (planLimit === -1 && rights && !rights.unlimited) {
-                    logger.warn("Optimistic Override: Plan Code says Unlimited, DB says Limited. Trusting Code.", { userId, feature: targetFeature });
-                    rights.unlimited = true;
-                    rights.limit = -1;
-                    rights.remaining = -1;
-                    // We don't save back to DB here to avoid write penalty, but we trust it for this execution
-                }
-
-                // Mismatch Check
-                if (planLimit !== undefined) {
-                    let expectedLimit = typeof planLimit === 'number' ? planLimit : 0;
-                    if (planLimit === -1) expectedLimit = -1;
-
-                    const storedLimit = rights ? rights.limit : undefined;
-
-                    if (storedLimit !== expectedLimit) {
-                        logger.warn("Self-healing: Entitlement limit mismatch found during assertion. Rebuilding.", {
-                            userId,
-                            plan: ent.plan,
-                            feature: targetFeature,
-                            expected: expectedLimit,
-                            stored: storedLimit
-                        });
-                        await this.rebuildEntitlements(userId);
-                        ent = await this.getEntitlements(userId);
-                        if (ent) {
-                            const newFeatures = ent.features as Record<string, any>;
-                            rights = newFeatures[targetFeature];
-                        }
-                    }
-                }
-            } catch (e) {
-                logger.error("Self-healing validation failed", { userId, error: e });
-            }
-        }
-
-        if (!rights) {
-            throw new Error(`Feature ${feature} is not available on your current plan.`);
-        }
-
-        // 4. Check Entitlement (Primary Gate)
-        if (rights.unlimited) {
-            return true;
-        }
-
-        // DEFENSIVE CHECK: If remaining is 0, verify against plan limits
-        // This catches cases where entitlements are stale or miscalculated
-        if (rights.remaining === 0) {
-            try {
-                const currentPlanLimits = SubscriptionService.getPlanLimits(ent.plan) as Record<string, any>;
-                const expectedLimit = currentPlanLimits[targetFeature];
-
-                // If plan says they should have quota, but entitlements say 0, rebuild
-                if (typeof expectedLimit === 'number' && expectedLimit > 0 && rights.used === 0) {
-                    logger.warn("Entitlement shows 0 remaining but user hasn't used any quota - forcing rebuild", {
-                        userId,
-                        plan: ent.plan,
-                        feature: targetFeature,
-                        expectedLimit,
-                        currentEntitlement: rights
-                    });
-
-                    await this.rebuildEntitlements(userId);
-                    ent = await this.getEntitlements(userId);
-
-                    if (ent) {
-                        const newFeatures = ent.features as Record<string, any>;
-                        rights = newFeatures[targetFeature];
-
-                        logger.info("Entitlements rebuilt", {
-                            userId,
-                            feature: targetFeature,
-                            newRights: rights
-                        });
-                    }
-                }
-            } catch (e) {
-                logger.error("Defensive entitlement check failed", { userId, error: e });
-            }
-        }
-
-        if (rights.remaining > 0) {
-            // CONSUME ENTITLEMENT - User has quota, use it!
-            rights.used += 1;
-            rights.remaining -= 1;
-            features[targetFeature] = rights;
-
-            // Optimistic update
-            await prisma.userEntitlement.update({
-                where: { user_id: userId },
-                data: { features }
-            });
-
-            logger.info("Entitlement consumed successfully", {
-                userId,
-                feature: targetFeature,
-                plan: ent.plan,
-                remaining: rights.remaining
-            });
-
-            return true;
-        }
-
-        // 5. Entitlement Exhausted -> Tier-Aware Fallback
-        const currentPlan = ent.plan;
-
-        logger.info("Plan limit reached, evaluating fallback options", {
-            userId,
-            plan: currentPlan,
-            feature: targetFeature,
-            used: rights.used,
-            limit: rights.limit
-        });
-
-        // FREE TIER: Allow credit fallback (existing behavior)
-        if (currentPlan === "free") {
-            const user = await prisma.user.findUnique({
-                where: { id: userId },
-                select: { auto_use_credits: true }
-            });
-
-            if (user && user.auto_use_credits === false) {
-                const error: any = new Error("Free plan limit reached. Upgrade to a paid plan or enable Auto-Use Credits.");
-                error.code = "PLAN_LIMIT_REACHED";
-                throw error;
-            }
-
-            // Only calculate cost for free tier users
-            const cost = CreditService.calculateCost(feature, metadata);
-
-            if (cost > 0) {
-                const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
-                if (hasCredits) {
-                    await CreditService.deductCredits(userId, cost, undefined, `Auto-use: ${feature}`);
-                    logger.info("Credits used as fallback for free tier", { userId, cost });
-                    return true;
-                } else {
-                    const error: any = new Error("Free plan limit reached and insufficient credits. Upgrade to continue.");
-                    error.code = "INSUFFICIENT_CREDITS";
-                    throw error;
-                }
-            }
-
-            // Free tier, no cost feature, but limit reached
-            const error: any = new Error(`Free plan limit reached for ${feature}. Upgrade to continue.`);
-            error.code = "PLAN_LIMIT_REACHED";
-
-            // Debugging Data attached to error
-            error.data = {
-                reason: "User is on Free tier",
-                currentPlan: currentPlan,
-                subStatus: "unknown (check logs)"
-            };
-            throw error;
-        }
-
-        // PAID TIERS: User has genuinely exhausted their quota
-        // Credits should ONLY be offered as fallback if explicitly enabled
-        const actuallyExhausted = rights.used > 0 && rights.remaining === 0;
-
-        if (actuallyExhausted) {
-            // User genuinely used all their quota
-            logger.warn("Plan limit exhausted for paid tier", {
-                userId,
-                plan: currentPlan,
-                feature: targetFeature,
-                used: rights.used,
-                limit: rights.limit
-            });
-
-            // Check if user wants to use credits as overflow
-            const user = await prisma.user.findUnique({
-                where: { id: userId },
-                select: { auto_use_credits: true }
-            });
-
-            // If auto_use_credits is enabled (Default to TRUE for paid users, just like free)
-            const autoUseEnabled = user?.auto_use_credits ?? true;
-
-            if (user && autoUseEnabled) {
-                const cost = CreditService.calculateCost(feature, metadata);
-                if (cost > 0) {
-                    const hasCredits = await CreditService.hasEnoughCredits(userId, cost);
-                    if (hasCredits) {
-                        await CreditService.deductCredits(userId, cost, undefined, `Overflow: ${feature}`);
-                        logger.info("Credits used as overflow for exhausted paid plan", {
-                            userId,
-                            plan: currentPlan,
-                            cost
-                        });
-                        return true;
-                    } else {
-                        // CRITICAL FIX: Throw 402 so UI knows to ask for credits
-                        const error: any = new Error(`Plan limit reached and insufficient credits (${cost} needed). Top up to continue.`);
-                        error.code = "INSUFFICIENT_CREDITS";
-                        error.data = { cost, currentBalance: await CreditService.getBalance(userId) };
-                        throw error;
-                    }
-                }
-            }
-
-            // No credits available or auto-use disabled - show upgrade message
-            const error: any = new Error(`You've reached your ${currentPlan} plan limit for ${feature}. Upgrade to a higher tier for more usage.`);
-            error.code = "PLAN_LIMIT_REACHED";
-            error.data = {
-                currentPlan: currentPlan,
-                feature: targetFeature,
-                upgrade_url: "/dashboard/settings/billing"
-            };
-            throw error;
-        }
-
-        // Edge case: remaining=0 but not actually used (stale entitlement)
-        // This indicates a system error - rebuild entitlements
-        logger.error("Critical: Paid user with 0 remaining but 0 used - entitlement is corrupt", {
-            userId,
-            plan: currentPlan,
-            feature: targetFeature,
-            rights
-        });
-
-        await this.rebuildEntitlements(userId);
-        ent = await this.getEntitlements(userId);
-
-        if (ent) {
-            const newFeatures = ent.features as Record<string, any>;
-            const newRights = newFeatures[targetFeature];
-
-            if (newRights && newRights.remaining > 0) {
-                logger.info("Entitlements rebuilt successfully, retrying", { userId, feature: targetFeature });
-                // Recursively call once after rebuild
-                return this.assertCanUse(userId, feature, metadata);
-            }
-        }
-
-        const error: any = new Error("Unable to verify entitlement. Please contact support.");
-        error.code = "ENTITLEMENT_ERROR";
-        throw error;
-    }
+    // NOTE: assertCanUse, consumeEntitlement, and checkEligibility were removed.
+    // All enforcement now flows through BillingGateway (hold → execute →
+    // confirm/release). rebuildEntitlements and getEntitlements remain as the
+    // read-model cache layer.
 }

@@ -1,4 +1,5 @@
 import express, { Request, Response } from "express";
+import rateLimit from "express-rate-limit";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { GoogleDriveService } from "../../services/googleDriveService";
 import { DocumentUploadService } from "../../services/documentUploadService";
@@ -9,42 +10,67 @@ import logger from "../../monitoring/logger";
 import path from "path";
 import fs from "fs";
 import { promisify } from "util";
-import { pipeline, Writable } from "stream";
+import { pipeline, Readable } from "stream";
 
 const streamPipeline = promisify(pipeline);
 
+const UPLOAD_DIR = path.join(__dirname, "../../../../uploads");
+
+function ensureUploadDir(): void {
+  if (!fs.existsSync(UPLOAD_DIR)) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  }
+}
+
+const listLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { error: "Too many list requests. Please slow down." },
+  standardHeaders: true,
+  legacyHeaders: false,
+} as any);
+
+const importLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { error: "Too many import requests. Please slow down." },
+  standardHeaders: true,
+  legacyHeaders: false,
+} as any);
+
 const router = express.Router();
 
+<<<<<<< HEAD
 /**
  * GET /api/google-drive/list
  * List files from Google Drive
  */
 router.get("/list", async (req: Request, res: Response) => {
   const userId = (req as any).user?.id;
+=======
+/** GET /api/google-drive/list — List files from Google Drive */
+router.get("/list", authenticateHybridRequest, listLimiter, async (req: Request, res: Response) => {
+  const userId = (req as any).user.id;
+>>>>>>> 9d3c7b44029cd7eacb223708e70071b440f57e45
   try {
-    const { folderId } = req.query;
-
-    console.log(`[DEBUG] Calling listFiles for ${userId}`);
-    const files = await GoogleDriveService.listFiles(userId, folderId as string);
-    return res.status(200).json(files);
+    const { folderId, pageToken } = req.query;
+    const result = await GoogleDriveService.listFiles(
+      userId,
+      folderId as string,
+      pageToken as string | undefined,
+    );
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.set("Pragma", "no-cache");
+    return res.status(200).json(result);
   } catch (error: any) {
     logger.error("[Google Drive List Error]:", error.message);
-    return res.status(500).json({ 
-      error: error.message,
-      debug: {
-        CLIENT_ID: process.env.GOOGLE_CLIENT_ID ? 'Exists (Len: ' + process.env.GOOGLE_CLIENT_ID.length + ')' : 'Missing',
-        SECRET: process.env.GOOGLE_CLIENT_SECRET ? 'Exists' : 'Missing',
-        userId: userId
-      }
-    });
+    return handleCloudError(res, error);
   }
 });
 
-/**
- * POST /api/google-drive/create-project
- * Create a new project from a Google Drive file
- */
+/** POST /api/google-drive/create-project — Create a new project from a Google Drive file */
 router.post("/create-project", authenticateHybridRequest, async (req: Request, res: Response) => {
+  let tempPath: string | null = null;
   try {
     const userId = (req as any).user.id;
     const { fileId, title, description, workspaceId } = req.body;
@@ -53,72 +79,66 @@ router.post("/create-project", authenticateHybridRequest, async (req: Request, r
       return res.status(400).json({ error: "Missing fileId or title" });
     }
 
-    // 1. Get file metadata and content
     const { stream, fileName, mimeType } = await GoogleDriveService.getFileContent(userId, fileId);
 
-    // 2. Prepare temporary path
-    const uploadDir = path.join(__dirname, "../../../../uploads");
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    const tempFileName = `${Date.now()}-${fileName}`;
-    const tempPath = path.join(uploadDir, tempFileName);
-
-    // 3. Save stream to disk
+    ensureUploadDir();
+    const tempFileName = `gd-${Date.now()}-${fileName}`;
+    tempPath = path.join(UPLOAD_DIR, tempFileName);
     await streamPipeline(stream, fs.createWriteStream(tempPath));
 
-    // 4. Create dummy Multer file object
     const file: any = {
       path: tempPath,
       originalname: fileName,
       mimetype: mimeType,
       size: fs.statSync(tempPath).size,
-      filename: tempFileName,
+      filename: path.basename(tempPath),
     };
 
-    // 5. Create project
     const project = await DocumentUploadService.createProjectWithDocument(
-      userId,
-      title,
-      description || "",
-      file,
-      workspaceId,
-      'google-drive'
+      userId, title, description || "", file, workspaceId, 'google-drive',
     );
 
     return res.status(201).json({ success: true, data: project });
   } catch (error: any) {
     logger.error("[Google Drive Create Project Error]:", error.message);
-    return res.status(500).json({ error: error.message });
+    return handleCloudError(res, error);
+  } finally {
+    if (tempPath) {
+      try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
+    }
   }
 });
 
-/**
- * GET /api/google-drive/download/:fileId
- * Download a file from Google Drive
- */
+/** GET /api/google-drive/download/:fileId — Download a file from Google Drive */
 router.get("/download/:fileId", authenticateHybridRequest, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const { fileId } = req.params;
-
     const { stream, fileName, mimeType } = await GoogleDriveService.getFileContent(userId, fileId as string);
 
     res.setHeader('Content-Type', mimeType || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    
     stream.pipe(res);
   } catch (error: any) {
     logger.error("[Google Drive Download Error]:", error.message);
-    return res.status(500).json({ error: "Failed to download file from Google Drive" });
+    return handleCloudError(res, error);
   }
 });
 
-/**
- * POST /api/google-drive/import
- * Import a file from Google Drive to the project library
- */
-router.post("/import", authenticateHybridRequest, async (req: Request, res: Response) => {
+/** GET /api/google-drive/status — Check if Google Drive connection is still valid */
+router.get("/status", authenticateHybridRequest, async (req: Request, res: Response) => {
+  const userId = (req as any).user.id;
+  try {
+    const result = await GoogleDriveService.listFiles(userId, undefined, undefined, 1);
+    return res.status(200).json({ connected: true, filesCount: result.files.length });
+  } catch (error: any) {
+    return res.status(200).json({ connected: false, error: "Connection invalid. Please reconnect." });
+  }
+});
+
+/** POST /api/google-drive/import — Import a file from Google Drive to the project library */
+router.post("/import", authenticateHybridRequest, importLimiter, async (req: Request, res: Response) => {
+  let tempPath: string | null = null;
   try {
     const userId = (req as any).user.id;
     const { projectId, fileId } = req.body;
@@ -127,8 +147,7 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
       return res.status(400).json({ error: "Missing projectId or fileId" });
     }
 
-    // 1. Get file content/stream
-    const { stream, fileName, mimeType } = await GoogleDriveService.getFileContent(userId, fileId);
+    const { stream: gdStream, fileName, mimeType } = await GoogleDriveService.getFileContent(userId, fileId);
 
     if (!fileName) {
       return res.status(400).json({ error: "Could not determine file name from Google Drive" });
@@ -136,44 +155,31 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
 
     const safeMimeType = mimeType || 'application/octet-stream';
 
-    // 2. Buffer the stream
-    const chunks: Buffer[] = [];
-    const buffer = await new Promise<Buffer>((resolve, reject) => {
-      stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      stream.on('error', (err) => reject(err));
-      stream.on('end', () => resolve(Buffer.concat(chunks)));
-    });
+    // Stream to temp file
+    ensureUploadDir();
+    const tempFileName = `gd-import-${Date.now()}-${fileName}`;
+    tempPath = path.join(UPLOAD_DIR, tempFileName);
+    await streamPipeline(gdStream, fs.createWriteStream(tempPath));
 
-    const fileSize = buffer.length;
+    const fileSize = fs.statSync(tempPath).size;
 
-    // 3. Check storage limit
+    // Check storage limit
     const storageInfo = await StorageService.getUserStorageInfo(userId);
     const fileSizeInMB = fileSize / (1024 * 1024);
     const newStorageUsed = storageInfo.used + fileSizeInMB;
 
     if (newStorageUsed > storageInfo.limit) {
-      return res.status(400).json({
-        error: "Storage limit exceeded. Please upgrade your plan for more space."
-      });
+      return res.status(400).json({ error: "Storage limit exceeded. Please upgrade your plan for more space." });
     }
 
-    // 4. Upload to Supabase Storage
-    const uploadResult = await SupabaseStorageService.uploadFile(
-      buffer,
-      fileName,
-      safeMimeType,
-      userId,
-      {
-        userId,
-        fileName,
-        fileType: safeMimeType,
-        fileSize,
-        projectId: projectId as string,
-        createdAt: new Date(),
-      }
+    // Upload from temp file
+    const readStream = fs.createReadStream(tempPath);
+    const uploadResult = await SupabaseStorageService.uploadFileStream(
+      readStream, fileName, safeMimeType, userId,
+      { userId, fileName, fileType: safeMimeType, fileSize, projectId: projectId as string, createdAt: new Date() },
     );
 
-    // 5. Create file record in database
+    // Create file record
     const fileRecord = await prisma.file.create({
       data: {
         user_id: userId,
@@ -182,43 +188,59 @@ router.post("/import", authenticateHybridRequest, async (req: Request, res: Resp
         file_path: uploadResult.path,
         file_type: safeMimeType,
         file_size: fileSize,
-        metadata: {
-          source: 'google-drive',
-          originalFileId: fileId,
-          publicUrl: uploadResult.publicUrl,
-        },
+        metadata: { source: 'google-drive', originalFileId: fileId, publicUrl: uploadResult.publicUrl },
       },
     });
 
-    // 6. Update user's storage usage
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        storage_used: newStorageUsed,
-      },
-    });
+    await prisma.user.update({ where: { id: userId }, data: { storage_used: newStorageUsed } });
 
-    logger.info("Google Drive file imported successfully", {
-      userId,
-      projectId,
-      fileId: fileRecord.id,
-      fileName
-    });
+    logger.info("Google Drive file imported successfully", { userId, projectId, fileId: fileRecord.id, fileName, fileSize });
 
-    return res.status(200).json({ 
-      success: true, 
-      message: "File imported successfully", 
-      data: {
-        id: fileRecord.id,
-        fileName: fileRecord.file_name,
-        fileType: fileRecord.file_type,
-        fileSize: fileRecord.file_size
-      }
+    return res.status(200).json({
+      success: true, message: "File imported successfully",
+      data: { id: fileRecord.id, fileName: fileRecord.file_name, fileType: fileRecord.file_type, fileSize: fileRecord.file_size },
     });
   } catch (error: any) {
     logger.error("[Google Drive Import Error]:", error.message);
-    return res.status(500).json({ error: error.message });
+    return handleCloudError(res, error);
+  } finally {
+    if (tempPath) {
+      try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
+    }
   }
 });
+
+/** Unified cloud error handler */
+/** Translate raw backend errors into user-friendly messages */
+function sanitizeErrorMessage(msg: string): string {
+  if (msg.includes("not found") || msg.includes("does not exist")) {
+    return "The requested Google Drive folder or file was not found. It may have been moved or deleted.";
+  }
+  if (msg.includes("The request was aborted") || msg.includes("timeout")) {
+    return "Google Drive request timed out. Please try again.";
+  }
+  return msg.replace(/^Google Drive error \(\d+\):\s*/, "");
+}
+
+function handleCloudError(res: Response, error: any): Response {
+  const msg = error.message || String(error);
+  const friendly = sanitizeErrorMessage(msg);
+  if (msg.includes("not connected") || msg.includes("token") || msg.includes("reconnect")) {
+    return res.status(401).json({ error: friendly });
+  }
+  if (msg.includes("rate limit") || msg.includes("quota")) {
+    return res.status(429).json({ error: friendly });
+  }
+  if (msg.includes("denied") || msg.includes("forbidden") || msg.includes("permission")) {
+    return res.status(403).json({ error: friendly });
+  }
+  if (msg.includes("not found") || msg.includes("does not exist")) {
+    return res.status(404).json({ error: friendly });
+  }
+  if (msg.includes("too large")) {
+    return res.status(413).json({ error: friendly });
+  }
+  return res.status(500).json({ error: friendly });
+}
 
 export default router;

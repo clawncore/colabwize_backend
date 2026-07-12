@@ -1,12 +1,9 @@
 import express, { Request, Response } from "express";
 import { CitationConfidenceService } from "../../services/citationConfidenceService";
 import logger from "../../monitoring/logger";
-import {
-  checkUsageLimit,
-  incrementFeatureUsage,
-} from "../../middleware/usageMiddleware";
 import { getSafeString } from "../../utils/requestHelpers";
 import { checkProjectAccess } from "../../lib/auth-helpers";
+import { BillingGateway, BillingError } from "../../billing/BillingGateway";
 
 const router = express.Router();
 
@@ -16,7 +13,6 @@ const router = express.Router();
  */
 router.get(
   "/confidence/:projectId",
-  checkUsageLimit("citation_check"), // Changed from "scan" to "citation_check"
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
@@ -45,10 +41,18 @@ router.get(
         });
       }
 
-      const analysis = await CitationConfidenceService.analyzeProjectCitations(
-        projectId as string,
+      // Run through the single billing pipeline (hold → execute →
+      // confirm/release). Removes the old checkUsageLimit + incrementFeatureUsage
+      // double-consume.
+      const analysis = await BillingGateway.withFeature(
         userId,
-        getSafeString(field) || "default",
+        "citation_audit",
+        undefined,
+        () => CitationConfidenceService.analyzeProjectCitations(
+          projectId as string,
+          userId,
+          getSafeString(field) || "default",
+        ),
       );
 
       logger.info("Citation confidence analysis retrieved", {
@@ -57,22 +61,25 @@ router.get(
         totalCitations: analysis.totalCitations,
         overallScore: analysis.overallConfidence.overall,
       });
-      // Increment usage counter after successful analysis
-      await incrementFeatureUsage("scan")(req, res, () => {});
 
-      return res.status(200).json({
-        success: true,
-        data: analysis,
-      });
-    } catch (error: any) {
+      return res.status(200).json({ success: true, data: analysis });
+    } catch (e: any) {
+      if (e instanceof BillingError) {
+        const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+        return res.status(status).json({
+          success: false,
+          error: e.message || "Plan limit reached",
+          code: e.code,
+        });
+      }
       logger.error("Error getting citation confidence", {
-        error: error.message,
-        stack: error.stack,
+        error: e.message,
+        stack: e.stack,
       });
 
       return res.status(500).json({
         success: false,
-        error: error.message || "Failed to analyze citation confidence",
+        error: e.message || "Failed to analyze citation confidence",
       });
     }
   },
@@ -84,7 +91,6 @@ router.get(
  */
 router.get(
   "/recency/:projectId",
-  checkUsageLimit("citation_check"),
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id;
@@ -113,10 +119,17 @@ router.get(
         });
       }
 
-      const analysis = await CitationConfidenceService.analyzeProjectCitations(
-        projectId as string,
+      // Run through the single billing pipeline (hold → execute →
+      // confirm/release).
+      const analysis = await BillingGateway.withFeature(
         userId,
-        getSafeString(field) || "default",
+        "citation_audit",
+        undefined,
+        () => CitationConfidenceService.analyzeProjectCitations(
+          projectId as string,
+          userId,
+          getSafeString(field) || "default",
+        ),
       );
 
       return res.status(200).json({
@@ -131,15 +144,23 @@ router.get(
               : null,
         },
       });
-    } catch (error: any) {
+    } catch (e: any) {
+      if (e instanceof BillingError) {
+        const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+        return res.status(status).json({
+          success: false,
+          error: e.message || "Plan limit reached",
+          code: e.code,
+        });
+      }
       logger.error("Error getting citation recency", {
-        error: error.message,
-        stack: error.stack,
+        error: e.message,
+        stack: e.stack,
       });
 
       return res.status(500).json({
         success: false,
-        error: error.message || "Failed to analyze citation recency",
+        error: e.message || "Failed to analyze citation recency",
       });
     }
   },

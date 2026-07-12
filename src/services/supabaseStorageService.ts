@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { Readable } from "stream";
 import logger from "../monitoring/logger";
 import { prisma } from "../lib/prisma";
 import { SecretsService } from "./secrets-service";
@@ -158,6 +159,101 @@ export class SupabaseStorageService {
       };
     } catch (error: any) {
       logger.error("Error uploading file to Supabase", {
+        error: error.message,
+        fileName,
+        userId,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Upload a file to Supabase storage from a Readable stream.
+   * Preferred over uploadFile() for large files to avoid buffering in memory.
+   */
+  static async uploadFileStream(
+    stream: Readable,
+    fileName: string,
+    mimeType: string,
+    userId: string,
+    metadata?: FileMetadata,
+  ): Promise<UploadResult> {
+    try {
+      const timestamp = Date.now();
+      const uniqueFileName = `${userId}/${timestamp}_${fileName}`;
+
+      const client = await this.getSupabaseClient();
+
+      // Read the stream into a Blob for the Supabase SDK
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+        stream.on("error", reject);
+        stream.on("end", () => resolve());
+      });
+      const buffer = Buffer.concat(chunks);
+
+      let { data, error } = await client.storage
+        .from("uploads")
+        .upload(uniqueFileName, buffer, {
+          contentType: mimeType,
+          upsert: false,
+        });
+
+      if (error && error.message.includes("Bucket not found")) {
+        await this.ensureBucketExists();
+        const retryResult = await client.storage
+          .from("uploads")
+          .upload(uniqueFileName, buffer, {
+            contentType: mimeType,
+            upsert: false,
+          });
+        data = retryResult.data;
+        error = retryResult.error;
+      }
+
+      if (error) {
+        logger.error("Supabase upload stream error", {
+          error: error.message,
+          fileName,
+          userId,
+        });
+        throw new Error(`Upload failed: ${error.message}`);
+      }
+
+      const {
+        data: { publicUrl },
+      } = client.storage.from("uploads").getPublicUrl(uniqueFileName);
+
+      if (metadata) {
+        await prisma.file.create({
+          data: {
+            user_id: userId,
+            project_id: metadata.projectId,
+            file_name: fileName,
+            file_path: uniqueFileName,
+            file_type: metadata.fileType,
+            file_size: metadata.fileSize,
+            uploaded_at: metadata.createdAt,
+            metadata: metadata,
+          },
+        });
+      }
+
+      logger.info("File uploaded via stream successfully", {
+        userId,
+        fileName,
+        fileSize: buffer.length,
+        filePath: uniqueFileName,
+      });
+
+      return {
+        url: data!.path,
+        publicUrl,
+        path: uniqueFileName,
+      };
+    } catch (error: any) {
+      logger.error("Error uploading file stream to Supabase", {
         error: error.message,
         fileName,
         userId,

@@ -219,6 +219,9 @@ export async function GET(request: Request) {
         mendeley_access_token: true,
         mendeley_auto_sync: true,
         google_access_token: true,
+        onedrive_access_token: true,
+        onedrive_refresh_token: true,
+        onedrive_token_expires_at: true,
         created_at: true,
         updated_at: true,
       },
@@ -248,6 +251,7 @@ export async function GET(request: Request) {
         zotero_user_id: prismaUser.zotero_user_id || null,
         mendeley_access_token: prismaUser.mendeley_access_token || null,
         google_access_token: prismaUser.google_access_token || null,
+        onedrive_access_token: prismaUser.onedrive_access_token || null,
       },
     };
 

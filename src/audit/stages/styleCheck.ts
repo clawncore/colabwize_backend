@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { AuditJob, AuditContext, AuditPipelineStage } from "../types";
+import { AuditJob, AuditContext, AuditPipelineStage, ExtractedReference } from "../types";
 
 /**
  * Stage 6: Style Compliance Engine
@@ -14,7 +14,7 @@ export const StyleCheckStage: AuditPipelineStage = {
         const style = job.report?.metadata?.style || "APA";
         let formattingErrors = 0;
 
-        for (const ref of bibliography) {
+        for (const ref of bibliography as ExtractedReference[]) {
             if (!ref.text || ref.text.trim() === "") continue;
 
             const text = ref.text.trim();
@@ -104,10 +104,9 @@ export const StyleCheckStage: AuditPipelineStage = {
 
         job.report!.summary.formattingErrors = formattingErrors;
 
-        // Formatting Errors penalize slightly less than broken links but still impact output quality
-        if (formattingErrors > 0) {
-            job.report!.summary.complianceScore -= (formattingErrors * 2);
-        }
+        // Note: Formatting errors are surfaced as issues for the UI but do not directly
+        // penalize complianceScore here. The VerificationStage scoreBreakdown is the
+        // single source of truth for score penalties to avoid double-counting.
 
         console.log(`[Stage] STYLE_COMPLIANCE: Evaluated style rules, found ${formattingErrors} errors.`);
     }

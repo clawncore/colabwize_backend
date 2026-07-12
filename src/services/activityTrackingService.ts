@@ -754,8 +754,6 @@ export class ActivityTrackingService {
             backspaceOperations++; // Count as backspace/delete operation
           } else {
             totalCharsAdded += afterLen - beforeLen;
-            // Very rough word count estimation
-            totalWordsAdded += Math.floor((afterLen - beforeLen) / 5); // ~5 chars per word
           }
         }
 
@@ -763,6 +761,9 @@ export class ActivityTrackingService {
           totalActiveTime += activity.active_time;
         }
       }
+
+      // Very rough word count estimation based on total inserted characters
+      totalWordsAdded = Math.floor(totalCharsAdded / 5);
 
       const totalDurationMs =
         realTimeActivities.length > 1

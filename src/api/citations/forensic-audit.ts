@@ -4,6 +4,7 @@ import logger from "../../monitoring/logger";
 import { authenticateExpressRequest as authenticate } from "../../middleware/auth";
 import { checkProjectAccess } from "../../lib/auth-helpers";
 import { CitationFlag, VerificationResult, AuditReport } from "../../types/citationAudit";
+import { BillingGateway, BillingError } from "../../billing/BillingGateway";
 
 const router = express.Router();
 
@@ -34,7 +35,14 @@ router.post("/forensic-audit", authenticate, async (req: Request, res: Response)
 
         logger.info(`Starting forensic audit for ${pairs.length} pairs`, { projectId });
 
-        const forensicResults = await ForensicAuditService.auditCitations(pairs as SimpleCitationPair[]);
+        // Run through the single billing pipeline (hold → execute → confirm/release).
+        try {
+          const forensicResults = await BillingGateway.withFeature(
+            userId,
+            "citation_audit",
+            undefined,
+            () => ForensicAuditService.auditCitations(pairs as SimpleCitationPair[]),
+          );
 
         const flags: CitationFlag[] = [];
         const verificationResults: VerificationResult[] = [];
@@ -72,6 +80,17 @@ router.post("/forensic-audit", authenticate, async (req: Request, res: Response)
         };
 
         return res.status(200).json(report);
+        } catch (e: any) {
+          if (e instanceof BillingError) {
+            const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+            return res.status(status).json({
+              success: false,
+              error: e.message,
+              code: e.code,
+            });
+          }
+          throw e;
+        }
 
     } catch (error: any) {
         logger.error("Error in forensic audit", {

@@ -1,12 +1,22 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 import logger from "../../monitoring/logger";
 import { initializePrisma } from "../../lib/prisma-async";
 import { RealTimeAuthorshipTrackingService } from "../../services/realTimeAuthorshipTrackingService";
-import { EntitlementService } from "../../services/EntitlementService";
+import { BillingGateway, BillingError } from "../../billing/BillingGateway";
 
 const router = express.Router();
 
-router.post("/", async (req, res) => {
+// Rate limit the ingest endpoint to prevent abuse — the client sends periodic
+// summaries every few seconds, so 60/min per user is generous.
+const trackingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  keyGenerator: (req: any) => req.user?.id ?? req.ip,
+  message: { success: false, message: "Too many tracking requests. Please slow down." },
+});
+
+router.post("/", trackingLimiter, async (req, res) => {
     try {
         const trackingData = req.body;
         // Fallback to userId from body if not found in auth token (e.g. for robust tracking)
@@ -87,38 +97,43 @@ router.post("/analyze/:projectId", async (req, res) => {
             return res.status(401).json({ success: false, message: "Unauthorized" });
         }
 
-        // 1. Check Entitlement (Limit Check)
-        // Consumes 1 unit of 'certificate' entitlement
-        // If failed, throws error which we catch below
-        await EntitlementService.assertCanUse(userId, "certificate", { projectId });
+        // Run through the single billing pipeline (hold → execute →
+        // confirm/release), consuming one unit of 'certificate' quota.
+        let responseData;
+        try {
+            const report = await BillingGateway.withFeature(
+                userId,
+                "certificate",
+                undefined,
+                () => RealTimeAuthorshipTrackingService.generateAuthenticityReport(projectId, userId),
+            );
 
-        // 2. Generate Report
-        const report = await RealTimeAuthorshipTrackingService.generateAuthenticityReport(projectId, userId);
-
-        // 3. Map to Frontend Expected Format (WritingDNAReport)
-        const responseData = {
-            humanAuthenticityScore: report.authenticityScore,
-            averageTypingSpeed: report.detailedMetrics.typingPatterns.typingSpeed,
-            thinkPauseRatio: 0, // Placeholder as backend calc might differ
-            errorCorrectionFrequency: report.detailedMetrics.typingPatterns.backspaceRate, // Proxy
-            revisionPatternComplexity: report.detailedMetrics.typingPatterns.editingDepth, // Proxy
-            writingRhythmScore: report.writingPatternConsistency,
-            isConsistentWithHumanWriting: report.authenticityScore > 50
-        };
+            // Map to Frontend Expected Format (WritingDNAReport)
+            responseData = {
+                humanAuthenticityScore: report.authenticityScore,
+                averageTypingSpeed: report.detailedMetrics.typingPatterns.typingSpeed,
+                thinkPauseRatio: 0, // Placeholder as backend calc might differ
+                errorCorrectionFrequency: report.detailedMetrics.typingPatterns.backspaceRate, // Proxy
+                revisionPatternComplexity: report.detailedMetrics.typingPatterns.editingDepth, // Proxy
+                writingRhythmScore: report.writingPatternConsistency,
+                isConsistentWithHumanWriting: report.authenticityScore > 50
+            };
+        } catch (billingError: any) {
+            if (billingError instanceof BillingError) {
+                const status = billingError.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
+                return res.status(status).json({
+                    success: false,
+                    message: billingError.message,
+                    code: billingError.code,
+                });
+            }
+            throw billingError;
+        }
 
         res.json(responseData);
 
     } catch (error: any) {
         logger.error("Error analyzing patterns", { error: error.message, stack: error.stack });
-
-        // Handle Plan Limits specifically
-        if (error.message.includes("limit reached") || error.code === "INSUFFICIENT_CREDITS" || error.message.includes("not available")) {
-            return res.status(403).json({
-                success: false,
-                message: error.message,
-                code: error.code || "PLAN_LIMIT_REACHED"
-            });
-        }
 
         res.status(500).json({ success: false, message: "Internal server error" });
     }
