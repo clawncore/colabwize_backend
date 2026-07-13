@@ -44,6 +44,9 @@ export async function authenticateHybrid(
       if (request.headers.get("x-auth-google")) {
         authHeader = request.headers.get("x-auth-google");
         logger.debug("Using X-Auth-Google header");
+      } else if (request.headers.get("x-auth-microsoft")) {
+        authHeader = request.headers.get("x-auth-microsoft");
+        logger.debug("Using X-Auth-Microsoft header");
       } else if (request.headers.get("x-auth-organic")) {
         authHeader = request.headers.get("x-auth-organic");
         logger.debug("Using X-Auth-Organic header");
@@ -56,6 +59,9 @@ export async function authenticateHybrid(
       if (headers["x-auth-google"]) {
         authHeader = headers["x-auth-google"];
         logger.debug("Using X-Auth-Google header");
+      } else if (headers["x-auth-microsoft"]) {
+        authHeader = headers["x-auth-microsoft"];
+        logger.debug("Using X-Auth-Microsoft header");
       } else if (headers["x-auth-organic"]) {
         authHeader = headers["x-auth-organic"];
         logger.debug("Using X-Auth-Organic header");
