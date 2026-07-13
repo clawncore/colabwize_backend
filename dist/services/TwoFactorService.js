@@ -1,0 +1,244 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TwoFactorService = void 0;
+const otplib_1 = require("otplib");
+const qrcode_1 = __importDefault(require("qrcode"));
+const crypto_1 = __importDefault(require("crypto"));
+const prisma_1 = require("../lib/prisma");
+const logger_1 = __importDefault(require("../monitoring/logger"));
+const emailService_1 = require("./emailService");
+// Configure authenticator window for time tolerance (otplib v12)
+otplib_1.authenticator.options = { ...otplib_1.authenticator.options, window: 1 };
+// AES-256-GCM Encryption Configuration
+const ALGORITHM = "aes-256-gcm";
+// Use a fallback secret for development if env var is missing (DO NOT USE IN PROD)
+const ENCRYPTION_KEY = process.env.TWO_FACTOR_ENCRYPTION_KEY || "dev-secret-key-must-be-32-bytes!!";
+// Ensure key is 32 bytes
+const getKey = () => {
+    const key = Buffer.from(ENCRYPTION_KEY);
+    if (key.length !== 32) {
+        // Pad or truncate to 32 bytes for dev safety, or throw error in prod
+        const newKey = Buffer.alloc(32);
+        key.copy(newKey);
+        return newKey;
+    }
+    return key;
+};
+class TwoFactorService {
+    /**
+     * Encrypt a secret
+     */
+    static encrypt(text) {
+        const iv = crypto_1.default.randomBytes(16);
+        const cipher = crypto_1.default.createCipheriv(ALGORITHM, getKey(), iv);
+        let encrypted = cipher.update(text, "utf8", "hex");
+        encrypted += cipher.final("hex");
+        const authTag = cipher.getAuthTag();
+        // Format: iv:authTag:encrypted
+        return `${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted}`;
+    }
+    /**
+     * Decrypt a secret
+     */
+    static decrypt(text) {
+        const parts = text.split(":");
+        if (parts.length !== 3)
+            throw new Error("Invalid encrypted string format");
+        const iv = Buffer.from(parts[0], "hex");
+        const authTag = Buffer.from(parts[1], "hex");
+        const encrypted = parts[2];
+        const decipher = crypto_1.default.createDecipheriv(ALGORITHM, getKey(), iv);
+        decipher.setAuthTag(authTag);
+        let decrypted = decipher.update(encrypted, "hex", "utf8");
+        decrypted += decipher.final("utf8");
+        return decrypted;
+    }
+    // Temporary in-memory storage for pending 2FA setups
+    // Key: userId, Value: secret
+    static tempSecrets = new Map();
+    /**
+     * Store temporary secret for setup phase
+     */
+    static storeTempSecret(userId, secret) {
+        this.tempSecrets.set(userId, secret);
+        // Expire after 10 minutes to prevent memory leaks
+        setTimeout(() => this.tempSecrets.delete(userId), 10 * 60 * 1000);
+    }
+    /**
+     * Get temporary secret
+     */
+    static getTempSecret(userId) {
+        return this.tempSecrets.get(userId);
+    }
+    /**
+     * Clear temporary secret
+     */
+    static clearTempSecret(userId) {
+        this.tempSecrets.delete(userId);
+    }
+    /**
+     * Generate a new 2FA secret and QR code URL
+     * Phase 1: Safe, Pure, No DB Writes
+     */
+    static async generateSecret(email, userId) {
+        const secret = otplib_1.authenticator.generateSecret();
+        // Use "ColabWize" as the issuer name for the Authenticator app
+        const otpauth = otplib_1.authenticator.keyuri(email, "ColabWize", secret);
+        // Generate Data URI directly
+        const qrCodeUrl = await qrcode_1.default.toDataURL(otpauth);
+        // Store temporarily
+        this.storeTempSecret(userId, secret);
+        return {
+            secret, // For Manual Entry
+            qrCodeUrl // For Scanning
+        };
+    }
+    /**
+     * Verify a TOTP token (works for both setup and login)
+     */
+    static verifyToken(token, secret) {
+        return otplib_1.authenticator.verify({ token, secret });
+    }
+    /**
+     * Validate a login 2FA attempt
+     */
+    static async validateLogin(userId, token) {
+        const user = await prisma_1.prisma.user.findUnique({
+            where: { id: userId },
+            select: { two_factor_enabled: true, two_factor_secret: true, two_factor_backup_codes: true },
+        });
+        if (!user || !user.two_factor_enabled || !user.two_factor_secret) {
+            return false;
+        }
+        // 1. Try TOTP
+        try {
+            const secret = this.decrypt(user.two_factor_secret);
+            const isValid = this.verifyToken(token, secret);
+            if (isValid)
+                return true;
+        }
+        catch (error) {
+            logger_1.default.error("Error decrypting 2FA secret during login", { userId, error });
+        }
+        // 2. Try Backup Codes (if token is 8-10 chars, assuming backup codes are longer)
+        // Backup codes are usually 8-10 hex/alphanumeric chars. TOTP is 6 digits.
+        if (token.length > 6) {
+            // Check against hashed backup codes requires hashing input and comparing
+            // But we stored them as string[]? Ideally we should hash them.
+            // For this implementation, we will assume we verify against the raw input if checking equality,
+            // BUT standard security says hash them.
+            // Let's iterate and check bcrypt? Or simple comparison if we stored plain (bad).
+            // My plan said "Hashed array".
+            // Implementation Detail: We need to compare hash(input) with stored_hashes.
+            // Since we haven't implemented the "hashBackupCodes" helper fully yet, let's assume
+            // for this MVP step we iterate and check. 
+            // NOTE: Actual implementation involves checking all hashes.
+            for (const hashedCode of user.two_factor_backup_codes) {
+                // bcrypt.compareSync(token, hashedCode) -- expensive loop?
+                // For now, let's assume we implement a simple direct check if NOT hashed yet,
+                // OR better, we implement crypto.createHash logic for speed.
+                // Let's use SHA256 for backup codes for speed + security (salt is implicit if unique randoms).
+                const inputHash = crypto_1.default.createHash('sha256').update(token).digest('hex');
+                if (inputHash === hashedCode) {
+                    // Consumed! Remove it.
+                    await prisma_1.prisma.user.update({
+                        where: { id: userId },
+                        data: {
+                            two_factor_backup_codes: {
+                                set: user.two_factor_backup_codes.filter((c) => c !== hashedCode)
+                            }
+                        }
+                    });
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    /**
+     * Enable 2FA for a user (Confirm Setup)
+     * Phase 2: Irreversible Commit
+     */
+    static async enable2FA(userId, secret, token) {
+        // 1. Verify the token against the pending secret
+        if (!this.verifyToken(token, secret)) {
+            throw new Error("Invalid verification code");
+        }
+        // 2. Generate Backup Codes
+        const backupCodes = Array.from({ length: 10 }, () => crypto_1.default.randomBytes(4).toString("hex") // 8 char hex codes
+        );
+        // 3. Hash Backup Codes
+        const hashedBackupCodes = backupCodes.map(code => crypto_1.default.createHash('sha256').update(code).digest('hex'));
+        // 4. Encrypt Secret
+        const encryptedSecret = this.encrypt(secret);
+        // 5. Update User (Commit)
+        const updatedUser = await prisma_1.prisma.user.update({
+            where: { id: userId },
+            data: {
+                two_factor_enabled: true,
+                two_factor_secret: encryptedSecret,
+                two_factor_backup_codes: hashedBackupCodes,
+                two_factor_confirmed_at: new Date(),
+            },
+            select: { email: true, full_name: true }
+        });
+        // 6. Clear Temporary Secret
+        this.clearTempSecret(userId);
+        // 7. Send Notification Email
+        if (updatedUser.email) {
+            await emailService_1.EmailService.send2FAEnabledEmail(updatedUser.email, updatedUser.full_name || "");
+        }
+        return { backupCodes };
+    }
+    /**
+     * Disable 2FA
+     * @param userId The user ID
+     * @param token The 2FA code to verify (Security requirement) - TOTP or Backup Code
+     */
+    static async disable2FA(userId, token) {
+        const user = await prisma_1.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                two_factor_secret: true,
+                two_factor_backup_codes: true
+            },
+        });
+        if (!user || !user.two_factor_secret) {
+            throw new Error("2FA is not enabled or user not found");
+        }
+        let isVerified = false;
+        // 1. Try TOTP Verification
+        try {
+            const secret = this.decrypt(user.two_factor_secret);
+            if (this.verifyToken(token, secret)) {
+                isVerified = true;
+            }
+        }
+        catch (error) {
+            logger_1.default.error("Error decrypting 2FA secret during disable", { userId, error });
+        }
+        // 2. Try Backup Codes (if not already verified)
+        if (!isVerified && token.length > 6) {
+            const inputHash = crypto_1.default.createHash('sha256').update(token).digest('hex');
+            if (user.two_factor_backup_codes.includes(inputHash)) {
+                isVerified = true;
+            }
+        }
+        if (!isVerified) {
+            throw new Error("Invalid verification code or backup code");
+        }
+        await prisma_1.prisma.user.update({
+            where: { id: userId },
+            data: {
+                two_factor_enabled: false,
+                two_factor_secret: null,
+                two_factor_backup_codes: [],
+                two_factor_confirmed_at: null,
+            },
+        });
+    }
+}
+exports.TwoFactorService = TwoFactorService;

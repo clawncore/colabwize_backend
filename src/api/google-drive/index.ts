@@ -40,18 +40,9 @@ const importLimiter = rateLimit({
 
 const router = express.Router();
 
-<<<<<<< HEAD
-/**
- * GET /api/google-drive/list
- * List files from Google Drive
- */
-router.get("/list", async (req: Request, res: Response) => {
-  const userId = (req as any).user?.id;
-=======
 /** GET /api/google-drive/list — List files from Google Drive */
 router.get("/list", authenticateHybridRequest, listLimiter, async (req: Request, res: Response) => {
   const userId = (req as any).user.id;
->>>>>>> 9d3c7b44029cd7eacb223708e70071b440f57e45
   try {
     const { folderId, pageToken } = req.query;
     const result = await GoogleDriveService.listFiles(

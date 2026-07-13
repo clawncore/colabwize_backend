@@ -395,8 +395,10 @@ export async function buildSubmissionPackage(
   }
 
   // 11. Audit report (ColabWize bookkeeping — gated by includeAuditFiles)
+  // The report object is always built (it's part of the returned package
+  // metadata); only emitting it as a file in the zip is gated by includeAudit.
+  const audit = buildAuditReport(manifest, findings);
   if (includeAudit) {
-    const audit = buildAuditReport(manifest, findings);
     files.push({
       path: "ExportReport.md",
       bytes: Buffer.from(auditToMarkdown(audit, warnings), "utf8"),
