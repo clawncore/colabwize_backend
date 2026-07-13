@@ -1,0 +1,609 @@
+import { Project } from "@prisma/client";
+import { SecretsService } from "./secrets-service";
+
+interface HtmlExportOptions {
+  citationStyle?: "apa" | "mla" | "chicago";
+  includeCoverPage?: boolean;
+  coverPageStyle?: "apa" | "mla";
+  includeTOC?: boolean;
+  metadata?: {
+    author?: string;
+    institution?: string;
+    course?: string;
+    instructor?: string;
+    runningHead?: string;
+    abstract?: string;
+  };
+  useCitationTokens?: boolean;
+  resolvedCitations?: {
+    occurrenceMap: Map<number, { text: string; doi?: string; url?: string }>;
+    bibliography: { id: string; text: string; doi?: string; url?: string }[];
+  };
+}
+
+export class HtmlExportService {
+  /**
+   * meaningful styles for academic PDF export
+   */
+  private static getStyles(): string {
+    return `
+      @page {
+        margin: 1in;
+        size: a4;
+      }
+      body {
+        font-family: "Times New Roman", Times, serif;
+        font-size: 12pt;
+        line-height: 2;
+        color: #000;
+        margin: 0;
+        padding: 0;
+      }
+      a {
+        color: blue;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+      p {
+        margin: 0 0 1em 0; /* Add bottom margin for spacing */
+        text-indent: 0.5in;
+      }
+      h1, h2, h3, h4, h5, h6 {
+        font-weight: bold;
+        margin-top: 1em; /* Add top margin */
+        margin-bottom: 0.5em; /* Add bottom margin */
+        text-indent: 0;
+        text-align: center; 
+      }
+      /* ... other styles ... */
+      
+      /* Ensure bibliography anchors are positioned correctly (prevent covering by header if any) */
+      .csl-entry {
+        position: relative;
+      }
+      
+      /* ... */
+      h1 { font-size: 12pt; } 
+      h2 { font-size: 12pt; } 
+      /* APA headings logic can be complex, simplifying for MVP */
+      
+      .cover-page {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 9in; /* Approximate centering on page */
+        text-align: center;
+        page-break-after: always;
+      }
+      .abstract-page {
+        page-break-after: always;
+        text-align: left;
+        margin-top: 2em;
+      }
+      .abstract-title {
+         text-align: center;
+         font-weight: bold;
+         margin-bottom: 1em;
+         text-indent: 0;
+      }
+      .cover-page div {
+        margin-bottom: 1em;
+      }
+      .toc {
+        page-break-after: always;
+      }
+      .toc-title {
+        text-align: center;
+        font-weight: bold;
+        margin-bottom: 1em;
+      }
+      .toc-item {
+        margin-left: 0;
+        text-indent: 0;
+        display: flex;
+        justify-content: space-between;
+      }
+      .page-break {
+        page-break-after: always;
+      }
+      .references-title {
+        text-align: center;
+        font-weight: bold;
+        margin-top: 0;
+        margin-bottom: 2em;
+        text-indent: 0;
+      }
+      .reference-item {
+        text-indent: -0.5in; /* Hanging indent */
+        margin-left: 0.5in;
+        margin-bottom: 1em;
+      }
+      blockquote {
+        margin-left: 0.5in;
+        margin-right: 0;
+        text-indent: 0;
+      }
+      /* Image support */
+      img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 1em auto;
+        page-break-inside: avoid;
+      }
+      img.float-left {
+        float: left;
+        margin: 0.5em 1em 0.5em 0;
+        max-width: 50%;
+      }
+      img.float-right {
+        float: right;
+        margin: 0.5em 0 0.5em 1em;
+        max-width: 50%;
+      }
+      .editor-image {
+        max-width: 100%;
+        height: auto;
+      }
+      /* Column layout support */
+      .columns {
+        display: flex;
+        gap: 0.5in;
+        margin: 0 0 1em 0;
+      }
+      .column {
+        flex: 1;
+        min-width: 0;
+      }
+      .column p {
+        text-indent: 0;
+      }
+      /* Table support */
+      table {
+        width: 100%;
+        border-collapse: collapse !important;
+        margin: 1em 0;
+        page-break-inside: avoid;
+        border: 1px solid #000 !important;
+      }
+      th, td {
+        border: 1px solid #000 !important;
+        padding: 0.25em 0.5em;
+        text-align: left;
+        vertical-align: top;
+        text-indent: 0;
+      }
+      th {
+        font-weight: bold;
+        background-color: #f0f0f0;
+      }
+    `;
+  }
+
+  /**
+   * Generate full HTML for PDF export
+   */
+  static async generateProjectHtml(
+    project: any, // Using any for Project to avoid strict Prisma type issues in this snippet
+    options: HtmlExportOptions,
+  ): Promise<string> {
+    let html = `<!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>${this.getStyles()}</style>
+    </head>
+    <body>`;
+
+    // 1. Cover Page
+    if (options.includeCoverPage) {
+      html += this.generateCoverPage(project, options);
+    }
+
+    // 1b. Abstract (Scan for markers too)
+    const contentMarkers = new Set<string>();
+    const scanForMarkers = (node: any) => {
+      if (node.type === "heading" || node.type === "paragraph") {
+        const text = node.content?.map((c: any) => c.text).join("") || "";
+        const cleanText = text.toLowerCase().trim();
+        if (node.type === "heading") {
+          contentMarkers.add(cleanText);
+        } else if (
+          cleanText === "references" ||
+          cleanText === "bibliography" ||
+          cleanText === "works cited" ||
+          cleanText === "abstract"
+        ) {
+          contentMarkers.add(cleanText);
+        }
+      }
+      if (node.content) node.content.forEach(scanForMarkers);
+    };
+    if (project.content) scanForMarkers(project.content);
+
+    const hasAbstract =
+      contentMarkers.has("abstract") || !!options.metadata?.abstract;
+    const hasReferences =
+      contentMarkers.has("references") ||
+      contentMarkers.has("bibliography") ||
+      contentMarkers.has("works cited");
+
+    if (options.metadata?.abstract && !contentMarkers.has("abstract")) {
+      html += `<div class="abstract-page">
+        <div class="abstract-title">Abstract</div>
+        <p style="text-indent: 0;">${options.metadata.abstract}</p>
+      </div>`;
+    }
+
+    // 2. TOC
+    // ...
+
+    // 3. Body Content
+    html += `<div class="content">`;
+    // Add title on first page of body if APA/MLA requires (usually yes)
+    if (!options.includeCoverPage) {
+      html += `<div style="text-align: center; font-weight: bold; margin-bottom: 1em; text-indent: 0;">${project.title}</div>`;
+    }
+    const state = { citationNodeIndex: 0 };
+    html += await this.convertTipTapToHtml(
+      project.content,
+      project.citations || [],
+      options.citationStyle || "apa",
+      options,
+      state,
+    );
+    html += `</div>`;
+
+    // 4. Bibliography (Resolved)
+    if (
+      options.resolvedCitations?.bibliography &&
+      options.resolvedCitations.bibliography.length > 0 &&
+      !hasReferences
+    ) {
+      html += `<div class="page-break"></div>`;
+      html += `<div class="references-section">`;
+      html += `<div class="references-title">References</div>`;
+      options.resolvedCitations.bibliography.forEach((entry: any) => {
+        let entryHtml = entry.text;
+        // Append DOI link if available
+        if (entry.doi) {
+          const doiUrl = entry.doi.startsWith("http")
+            ? entry.doi
+            : `https://doi.org/${entry.doi}`;
+          entryHtml += ` <a href="${doiUrl}" class="doi-link">${doiUrl}</a>`;
+        } else if (entry.url) {
+          entryHtml += ` <a href="${entry.url}" class="url-link">${entry.url}</a>`;
+        }
+        html += `<div class="reference-item" id="ref_${entry.id}">${entryHtml}</div>`;
+      });
+      html += `</div>`;
+    }
+
+
+    html += `</body></html>`;
+    return html;
+  }
+
+  private static generateCoverPage(
+    project: any,
+    options: HtmlExportOptions,
+  ): string {
+    const { metadata } = options;
+    const author = metadata?.author || "Unknown Author";
+    const institution = metadata?.institution || "";
+    const course = metadata?.course || "";
+    const instructor = metadata?.instructor || "";
+    const date = new Date().toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+
+    // Simple APA Styling for Cover Page
+    return `
+      <div class="cover-page">
+        <div style="font-weight: bold; margin-bottom: 2em;">${project.title}</div>
+        <div>${author}</div>
+        ${institution ? `<div>${institution}</div>` : ""}
+        ${course ? `<div>${course}</div>` : ""}
+        ${instructor ? `<div>${instructor}</div>` : ""}
+        <div>${date}</div>
+      </div>
+    `;
+  }
+
+  private static async convertTipTapToHtml(
+    content: any,
+    citations: any[] = [],
+    style: string = "apa",
+    options?: HtmlExportOptions,
+    state: { citationNodeIndex: number } = { citationNodeIndex: 0 },
+  ): Promise<string> {
+    if (!content || !content.content) return "";
+
+    let html = "";
+
+    for (const node of content.content) {
+      if (node.type === "paragraph") {
+        html += `<p>${this.extractTextHtml(node, citations, style, options, state)}</p>`;
+      } else if (node.type === "heading") {
+        const level = node.attrs?.level || 1;
+        html += `<h${level}>${this.extractTextHtml(node, citations, style, options, state)}</h${level}>`;
+      } else if (node.type === "blockquote") {
+        html += `<blockquote>${this.extractTextHtml(node, citations, style, options, state)}</blockquote>`;
+      } else if (node.type === "bulletList") {
+        html += `<ul>${await this.convertTipTapToHtml(node, citations, style, options, state)}</ul>`;
+      } else if (node.type === "orderedList") {
+        html += `<ol>${await this.convertTipTapToHtml(node, citations, style, options, state)}</ol>`;
+      } else if (node.type === "listItem") {
+        html += `<li>${await this.convertTipTapToHtml(node, citations, style, options, state)}</li>`;
+      } else if (node.type === "image" || node.type === "imageExtension") {
+        const src = node.attrs?.src || "";
+        const alt = node.attrs?.alt || "";
+
+        // Skip blob URLs - they can't be resolved for PDF
+        if (src.startsWith("blob:")) {
+          console.warn("Skipping blob URL in PDF export", { src });
+          continue;
+        }
+
+        let imgSrc = src;
+        // Resolve relative URLs to full HTTP URLs
+        if (src && !src.startsWith("http") && !src.startsWith("data:")) {
+          const appUrl = await SecretsService.getAppUrl();
+          imgSrc = src.startsWith("/") ? `${appUrl}${src}` : `${appUrl}/${src}`;
+        }
+
+        // For HTTP URLs, Puppeteer will fetch them when rendering PDF
+        html += `<img src="${imgSrc}" alt="${alt}" style="max-width: 100%; height: auto; display: block; margin: 1em auto;" />`;
+      } else if (node.type === "figure") {
+        html += `<figure style="margin: 1em auto; text-align: center;">`;
+        html += await this.convertTipTapToHtml(node, citations, style, options);
+        html += `</figure>`;
+      } else if (node.type === "figcaption") {
+        html += `<figcaption style="font-style: italic; margin-top: 0.5em;">${this.extractTextHtml(node, citations, style, options)}</figcaption>`;
+      } else if (node.type === "columns") {
+        // Handle multi-column layout
+        html += `<div class="columns">`;
+        if (node.content) {
+          for (const column of node.content) {
+            if (column.type === "column") {
+              html += `<div class="column">${await this.convertTipTapToHtml(column, citations, style, options)}</div>`;
+            }
+          }
+        }
+        html += `</div>`;
+      } else if (node.type === "table") {
+        // Handle table
+        html += `<table>`;
+        if (node.content) {
+          for (const row of node.content) {
+            if (row.type === "tableRow") {
+              html += `<tr>`;
+              if (row.content) {
+                for (const cell of row.content) {
+                  const cellContent = await this.convertTipTapToHtml(
+                    cell,
+                    citations,
+                    style,
+                    options,
+                    state,
+                  );
+                  if (cell.type === "tableHeader") {
+                    html += `<th>${cellContent}</th>`;
+                  } else if (cell.type === "tableCell") {
+                    html += `<td>${cellContent}</td>`;
+                  }
+                }
+              }
+              html += `</tr>`;
+            }
+          }
+        }
+        html += `</table>`;
+      }
+    }
+
+    return html;
+  }
+
+  private static extractTextHtml(
+    node: any,
+    citations: any[] = [],
+    style: string = "apa",
+    options?: HtmlExportOptions,
+    state: { citationNodeIndex: number } = { citationNodeIndex: 0 },
+  ): string {
+    if (!node.content) return "";
+    let html = "";
+
+    node.content.forEach((child: any) => {
+      if (child.type === "text") {
+        let childText = child.text || "";
+
+        // Normalize newlines and unicode chars
+        childText = childText
+          .replace(/\r\n/g, "\n")
+          .replace(/\r/g, "\n")
+          .replace(/\u2028/g, "\n")
+          .replace(/\u2029/g, "\n\n");
+
+        // Replace newlines with <br> to preserve explicit breaks in text nodes
+        childText = childText.replace(/\n/g, "<br>");
+
+        // Handle marks (bold, italic, link, etc.)
+        if (child.marks) {
+          child.marks.forEach((mark: any) => {
+            if (mark.type === "bold")
+              childText = `<strong>${childText}</strong>`;
+            if (mark.type === "italic") childText = `<em>${childText}</em>`;
+            if (mark.type === "underline") childText = `<u>${childText}</u>`;
+            if (mark.type === "code") childText = `<code>${childText}</code>`;
+            if (mark.type === "link") {
+              const href = mark.attrs?.href || "#";
+              childText = `<a href="${href}" style="color:blue; text-decoration:underline;">${childText}</a>`;
+            }
+          });
+        }
+        html += childText;
+      } else if (child.type === "hardBreak") {
+        html += "<br>";
+      } else if (child.type === "citation") {
+        const fallback = child.attrs?.fallback || "[Citation]";
+
+        // Use PRE-RESOLVED data if available
+        if (options?.resolvedCitations) {
+          const resolved = options.resolvedCitations.occurrenceMap.get(
+            state.citationNodeIndex,
+          );
+          state.citationNodeIndex++;
+
+          if (resolved !== undefined) {
+            if (resolved.text) {
+              const doiUrl = resolved.doi
+                ? resolved.doi.startsWith("http")
+                  ? resolved.doi
+                  : `https://doi.org/${resolved.doi}`
+                : null;
+              const url = resolved.url || doiUrl;
+
+              if (url) {
+                html += `<a href="${url}" class="citation">${resolved.text}</a>`;
+              } else {
+                const citationId = child.attrs?.citationId;
+                if (citationId) {
+                  html += `<a href="#ref_${citationId}" class="citation">${resolved.text}</a>`;
+                } else {
+                  html += `<span class="citation">${resolved.text}</span>`;
+                }
+              }
+            }
+          } else {
+            // Fallback if index missing
+            html += `<span class="citation" style="color:red">${fallback}</span>`;
+          }
+        } else {
+          // Fallback if no resolution provided
+          html += `<span class="citation">${child.attrs?.text || fallback}</span>`;
+          state.citationNodeIndex++;
+        }
+      }
+    });
+
+    return html || "&nbsp;"; // Return non-breaking space if empty to maintain height
+  }
+
+  /**
+   * Format in-text citation
+   */
+  private static formatInTextCitation(citation: any, style: string): string {
+    // Try to get authors from CSL-JSON format first ({family, given} objects)
+    const csl = citation.csl_data || citation;
+    let authors: any[] = [];
+
+    if (Array.isArray(csl.author) && csl.author.length > 0) {
+      authors = csl.author;
+    } else if (Array.isArray(citation.authors) && citation.authors.length > 0) {
+      authors = citation.authors;
+    }
+
+    // Resolve year from CSL issued field or flat year field
+    const year =
+      csl.issued?.["date-parts"]?.[0]?.[0] || citation.year || "n.d.";
+
+    // Resolve first author's last name
+    const firstAuthor = authors[0];
+    let authorText = "Unknown";
+    if (firstAuthor) {
+      if (typeof firstAuthor === "string") {
+        // Flat string format — use last word as surname
+        authorText = firstAuthor.trim().split(" ").pop() || firstAuthor;
+      } else {
+        // CSL object format: { family, given } or { literal }
+        authorText =
+          firstAuthor.family ||
+          firstAuthor.literal ||
+          firstAuthor.firstName ||
+          "Unknown";
+      }
+    }
+
+    if (authors.length > 2) {
+      authorText += " et al.";
+    } else if (authors.length === 2) {
+      const secondAuthor = authors[1];
+      const secondText =
+        typeof secondAuthor === "string"
+          ? secondAuthor.trim().split(" ").pop() || secondAuthor
+          : secondAuthor.family || secondAuthor.literal || "";
+      authorText += ` & ${secondText}`;
+    }
+
+    if (style === "mla") {
+      return `(${authorText})`;
+    }
+    // APA and default
+    return `(${authorText}, ${year})`;
+  }
+
+  private static formatCitation(citation: any, style: string): string {
+    // Prefer CSL-JSON data when available
+    const csl = citation.csl_data || citation;
+
+    // Author: prefer CSL author array [{family, given}], fallback to flat fields
+    let authorText = "Unknown";
+    if (Array.isArray(csl.author) && csl.author.length > 0) {
+      authorText = csl.author
+        .map((a: any) => {
+          if (a.literal) return a.literal;
+          const given = a.given ? `${a.given.charAt(0)}.` : "";
+          return [a.family, given].filter(Boolean).join(", ");
+        })
+        .join(", ");
+    } else if (citation.authors) {
+      authorText = Array.isArray(citation.authors)
+        ? citation.authors.join(", ")
+        : String(citation.authors);
+    } else if (citation.author) {
+      authorText = String(citation.author);
+    }
+
+    const title = csl.title || citation.title || "Untitled";
+    const year =
+      csl.issued?.["date-parts"]?.[0]?.[0] || citation.year || "n.d.";
+    const journal = csl["container-title"] || citation.journal || "";
+    const volume = csl.volume || citation.volume || "";
+    const issue = csl.issue || citation.issue || "";
+    const pages = csl.page || citation.pages || "";
+    const doi = csl.DOI || citation.doi || "";
+    const publisher = csl.publisher || citation.publisher || "";
+
+    if (style === "apa") {
+      let ref = `${authorText} (${year}). <i>${title}</i>`;
+      if (journal) {
+        ref += `. <i>${journal}</i>`;
+        if (volume) ref += `, <i>${volume}</i>`;
+        if (issue) ref += `(${issue})`;
+        if (pages) ref += `, ${pages}`;
+      } else if (publisher) {
+        ref += `. ${publisher}`;
+      }
+      if (doi) ref += `. https://doi.org/${doi}`;
+      return ref + ".";
+    } else if (style === "mla") {
+      let ref = `${authorText}. "${title}."${journal ? ` <i>${journal}</i>,` : ""}`;
+      if (volume) ref += ` vol. ${volume},`;
+      if (issue) ref += ` no. ${issue},`;
+      ref += ` ${year}`;
+      if (pages) ref += `, pp. ${pages}`;
+      if (doi) ref += `. DOI: ${doi}`;
+      return ref + ".";
+    }
+    // Chicago / default
+    let ref = `${authorText}. "${title}."${journal ? ` <i>${journal}</i>` : ""}${volume ? ` ${volume}` : ""} (${year})`;
+    if (pages) ref += `: ${pages}`;
+    if (doi) ref += `. https://doi.org/${doi}`;
+    return ref + ".";
+  }
+}

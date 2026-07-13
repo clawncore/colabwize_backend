@@ -1,0 +1,85 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.providerApiLimiter = exports.adminOperationRateLimiter = exports.uploadLimiter = exports.authLimiter = exports.apiLimiter = void 0;
+const express_rate_limit_1 = require("express-rate-limit");
+const logger_1 = __importDefault(require("../monitoring/logger"));
+// General API Rate Limiter
+// 100 requests per minute
+exports.apiLimiter = (0, express_rate_limit_1.rateLimit)({
+    windowMs: 60 * 1000,
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+        success: false,
+        message: "Too many requests, please try again later."
+    },
+    handler: (req, res, next, options) => {
+        logger_1.default.warn(`Rate limit exceeded: ${req.ip} -> ${req.originalUrl}`);
+        res.status(options.statusCode).send(options.message);
+    }
+});
+// Stricter Auth Rate Limiter
+// 10 requests per minute to prevent brute force
+exports.authLimiter = (0, express_rate_limit_1.rateLimit)({
+    windowMs: 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+        success: false,
+        message: "Too many login attempts, please try again later."
+    },
+    handler: (req, res, next, options) => {
+        logger_1.default.warn(`Auth Rate limit exceeded: ${req.ip}`);
+        res.status(options.statusCode).send(options.message);
+    }
+});
+// AI/Upload Heavy Operation Limiter
+// 20 requests per minute for resource intensive operations
+exports.uploadLimiter = (0, express_rate_limit_1.rateLimit)({
+    windowMs: 60 * 1000,
+    limit: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+        success: false,
+        message: "Upload/AI limit reached, please slow down."
+    },
+    handler: (req, res, next, options) => {
+        logger_1.default.warn(`Upload Rate limit exceeded: ${req.ip} -> ${req.originalUrl}`);
+        res.status(options.statusCode).send(options.message);
+    }
+});
+// Admin Operation Limiter (Internal)
+exports.adminOperationRateLimiter = (0, express_rate_limit_1.rateLimit)({
+    windowMs: 60 * 1000,
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+// Per-user rate limiter for provider API calls (Zotero/Mendeley).
+// 30 requests per minute per authenticated user — prevents abuse of
+// third-party provider APIs and protects against unexpected throttling.
+exports.providerApiLimiter = (0, express_rate_limit_1.rateLimit)({
+    windowMs: 60 * 1000,
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        // Key by authenticated user ID, falling back to normalised IP for unauthenticated.
+        // ipKeyGenerator handles IPv6 address normalisation to prevent bypass.
+        return req.user?.id || (0, express_rate_limit_1.ipKeyGenerator)(req);
+    },
+    message: {
+        success: false,
+        message: "Too many provider API requests. Please try again in a minute.",
+    },
+    handler: (req, res, next, options) => {
+        logger_1.default.warn(`Provider API rate limit exceeded: user=${req.user?.id || "anon"} ip=${req.ip} -> ${req.originalUrl}`);
+        res.status(options.statusCode).send(options.message);
+    },
+});

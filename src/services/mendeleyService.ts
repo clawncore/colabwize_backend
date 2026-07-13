@@ -293,13 +293,8 @@ export class MendeleyService {
                 Accept: "application/json"
             };
 
-<<<<<<< HEAD
-            if (process.env.MENDELEY_API_KEY) {
-                headers["X-ELS-APIKey"] = process.env.MENDELEY_API_KEY;
-=======
             if (MENDELEY_API_KEY) {
                 headers["X-ELS-APIKey"] = MENDELEY_API_KEY;
->>>>>>> 9d3c7b44029cd7eacb223708e70071b440f57e45
             }
 
             const response = await axios.get(`https://api.mendeley.com/folders/${folderId}/documents`, {
