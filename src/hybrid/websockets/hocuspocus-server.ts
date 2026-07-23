@@ -5,6 +5,8 @@ import {
   onDisconnectPayload,
   onAwarenessUpdatePayload,
   onChangePayload,
+  Unauthorized,
+  Forbidden,
 } from "@hocuspocus/server";
 import { WebSocketServer } from "ws";
 import logger from "../../monitoring/logger";
@@ -91,6 +93,54 @@ interface QueuedAuthorshipUpdate {
 
 // Cache to store content hashes to avoid unnecessary database writes
 const lastStoredContentHashes = new Map<string, string>();
+
+/**
+ * Detect and collapse whole-document repetition in a Tiptap document JSON.
+ *
+ * Corruption pattern observed in production: the document's block sequence is
+ * repeated N times (content === [A, B, …, A, B, …]). This is almost never
+ * legitimate author content, so we keep a single copy. Consecutive-identical
+ * single paragraphs are intentionally NOT collapsed here to avoid dropping
+ * legitimate repetition.
+ *
+ * Returns the (possibly) cleaned content plus how many nodes were removed.
+ */
+export function dedupeTiptapContent(input: any): {
+  content: any;
+  removed: number;
+  repetitions: number;
+} {
+  if (!input || !Array.isArray(input.content) || input.content.length < 4) {
+    return { content: input, removed: 0, repetitions: 1 };
+  }
+
+  const nodes = input.content as any[];
+
+  // Whole-document repetition: find the smallest repeating unit.
+  for (let unit = 1; unit <= Math.floor(nodes.length / 2); unit++) {
+    const firstChunk = nodes.slice(0, unit);
+    const firstStr = JSON.stringify(firstChunk);
+    let isRepeating = true;
+    for (let i = unit; i < nodes.length; i += unit) {
+      const chunk = nodes.slice(i, i + unit);
+      if (chunk.length !== unit) break; // trailing partial chunk
+      if (JSON.stringify(chunk) !== firstStr) {
+        isRepeating = false;
+        break;
+      }
+    }
+    if (isRepeating) {
+      const repetitions = Math.round(nodes.length / unit);
+      return {
+        content: { ...input, content: firstChunk },
+        removed: nodes.length - unit,
+        repetitions,
+      };
+    }
+  }
+
+  return { content: input, removed: 0, repetitions: 1 };
+}
 
 export class HocuspocusCollaborationServer {
   private server: Hocuspocus;
@@ -223,6 +273,21 @@ export class HocuspocusCollaborationServer {
               }
             }
 
+            // ── ROOT-CAUSE FIX: never serve duplicated content ──────────────
+            // The DB may already hold a corrupted (duplicated) document from a
+            // previous session where the Yjs doc accumulated repetition. If we
+            // convert that duplication into the Yjs doc here, every connected
+            // client receives it AND it gets re-persisted on the next store,
+            // creating a self-sustaining corruption loop. Collapse whole-document
+            // repetition before it is ever handed to a client.
+            const loadDedupe = dedupeTiptapContent(content);
+            if (loadDedupe.removed > 0) {
+              logger.warn(
+                `[HP] Collapsed ${loadDedupe.removed} duplicate top-level nodes from DB content for ${projectId} before serving (repetitions: ${loadDedupe.repetitions})`,
+              );
+              content = loadDedupe.content;
+            }
+
             // CRITICAL DIAGNOSTIC: Check for duplicate content in database
             const contentStr = JSON.stringify(content);
             const contentObj = typeof content === "string" ? JSON.parse(content) : content;
@@ -295,9 +360,23 @@ export class HocuspocusCollaborationServer {
 
           // Use TiptapTransformer to correctly serialize Yjs document to Tiptap JSON
           const extensions = self.getExtensions();
-          const content = TiptapTransformer.extensions(
+          let content: any = TiptapTransformer.extensions(
             extensions as any,
           ).fromYdoc(document, "default");
+
+          // ── Defense against duplicated content ──────────────────────────────
+          // If the Yjs document somehow accumulated duplicated content (e.g. a
+          // client reconnect race), never persist the duplication. Detect and
+          // collapse it before writing to the database so the corruption does
+          // not get stored and re-served on the next load.
+          const dedupeResult = dedupeTiptapContent(content);
+          if (dedupeResult.removed > 0) {
+            logger.warn(
+              `[HP] Removed ${dedupeResult.removed} duplicate top-level nodes before storing ${projectId}`,
+              { projectId, repetitions: dedupeResult.repetitions },
+            );
+            content = dedupeResult.content;
+          }
 
           logger.info(`Attempting to store document ${projectId}`, {
             documentName,
@@ -620,12 +699,7 @@ export class HocuspocusCollaborationServer {
             });
 
             logger.info("Sending AUTH_REQUIRED response to client");
-            const authRequiredError = new Error(
-              "AUTH_REQUIRED: No authentication token provided. Please ensure you are logged in and have a valid session.",
-            );
-            (authRequiredError as any).code = "AUTH_REQUIRED";
-            (authRequiredError as any).reason = "AUTH_REQUIRED";
-            throw authRequiredError;
+            throw new Unauthorized({ reason: "AUTH_REQUIRED" });
           }
 
           let userRecord: any;
@@ -671,17 +745,10 @@ export class HocuspocusCollaborationServer {
                   },
                 );
 
-                const tokenExpiredError = new Error(
-                  "TOKEN_EXPIRED: Authentication token has expired",
-                );
-                (tokenExpiredError as any).code = "TOKEN_EXPIRED";
-                (tokenExpiredError as any).reason = "TOKEN_EXPIRED";
-                throw tokenExpiredError;
+                throw new Unauthorized({ reason: "TOKEN_EXPIRED" });
               }
 
-              throw new Error(
-                `Authentication failed: ${error?.message || "Unknown error"}`,
-              );
+              throw new Unauthorized({ reason: "AUTH_FAILED" });
             }
 
             userRecord = userData.user;
@@ -707,17 +774,10 @@ export class HocuspocusCollaborationServer {
                 },
               );
 
-              const tokenExpiredError = new Error(
-                "TOKEN_EXPIRED: Authentication token has expired",
-              );
-              (tokenExpiredError as any).code = "TOKEN_EXPIRED";
-              (tokenExpiredError as any).reason = "TOKEN_EXPIRED";
-              throw tokenExpiredError;
+              throw new Unauthorized({ reason: "TOKEN_EXPIRED" });
             }
 
-            throw new Error(
-              `Authentication failed: ${(error as Error).message}`,
-            );
+              throw new Unauthorized({ reason: "AUTH_FAILED" });
           }
 
           if (!userRecord) {
@@ -725,7 +785,7 @@ export class HocuspocusCollaborationServer {
               documentName,
               timestamp: new Date().toISOString(),
             });
-            throw new Error("Authentication failed: No user found");
+            throw new Unauthorized({ reason: "NO_USER" });
           }
 
           // Extract project or workspace ID from document name
@@ -737,7 +797,7 @@ export class HocuspocusCollaborationServer {
               documentName,
               timestamp: new Date().toISOString(),
             });
-            throw new Error("Invalid document name format");
+              throw new Unauthorized({ reason: "INVALID_DOCUMENT" });
           }
 
           let authenticatedId = "";
@@ -763,24 +823,22 @@ export class HocuspocusCollaborationServer {
                 },
               });
 
-              if (!project) {
-                logger.warn("User access denied to project", {
-                  documentName,
-                  userId: userRecord.id,
-                  projectId: authenticatedId,
-                  timestamp: new Date().toISOString(),
-                });
-                throw new Error(
-                  "Access denied: User does not have permission to access this document",
-                );
-              }
+                if (!project) {
+                 logger.warn("User access denied to project", {
+                   documentName,
+                   userId: userRecord.id,
+                   projectId: authenticatedId,
+                   timestamp: new Date().toISOString(),
+                 });
+                  throw new Forbidden({ reason: "ACCESS_DENIED" });
+               }
             } catch (dbError) {
               logger.error("Database error during project authentication", {
                 documentName,
                 userId: userRecord.id,
                 error: (dbError as Error).message,
               });
-              throw dbError;
+              throw new Unauthorized({ reason: "DB_ERROR" });
             }
           } else if (workspaceIdMatch) {
             authenticatedId = workspaceIdMatch[1];
@@ -794,24 +852,22 @@ export class HocuspocusCollaborationServer {
                 },
               });
 
-              if (!workspaceMember) {
-                logger.warn("User access denied to workspace", {
-                  documentName,
-                  userId: userRecord.id,
-                  workspaceId: authenticatedId,
-                  timestamp: new Date().toISOString(),
-                });
-                throw new Error(
-                  "Access denied: User is not a member of this workspace",
-                );
-              }
+               if (!workspaceMember) {
+                 logger.warn("User access denied to workspace", {
+                   documentName,
+                   userId: userRecord.id,
+                   workspaceId: authenticatedId,
+                   timestamp: new Date().toISOString(),
+                 });
+                  throw new Forbidden({ reason: "ACCESS_DENIED" });
+               }
             } catch (dbError) {
               logger.error("Database error during workspace authentication", {
                 documentName,
                 userId: userRecord.id,
                 error: (dbError as Error).message,
               });
-              throw dbError;
+              throw new Unauthorized({ reason: "DB_ERROR" });
             }
           }
 
@@ -868,15 +924,17 @@ export class HocuspocusCollaborationServer {
             serverSessionId,
             clientSessionId: parameters?.sessionId || null,
           };
-        } catch (error) {
-          logger.error("Authentication error", {
-            documentName,
-            error: (error as Error).message,
-            stack: (error as Error).stack,
-            timestamp: new Date().toISOString(),
-          });
-          throw error;
-        }
+          } catch (error) {
+            logger.error("Authentication error", {
+              documentName,
+              error: (error as Error).message,
+              stack: (error as Error).stack,
+              timestamp: new Date().toISOString(),
+            });
+            throw new Unauthorized({
+              reason: (error as Error).message || "AUTH_FAILED",
+            });
+          }
       },
 
       async onDisconnect(data: onDisconnectPayload) {
