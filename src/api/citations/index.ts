@@ -20,6 +20,7 @@ import contentScanRouter from "./content-scan";
 import analyzeRouter from "./analyze";
 import batchAnalyzeRouter from "./batch-analyze";
 import forensicAuditRouter from "./forensic-audit";
+import pdfAuditRouter from "./pdf-audit";
 
 // Mount sub-routers - Order matters! Static routes must come before dynamic /:projectId routes
 
@@ -28,6 +29,7 @@ router.use("/", searchRouter); // /search
 router.use("/", batchAnalyzeRouter); // /batch-analyze
 router.use("/", forensicAuditRouter); // /forensic-audit
 router.use("/", missingLinkRouter); // /find-missing-link
+router.use("/", pdfAuditRouter); // /audit/pdf
 router.use("/", auditRouter); // /audit
 router.use("/", credibilityRouter); // /credibility-score, /batch-credibility
 router.use("/", intentRouter); // /batch-classify-intents (and /:citationId/classify-intent)

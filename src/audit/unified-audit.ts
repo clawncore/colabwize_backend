@@ -15,12 +15,7 @@
 import { v4 as uuidv4 } from "uuid";
 
 import { AuditJob, AuditContext, AuditReport } from "./types";
-import { ExtractStage } from "./stages/extract";
-import { VerificationStage } from "./stages/verification";
-import { DuplicateCheckStage } from "./stages/duplicateCheck";
-import { UrlCheckStage } from "./stages/urlCheck";
-import { StyleCheckStage } from "./stages/styleCheck";
-import { ScoreStage } from "./stages/score";
+import { ALL_STAGES } from "./stages";
 
 import { RiskAnalysisService } from "../services/citationAudit/riskAnalysisService";
 import { CitationPatternObserver } from "../services/citationAudit/CitationPatternObserver";
@@ -68,14 +63,7 @@ export interface UnifiedAuditReport {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-const PIPELINE_STAGES = [
-    ExtractStage,
-    VerificationStage,
-    DuplicateCheckStage,
-    UrlCheckStage,
-    StyleCheckStage,
-    ScoreStage,
-];
+const PIPELINE_STAGES = ALL_STAGES;
 
 /**
  * Creates a minimal AuditJob / AuditContext pair for the pipeline stages to
