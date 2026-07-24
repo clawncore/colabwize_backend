@@ -109,11 +109,20 @@ const isLeafNode = (type: string | undefined): boolean =>
  * Stage 1: Extraction
  * Parses the ProseMirror JSON tree and extracts structured citations,
  * citation marks, manually typed citations, and bibliography entries.
+ *
+ * If a previous stage (e.g. GROBID_PARSE) has already populated
+ * context.citations and context.bibliography, this stage skips
+ * its own extraction and preserves the pre-populated data.
  */
 export const ExtractStage: AuditPipelineStage = {
     name: "EXTRACTION",
     weight: 10,
     execute: async (job: AuditJob, context: AuditContext) => {
+        if (context.citations.length > 0 || context.bibliography.length > 0) {
+            console.log(`[Stage] EXTRACTION: Data already populated (${context.citations.length} citations, ${context.bibliography.length} refs) — skipping.`);
+            return;
+        }
+
         const doc = context.docState as ProseMirrorNode | null;
         if (!doc || !Array.isArray(doc.content)) {
             throw new Error("Invalid Document State. Missing content array.");

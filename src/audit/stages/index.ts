@@ -4,12 +4,18 @@ import { DuplicateCheckStage } from "./duplicateCheck";
 import { UrlCheckStage } from "./urlCheck";
 import { StyleCheckStage } from "./styleCheck";
 import { ScoreStage } from "./score";
+import { RetractionCheckStage } from "./retractionCheck";
+import { CitationRoleStage } from "./citationRole";
+import { GrobidParseStage } from "./grobidParse";
 
 export const ALL_STAGES = [
+    GrobidParseStage,
     ExtractStage,
-    VerificationStage, // Replaces naive MapStage
+    VerificationStage,
+    RetractionCheckStage,
     DuplicateCheckStage,
     UrlCheckStage,
     StyleCheckStage,
+    CitationRoleStage,
     ScoreStage
 ];
