@@ -4,6 +4,9 @@ import { EmailService } from "./emailService";
 import logger from "../monitoring/logger";
 import { SecretsService } from "./secrets-service";
 import { EntitlementService } from "./EntitlementService";
+import { SecurityService } from "./securityService";
+import { detectBrowser, detectDeviceType, formatIpAddress } from "../utils/browserDetection";
+import { getLocationFromIp, getPublicIp } from "../utils/ipGeolocation";
 
 /**
  * Service for Hybrid Authentication (Supabase + Custom Backend)
@@ -715,6 +718,48 @@ export class HybridAuthService {
       } catch (error) {
         logger.error(`Error during admin promotion for ${email}`, { error });
       }
+    }
+  }
+
+  static async recordLogin(userId: string, ipAddress: string, userAgent: string) {
+    try {
+      let formattedIp = formatIpAddress(null, ipAddress);
+      if (formattedIp === "127.0.0.1" || formattedIp === "::1") {
+        const publicIp = await getPublicIp();
+        if (publicIp) formattedIp = publicIp;
+      }
+      const location = await getLocationFromIp(formattedIp);
+      const browserInfo = detectBrowser(userAgent);
+      const deviceInfo = detectDeviceType(userAgent);
+
+      await prisma.userSession.updateMany({
+        where: { user_id: userId, is_current: true },
+        data: { is_current: false },
+      });
+
+      await prisma.userSession.create({
+        data: {
+          user_id: userId,
+          session_id: crypto.randomUUID(),
+          device_info: userAgent,
+          browser: browserInfo.browser,
+          device_type: deviceInfo.deviceType,
+          ip_address: formattedIp,
+          location,
+          last_active: new Date(),
+          is_current: true,
+        },
+      });
+
+      await SecurityService.recordLoginAttempt(
+        userId,
+        formattedIp,
+        userAgent,
+        location || "Unknown",
+        "success",
+      );
+    } catch (error: any) {
+      logger.error("Failed to record login", { error: error.message, userId });
     }
   }
 }

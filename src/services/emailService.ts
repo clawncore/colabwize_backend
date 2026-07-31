@@ -35,6 +35,8 @@ export class EmailService {
   static sendAnalyticsReportEmail = notificationEmails.sendAnalyticsReportEmail;
   static sendInstitutionalPlanRequestEmail = notificationEmails.sendInstitutionalPlanRequestEmail;
   static sendCertificateExpirationWarningEmail = notificationEmails.sendCertificateExpirationWarningEmail;
+  static sendUnusualLoginAlertEmail = notificationEmails.sendUnusualLoginAlertEmail;
+  static sendNewDeviceLoginEmail = notificationEmails.sendNewDeviceLoginEmail;
 
   /**
    * Billing Emails

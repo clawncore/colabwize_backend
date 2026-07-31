@@ -1,107 +1,94 @@
-import { AnthropicService } from "./anthropicService";
-import { OpenAIService } from "./openaiService";
+const { compareTwoStrings } = require("string-similarity");
 import logger from "../monitoring/logger";
-import { ADVERSARIAL_SYSTEM_PROMPT, constructHumanizeUserPrompt } from "../prompts/adversarialPrompt";
 
 interface HumanizationResult {
     variations: string[];
-    provider: "anthropic" | "openai";
+    provider: "local";
 }
+
+const SYNONYMS: Record<string, string[]> = {
+    important: ["significant", "crucial", "vital", "essential", "key"],
+    analyze: ["examine", "investigate", "study", "evaluate", "assess"],
+    demonstrate: ["show", "illustrate", "prove", "exhibit", "reveal"],
+    significant: ["substantial", "considerable", "notable", "meaningful"],
+    research: ["study", "investigation", "enquiry", "exploration"],
+    therefore: ["thus", "consequently", "accordingly", "hence"],
+    however: ["nevertheless", "nonetheless", "yet", "although"],
+    moreover: ["furthermore", "additionally", "besides"],
+    conclude: ["deduce", "infer", "determine", "summarize"],
+    use: ["utilize", "employ", "apply", "leverage"],
+    show: ["indicate", "demonstrate", "reveal", "illustrate"],
+    change: ["transform", "modify", "alter", "adjust"],
+    help: ["facilitate", "assist", "enable", "support"],
+    get: ["obtain", "acquire", "secure", "attain"],
+    make: ["create", "produce", "construct", "generate"],
+};
+
+const PHRASES: Record<string, string> = {
+    "in conclusion": "to conclude",
+    "on the other hand": "alternatively",
+    "as a result": "consequently",
+    "due to": "owing to",
+    "in addition": "furthermore",
+    "for example": "for instance",
+    "according to": "as stated by",
+    "in other words": "that is to say",
+    "a lot of": "numerous",
+    "because of": "on account of",
+};
 
 export class HumanizerService {
-    /**
-     * Humanize text using Dual-Engine Architecture
-     * Primary: Anthropic (Claude 3.5 Sonnet) - Best for evasion
-     * Fallback: OpenAI (GPT-4o) - Reliable backup
-     */
     static async humanizeText(text: string): Promise<HumanizationResult> {
-        // 1. Attempt Primary (Anthropic)
-        try {
-            logger.info("Attempting humanization with Anthropic...");
-            const result = await AnthropicService.humanizeText(text);
+        const variations: string[] = [];
 
-            // Expected format: JSON array of strings
-            try {
-                let cleanResult = result.trim();
-                if (cleanResult.startsWith("```json")) {
-                    cleanResult = cleanResult.replace(/```json\n?/, "").replace(/\n?```/, "");
-                } else if (cleanResult.startsWith("```")) {
-                    cleanResult = cleanResult.replace(/```\n?/, "").replace(/\n?```/, "");
-                }
+        const v1 = this.replaceSynonyms(text);
+        if (v1 !== text) variations.push(v1);
 
-                const variations = JSON.parse(cleanResult);
-                if (Array.isArray(variations)) {
-                    return {
-                        variations,
-                        provider: "anthropic"
-                    };
-                }
-            } catch (pE) {
-                logger.warn("Failed to parse Anthropic JSON, returning as single variation", { response: result });
-            }
+        const v2 = this.replacePhrases(text);
+        if (v2 !== text && !this.isTooSimilar(variations, v2)) variations.push(v2);
 
-            return {
-                variations: [result],
-                provider: "anthropic"
-            };
-        } catch (anthropicError: any) {
-            logger.warn("Anthropic Humanization failed, attempting fallback to OpenAI", { error: anthropicError.message });
+        const v3 = text
+            .replace(/\bi\b/g, "one")
+            .replace(/\byou\b/g, "one")
+            .replace(/\bwe\b/g, "researchers")
+            .replace(/\bthink\b/g, "consider")
+            .replace(/\bsay\b/g, "suggest")
+            .replace(/\bseems\b/g, "appears");
+        if (v3 !== text && !this.isTooSimilar(variations, v3)) variations.push(v3);
+
+        if (variations.length === 0) {
+            variations.push(text);
         }
 
-        // 2. Attempt Fallback (OpenAI)
-        try {
-            logger.info("Attempting humanization with OpenAI (Fallback)...");
-
-            const combinedPrompt = `
-SYSTEM INSTRUCTIONS:
-${ADVERSARIAL_SYSTEM_PROMPT}
-
-USER REQUEST:
-${constructHumanizeUserPrompt(text)}
-`;
-
-            const result = await OpenAIService.generateCompletion(combinedPrompt, {
-                model: "gpt-3.5-turbo", // Use GPT-3.5-turbo for wider compatibility
-                maxTokens: 2000,
-                temperature: 0.7
-            });
-
-            try {
-                let cleanResult = result.trim();
-                if (cleanResult.startsWith("```json")) {
-                    cleanResult = cleanResult.replace(/```json\n?/, "").replace(/\n?```/, "");
-                } else if (cleanResult.startsWith("```")) {
-                    cleanResult = cleanResult.replace(/```\n?/, "").replace(/\n?```/, "");
-                }
-
-                const variations = JSON.parse(cleanResult);
-                if (Array.isArray(variations)) {
-                    return {
-                        variations,
-                        provider: "openai"
-                    };
-                }
-            } catch (pE) {
-                logger.warn("Failed to parse OpenAI JSON, returning as single variation", { response: result });
-            }
-
-            return {
-                variations: [result],
-                provider: "openai"
-            };
-
-        } catch (openaiError: any) {
-            logger.error("All humanization providers failed", { openaiError: openaiError.message });
-            throw new Error("Failed to humanize text. Please try again later.");
-        }
+        return { variations: variations.slice(0, 3), provider: "local" };
     }
 
-    /**
-     * In-Line Rewrite: Humanize a specific selection while preserving context
-     * Used for the editor's "Humanize This" tooltip.
-     */
-    static async rewriteSelection(selection: string, surroundingContext?: string): Promise<HumanizationResult> {
+    static async rewriteSelection(selection: string, _surroundingContext?: string): Promise<HumanizationResult> {
         return this.humanizeText(selection);
     }
-}
 
+    private static replaceSynonyms(text: string): string {
+        let result = text;
+        for (const [word, replacements] of Object.entries(SYNONYMS)) {
+            const regex = new RegExp("\\b" + word + "\\b", "gi");
+            result = result.replace(regex, replacements[0]);
+        }
+        return result;
+    }
+
+    private static replacePhrases(text: string): string {
+        let result = text;
+        for (const [phrase, replacement] of Object.entries(PHRASES)) {
+            const regex = new RegExp(phrase, "gi");
+            result = result.replace(regex, replacement);
+        }
+        return result;
+    }
+
+    private static isTooSimilar(suggestions: string[], candidate: string): boolean {
+        for (const s of suggestions) {
+            if (compareTwoStrings(s, candidate) > 0.85) return true;
+        }
+        return false;
+    }
+}

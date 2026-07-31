@@ -132,6 +132,12 @@ router.put("/signin", async (req, res) => {
         });
       }
 
+      const ip = req.headers["x-forwarded-for"] as string || req.ip || "";
+      const userAgent = req.headers["user-agent"] || "";
+      if (result.user) {
+        await HybridAuthService.recordLogin(result.user.id, ip, userAgent);
+      }
+
       return res.status(200).json(result);
     } else {
       console.warn("Hybrid signin failed:", result.error);
@@ -165,13 +171,12 @@ router.post("/verify-2fa", async (req, res) => {
     const isValid = await TwoFactorService.validateLogin(userId, token);
 
     if (isValid) {
-      // Fetch fresh user data to return, similar to syncUserSession
-      // We can reuse a service method or just return basic success
-      // Ideally we return the full user object expected by frontend
+      const ip = req.headers["x-forwarded-for"] as string || req.ip || "";
+      const userAgent = req.headers["user-agent"] || "";
+      await HybridAuthService.recordLogin(userId, ip, userAgent);
       return res.status(200).json({
         success: true,
         message: "2FA verified",
-        // We assume user is already synced via the initial signin call
       });
     } else {
       return res.status(401).json({ success: false, message: "Invalid authentication code" });

@@ -27,6 +27,7 @@ import { scheduleTaskReminderTask } from "../scheduledTasks/taskReminderTask";
 import { scheduleInboxWorkerTask } from "../scheduledTasks/inboxWorker";
 import { scheduleActivityCleanupTask } from "../scheduledTasks/activityCleanupTask";
 import grammarRouter from "../api/grammar/index";
+import demoRouter from "../api/demo/index";
 // Import collaboration server
 import { HocuspocusCollaborationServer } from "./websockets/hocuspocus-server";
 
@@ -351,6 +352,9 @@ const authMiddleware = authenticateExpressRequest;
 
 // Auth API (No authentication required for login/register)
 app.use("/api/auth", authLimiter, authRouter);
+
+// Public Demo API (No authentication required)
+app.use("/api/demo", demoRouter);
 
 // AI Grammar Checker API
 app.use("/api/grammar", authMiddleware, grammarRouter);

@@ -1,140 +1,124 @@
 import { Router } from "express";
-import TeamChatService from "../../services/teamChatService";
 import { authenticateExpressRequest } from "../../middleware/auth";
+import { CommentService } from "../../services/teamChatService";
 
-const router = Router();
+const router: Router = Router();
 
-// GET /api/team-chat - Fetch messages
-router.get("/", authenticateExpressRequest, async (req: any, res) => {
+interface AuthRequest {
+  user?: { id: string; email?: string };
+  [key: string]: any;
+}
+
+router.get("/", authenticateExpressRequest, async (req: AuthRequest, res) => {
   try {
-    const workspaceId = (req.query.workspaceId as string) || undefined;
-    const projectId = (req.query.projectId as string) || undefined;
-    const parentId = (req.query.parentId as string) || undefined;
-    const limit = parseInt((req.query.limit as string) || "50");
-    const offset = parseInt((req.query.offset as string) || "0");
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
 
-    const messages = await TeamChatService.getMessages(
-      {
-        workspaceId,
-        projectId,
-        parentId,
-      },
-      limit,
-      offset,
+    const { workspaceId, projectId, parentId, limit, offset } = req.query as any;
+
+    const messages = await CommentService.getMessages(
+      { workspaceId, projectId, parentId },
+      limit ? parseInt(limit) : 50,
+      offset ? parseInt(offset) : 0,
     );
 
-    res.status(200).json({ messages });
+    return res.json({ success: true, messages });
   } catch (error: any) {
-    console.error("Error in Team Chat GET:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    console.error("Error fetching messages:", error);
+    return res.status(500).json({ error: error.message || "Internal server error" });
   }
 });
 
-// POST /api/team-chat - Send a message
-router.post("/", authenticateExpressRequest, async (req: any, res) => {
+router.get("/thread/:parentId", authenticateExpressRequest, async (req: AuthRequest, res) => {
   try {
-    const { content, workspaceId, projectId, parentId } = req.body;
     const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+    const { parentId } = req.params;
+    const messages = await CommentService.getThreadMessages(parentId);
+
+    return res.json({ success: true, messages });
+  } catch (error: any) {
+    console.error("Error fetching thread:", error);
+    return res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
+router.post("/", authenticateExpressRequest, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+    const { content, workspaceId, projectId, parentId } = req.body;
 
     if (!content) {
       return res.status(400).json({ error: "Content is required" });
     }
 
-    const message = await TeamChatService.sendMessage(userId, content, {
+    const message = await CommentService.sendMessage(userId, content, {
       workspaceId,
       projectId,
       parentId,
     });
 
-    res.status(201).json({ message });
+    return res.status(201).json({ success: true, message });
   } catch (error: any) {
-    console.error("Error in Team Chat POST:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    console.error("Error sending message:", error);
+    return res.status(500).json({ error: error.message || "Internal server error" });
   }
 });
 
-// DELETE /api/team-chat/clear - Clear all messages in a workspace or project
-router.delete("/clear", authenticateExpressRequest, async (req: any, res) => {
+router.patch("/:id", authenticateExpressRequest, async (req: AuthRequest, res) => {
   try {
     const userId = req.user?.id;
-    const { workspaceId, projectId } = req.query;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    if (!workspaceId && !projectId) {
-      return res
-        .status(400)
-        .json({ error: "Workspace or Project ID is required" });
-    }
-
-    const { count } = await TeamChatService.clearChat(
-      {
-        workspaceId: workspaceId as string,
-        projectId: projectId as string,
-      },
-      userId,
-    );
-
-    res.status(200).json({ success: true, count });
-  } catch (error: any) {
-    console.error("Error in Team Chat CLEAR:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
-
-// DELETE /api/team-chat - Delete a message
-router.delete("/", authenticateExpressRequest, async (req: any, res) => {
-  try {
-    const messageId = req.query.id as string;
-    const userId = req.user?.id;
-
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    if (!messageId) {
-      return res.status(400).json({ error: "Message ID is required" });
-    }
-
-    await TeamChatService.deleteMessage(messageId, userId);
-
-    res.status(200).json({ success: true });
-  } catch (error: any) {
-    console.error("Error in Team Chat DELETE:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
-  }
-});
-
-// PATCH /api/team-chat/:id - Edit a message
-router.patch("/:id", authenticateExpressRequest, async (req: any, res) => {
-  try {
     const { id } = req.params;
     const { content } = req.body;
-    const userId = req.user?.id;
-
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
 
     if (!content) {
       return res.status(400).json({ error: "Content is required" });
     }
 
-    // Since TeamChatService.ts doesn't have a direct editMessage method yet, 
-    // we'll use deleteMessage as a reference and implement the update directly or add it to service.
-    // I will add updateMessage to TeamChatService.
-    const message = await TeamChatService.updateMessage(id, userId, content);
-
-    res.status(200).json({ message });
+    const updated = await CommentService.updateMessage(id, userId, content);
+    return res.json({ success: true, message: updated });
   } catch (error: any) {
-    console.error("Error in Team Chat PATCH:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    console.error("Error updating message:", error);
+    return res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
+router.patch("/:id/status", authenticateExpressRequest, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status || !["active", "resolved"].includes(status)) {
+      return res.status(400).json({ error: "Status must be 'active' or 'resolved'" });
+    }
+
+    const updated = await CommentService.updateMessageStatus(id, userId, status);
+    return res.json({ success: true, message: updated });
+  } catch (error: any) {
+    console.error("Error updating message status:", error);
+    return res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
+router.delete("/:id", authenticateExpressRequest, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+    const { id } = req.params;
+    const result = await CommentService.deleteMessage(id, userId);
+    return res.json(result);
+  } catch (error: any) {
+    console.error("Error deleting message:", error);
+    return res.status(500).json({ error: error.message || "Internal server error" });
   }
 });
 

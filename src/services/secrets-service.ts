@@ -17,12 +17,10 @@ export class SecretsService {
       // Note: This requires DATABASE_URL to be set in environment
       try {
         // Run raw query to fetch from vault.decrypted_secrets view
-        // We use queryRawUnsafe because key mapping might vary or we want simple array
         const prismaClient = await initializePrisma();
-        const result = (await prismaClient.$queryRawUnsafe(
-          `SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = $1 LIMIT 1`,
-          name,
-        )) as any[];
+        const result = (await prismaClient.$queryRaw`
+          SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ${name} LIMIT 1
+        `) as any[];
 
         if (result && result.length > 0 && result[0].decrypted_secret) {
           logger.debug(`Retrieved secret ${name} from Supabase Vault`);

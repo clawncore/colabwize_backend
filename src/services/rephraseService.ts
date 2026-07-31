@@ -1,6 +1,5 @@
 import { prisma } from "../lib/prisma";
 import logger from "../monitoring/logger";
-import { OpenAIService } from "./openaiService";
 import { compareTwoStrings } from "string-similarity";
 import { AbuseGuard, RephraseMode } from "./AbuseGuard";
 
@@ -167,45 +166,13 @@ export class RephraseService {
   }
 
   /**
-   * Generate AI-powered rephrase suggestions with Mode support
+   * Generate rephrase suggestions using local linguistic transformations only.
    */
   private static async generateAIRephrases(
     originalText: string,
-    mode: RephraseMode
+    _mode: RephraseMode
   ): Promise<string[]> {
-    try {
-      // 1. QUICK / LOCAL Mode
-      if (mode === RephraseMode.QUICK) {
-        return this.generateLocalRephrases(originalText);
-      }
-
-      // 2. ACADEMIC / DEEP Mode
-      // First, establish local baseline
-      const localSuggestions = this.generateLocalRephrases(originalText);
-
-      const prompt = mode === RephraseMode.DEEP
-        ? `Critically analyze and rewrite the following text to substantially improve its academic rigor, clarity, and flow. Use sophisticated vocabulary and varied sentence structure. Return 3 distinct versions numbered 1-3:\n\nOriginal: "${originalText}"\n\nVersions:`
-        : `Rewrite the following text to improve clarity and academic tone. Return 3 numbered versions:\n\nOriginal: "${originalText}"\n\nVersions:`;
-
-      const response = await OpenAIService.generateCompletion(prompt, {
-        maxTokens: mode === RephraseMode.DEEP ? 500 : 300,
-        temperature: mode === RephraseMode.DEEP ? 0.8 : 0.7,
-        model: mode === RephraseMode.DEEP ? "gpt-4" : "gpt-3.5-turbo" // Hypothetical model switch
-      });
-
-      const aiSuggestions = this.parseSuggestions(response);
-
-      // Combine: 1 Local + AI suggestions
-      // We prioritize AI in Deep/Academic modes but keep one local as a "conservative" option if possible
-      const combined = [...localSuggestions.slice(0, 1), ...aiSuggestions];
-
-      return combined.slice(0, 5); // Return max 5
-
-    } catch (error: any) {
-      logger.error("Error generating AI rephrases", { error: error.message });
-      // Fallback
-      return this.generateLocalRephrases(originalText);
-    }
+    return this.generateLocalRephrases(originalText);
   }
 
   /**
