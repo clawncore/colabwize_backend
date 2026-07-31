@@ -1,8 +1,0 @@
-﻿--- Starting Manual IMAP Sync Test ---
-[32minfo[39m: [InboxFetcher] Starting sync attempt for clawncore@colabwize.com on imap.secureserver.net... {"service":"colabwize","timestamp":"2026-03-18 19:41:56"}
-≡ƒöì [DNS] Resolving IPv4 for aws-1-us-east-1.pooler.supabase.com...
-Γ£à [DNS] Resolved aws-1-us-east-1.pooler.supabase.com -> 18.214.78.123 (IPv4). Keeping hostname for SNI.
-[32minfo[39m: Async Database Connection Details: {"database":"/postgres","host":"aws-1-us-east-1.pooler.supabase.com","params":{"pgbouncer":"true"},"poolerMode":"Transaction","port":"6543","service":"colabwize","timestamp":"2026-03-18 19:41:56"}
-DEBUG: Configured Prisma with URL: postgresql://postgres.xkfyhlqncoyxotyivomp:****@aws-1-us-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslaccept=accept_invalid_certs&connection_limit=20&pool_timeout=60&connect_timeout=30
-[31merror[39m: read ECONNRESET {"service":"colabwize","stack":"Error: read ECONNRESET\n    at TLSWrap.onStreamRead (node:internal/stream_base_commons:216:20)","timestamp":"2026-03-18 19:41:56"}
---- Manual IMAP Sync Test Finished ---

@@ -1,7 +1,7 @@
-import prisma from "../lib/prisma";
 import logger from "../monitoring/logger";
-import { createNotification } from "./notificationService";
+import { prisma } from "../lib/prisma";
 import { getNotificationServer } from "../lib/notificationServer";
+import { createNotification } from "./notificationService";
 
 export interface TeamChatFilter {
   workspaceId?: string;
@@ -9,24 +9,22 @@ export interface TeamChatFilter {
   parentId?: string;
 }
 
-export class TeamChatService {
-  /**
-   * Fetch messages with basic threading support
-   */
-  static async getMessages(filter: TeamChatFilter, limit = 50, offset = 0) {
+export class CommentService {
+  static async getMessages(
+    filter: TeamChatFilter,
+    limit = 50,
+    offset = 0,
+  ) {
     try {
-      const where: any = {
-        workspace_id: filter.workspaceId,
-        project_id: filter.projectId,
-      };
-
-      // Only filter by parent_id if explicitly requested
-      if (filter.parentId !== undefined) {
-        where.parent_id = filter.parentId || null;
-      }
+      const where: any = {};
+      if (filter.workspaceId) where.workspace_id = filter.workspaceId;
+      if (filter.projectId) where.project_id = filter.projectId;
 
       const messages = await prisma.teamChatMessage.findMany({
         where,
+        orderBy: { created_at: "desc" },
+        take: limit,
+        skip: offset,
         include: {
           user: {
             select: {
@@ -37,7 +35,9 @@ export class TeamChatService {
             },
           },
           parent: {
-            include: {
+            select: {
+              id: true,
+              content: true,
               user: {
                 select: {
                   id: true,
@@ -49,42 +49,69 @@ export class TeamChatService {
             },
           },
           _count: {
-            select: { 
+            select: {
               replies: true,
-              read_by: true
+              read_by: true,
             },
           },
         },
-        orderBy: {
-          created_at: "asc",
-        },
-        take: limit,
-        skip: offset,
       });
 
       return messages;
     } catch (error) {
-      logger.error("Error fetching chat messages:", error);
-      throw error;
+      logger.error("Error fetching messages:", error);
+      throw new Error("Failed to fetch messages");
     }
   }
 
-  /**
-   * Send a new message
-   */
+  static async getThreadMessages(parentId: string) {
+    try {
+      const messages = await prisma.teamChatMessage.findMany({
+        where: { parent_id: parentId },
+        orderBy: { created_at: "asc" },
+        include: {
+          user: {
+            select: {
+              id: true,
+              full_name: true,
+              email: true,
+              avatar_url: true,
+            },
+          },
+          _count: {
+            select: {
+              replies: true,
+              read_by: true,
+            },
+          },
+        },
+      });
+      return messages;
+    } catch (error) {
+      logger.error("Error fetching thread messages:", error);
+      throw new Error("Failed to fetch thread messages");
+    }
+  }
+
   static async sendMessage(
     userId: string,
     content: string,
     filter: TeamChatFilter,
   ) {
     try {
+      if (!content.trim()) throw new Error("Message content is required");
+
+      if (!filter.workspaceId && !filter.projectId) {
+        throw new Error("workspaceId or projectId is required");
+      }
+
       const message = await prisma.teamChatMessage.create({
         data: {
           user_id: userId,
-          content,
-          workspace_id: filter.workspaceId,
-          project_id: filter.projectId,
-          parent_id: filter.parentId,
+          content: content.trim(),
+          workspace_id: filter.workspaceId || null,
+          project_id: filter.projectId || null,
+          parent_id: filter.parentId || null,
         },
         include: {
           user: {
@@ -96,7 +123,9 @@ export class TeamChatService {
             },
           },
           parent: {
-            include: {
+            select: {
+              id: true,
+              content: true,
               user: {
                 select: {
                   id: true,
@@ -110,314 +139,222 @@ export class TeamChatService {
         },
       });
 
-      logger.info(`[CHAT] Message sent successfully: ${message.id}`, {
-        userId,
-        workspaceId: filter.workspaceId,
-        projectId: filter.projectId,
-        contentLength: content.length,
-      });
-
-      // 1. Handle @mentions (existing logic)
-      const mentionRegex = /@\[([^\]]+)\]\(([^)]+)\)/g;
-      const mentions = [];
-      let match;
-
-      while ((match = mentionRegex.exec(content)) !== null) {
-        mentions.push({ name: match[1], id: match[2] });
-      }
-
-      const sender = message.user;
-      const contextName = filter.workspaceId
-        ? "workspace chat"
-        : "project chat";
-
+      const mentions = this.extractMentions(content);
       if (mentions.length > 0) {
-        // Notify each mentioned user
-        for (const mention of mentions) {
-          if (mention.id === userId) continue; // Don't notify self
-
-          await createNotification(
-            mention.id,
-            "mention",
-            `New mention in ${contextName}`,
-            `${sender.full_name || sender.email} mentioned you: "${content.substring(0, 50)}${content.length > 50 ? "..." : ""}"`,
-            {
-              workspaceId: filter.workspaceId,
-              projectId: filter.projectId,
-              messageId: message.id,
-              senderId: userId,
-              encryptedContent: content,
-            },
-          );
-        }
-      }
-
-      // 2. Notify other members of the workspace/project who were NOT mentioned
-      // We need to fetch members first
-      try {
-        let memberIds: string[] = [];
-
-        if (filter.workspaceId) {
-          const workspaceMembers = await prisma.workspaceMember.findMany({
-            where: { workspace_id: filter.workspaceId },
-            select: { user_id: true },
-          });
-          memberIds = workspaceMembers.map((m: any) => m.user_id);
-        } else if (filter.projectId) {
-          const projectCollaborators =
-            await prisma.projectCollaborator.findMany({
-              where: { project_id: filter.projectId },
-              select: { user_id: true },
-            });
-          memberIds = projectCollaborators.map((c: any) => c.user_id);
-
-          // Also include project owner
-          const project = await prisma.project.findUnique({
-            where: { id: filter.projectId },
-            select: { user_id: true },
-          });
-          if (project) memberIds.push(project.user_id);
-        }
-
-        const mentionedIds = new Set(mentions.map((m) => m.id));
-        const membersToNotify = memberIds.filter(
-          (id) => id !== userId && !mentionedIds.has(id),
-        );
-
-        for (const targetUserId of membersToNotify) {
-          await createNotification(
-            targetUserId,
-            "comment", // Using comment type for general messages
-            `New message in ${contextName}`,
-            `${sender.full_name || sender.email}: "${content.substring(0, 50)}${content.length > 50 ? "..." : ""}"`,
-            {
-              workspaceId: filter.workspaceId,
-              projectId: filter.projectId,
-              messageId: message.id,
-              senderId: userId,
-              isGeneralChat: true,
-              encryptedContent: content,
-            },
-          );
-        }
-      } catch (notifyError) {
-        logger.error("Error sending general chat notifications:", notifyError);
-        // Don't throw, we don't want to break message sending if notifications fail
-      }
-
-      // Broadcast to custom WebSocket for real-time chat sync
-      try {
-        const { getNotificationServer } =
-          await import("../lib/notificationServer.js");
-        const channelName = `team-chat-${filter.workspaceId || filter.projectId}`;
-        getNotificationServer().broadcastToChannel(channelName, {
-          type: "NEW_MESSAGE",
-          message: message,
+        const mentionedUsers = await prisma.user.findMany({
+          where: { id: { in: mentions } },
+          select: { id: true, email: true },
         });
-        logger.info(`Broadcasted NEW_MESSAGE to channel ${channelName}`);
-      } catch (wsError) {
-        logger.error("Error broadcasting chat message via WebSocket:", wsError);
-      }
 
-      return message;
-    } catch (error) {
-      logger.error("Error sending chat message:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Update a message content
-   */
-  static async updateMessage(messageId: string, userId: string, content: string) {
-    try {
-      // Check ownership
-      const existingMessage = await prisma.teamChatMessage.findUnique({
-        where: { id: messageId },
-      });
-
-      if (!existingMessage) {
-        throw new Error("Message not found");
-      }
-
-      if (existingMessage.user_id !== userId) {
-        throw new Error("Unauthorized");
-      }
-
-      const message = await prisma.teamChatMessage.update({
-        where: { id: messageId },
-        data: {
-          content,
-          updated_at: new Date(),
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              full_name: true,
-              email: true,
-              avatar_url: true,
-            },
-          },
-          parent: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  full_name: true,
-                  email: true,
-                  avatar_url: true,
+        for (const mentionedUser of mentionedUsers) {
+          if (mentionedUser.id !== userId) {
+            try {
+              await createNotification({
+                user_id: mentionedUser.id,
+                type: "mention",
+                title: "You were mentioned in a comment",
+                message: content.substring(0, 150),
+                metadata: {
+                  commentId: message.id,
+                  projectId: filter.projectId,
+                  workspaceId: filter.workspaceId,
+                  mentionedBy: userId,
                 },
-              },
-            },
-          },
-        },
-      });
+              });
+            } catch (notifError: any) {
+              logger.error("Failed to create mention notification", {
+                error: notifError.message,
+              });
+            }
+          }
+        }
+      }
 
-      // Broadcast to channel
-      try {
-        const channelName = `team-chat-${message.workspace_id || message.project_id}`;
-        getNotificationServer().broadcastToChannel(channelName, {
-          type: "MESSAGE_UPDATED",
-          message: message,
+      if (filter.parentId) {
+        const parentMessage = await prisma.teamChatMessage.findUnique({
+          where: { id: filter.parentId },
+          select: { user_id: true },
         });
-      } catch (e) {
-        logger.error("Error broadcasting update:", e);
+
+        if (parentMessage && parentMessage.user_id !== userId) {
+          try {
+            await createNotification({
+              user_id: parentMessage.user_id,
+              type: "comment",
+              title: "New reply to your comment",
+              message: content.substring(0, 150),
+              metadata: {
+                commentId: message.id,
+                parentId: filter.parentId,
+                projectId: filter.projectId,
+                workspaceId: filter.workspaceId,
+                repliedBy: userId,
+              },
+            });
+          } catch (notifError: any) {
+            logger.error("Failed to create reply notification", {
+              error: notifError.message,
+            });
+          }
+        }
+      }
+
+      const channel = filter.workspaceId
+        ? `team-chat-${filter.workspaceId}`
+        : `team-chat-${filter.projectId}`;
+
+      try {
+        const notificationServer = getNotificationServer();
+        if (notificationServer) {
+          notificationServer.broadcastToChannel(channel, {
+            type: "NEW_MESSAGE",
+            message,
+          });
+        }
+      } catch (wsError: any) {
+        logger.error("WebSocket broadcast failed:", wsError.message);
       }
 
       return message;
-    } catch (error) {
-      logger.error("Error updating chat message:", error);
+    } catch (error: any) {
+      logger.error("Error sending message:", error);
       throw error;
     }
   }
 
-  /**
-   * Delete a message (owner only or admin)
-   */
-  static async deleteMessage(messageId: string, userId: string) {
+  static async updateMessage(
+    messageId: string,
+    userId: string,
+    content: string,
+  ) {
     try {
-      // Check ownership
       const message = await prisma.teamChatMessage.findUnique({
         where: { id: messageId },
       });
+      if (!message) throw new Error("Message not found");
+      if (message.user_id !== userId) throw new Error("Unauthorized");
 
-      if (!message) {
-        throw new Error("Message not found");
-      }
-
-      if (message.user_id !== userId) {
-        throw new Error("Unauthorized");
-      }
-
-      await prisma.teamChatMessage.delete({
+      const updated = await prisma.teamChatMessage.update({
         where: { id: messageId },
+        data: { content: content.trim() },
+        include: {
+          user: {
+            select: {
+              id: true,
+              full_name: true,
+              email: true,
+              avatar_url: true,
+            },
+          },
+        },
       });
 
-      // Broadcast to channel
+      const channel = updated.workspace_id
+        ? `team-chat-${updated.workspace_id}`
+        : `team-chat-${updated.project_id}`;
+
       try {
-        const channelName = `team-chat-${message.workspace_id || message.project_id}`;
-        getNotificationServer().broadcastToChannel(channelName, {
-          type: "MESSAGE_DELETED",
-          messageId: messageId,
-        });
-      } catch (e) {
-        logger.error("Error broadcasting delete:", e);
+        const notificationServer = getNotificationServer();
+        if (notificationServer) {
+          notificationServer.broadcastToChannel(channel, {
+            type: "MESSAGE_UPDATED",
+            message: updated,
+          });
+        }
+      } catch (wsError: any) {
+        logger.error("WebSocket broadcast failed:", wsError.message);
+      }
+
+      return updated;
+    } catch (error: any) {
+      logger.error("Error updating message:", error);
+      throw error;
+    }
+  }
+
+  static async updateMessageStatus(
+    messageId: string,
+    userId: string,
+    status: string,
+  ) {
+    try {
+      const message = await prisma.teamChatMessage.findUnique({
+        where: { id: messageId },
+      });
+      if (!message) throw new Error("Message not found");
+      if (message.user_id !== userId) throw new Error("Unauthorized");
+
+      const updated = await prisma.teamChatMessage.update({
+        where: { id: messageId },
+        data: { status },
+        include: {
+          user: {
+            select: {
+              id: true,
+              full_name: true,
+              email: true,
+              avatar_url: true,
+            },
+          },
+        },
+      });
+
+      const channel = updated.workspace_id
+        ? `team-chat-${updated.workspace_id}`
+        : `team-chat-${updated.project_id}`;
+
+      try {
+        const notificationServer = getNotificationServer();
+        if (notificationServer) {
+          notificationServer.broadcastToChannel(channel, {
+            type: "MESSAGE_STATUS_UPDATED",
+            message: updated,
+          });
+        }
+      } catch (wsError: any) {
+        logger.error("WebSocket broadcast failed:", wsError.message);
+      }
+
+      return updated;
+    } catch (error: any) {
+      logger.error("Error updating message status:", error);
+      throw error;
+    }
+  }
+
+  static async deleteMessage(messageId: string, userId: string) {
+    try {
+      const message = await prisma.teamChatMessage.findUnique({
+        where: { id: messageId },
+      });
+      if (!message) throw new Error("Message not found");
+      if (message.user_id !== userId) throw new Error("Unauthorized");
+
+      await prisma.teamChatMessage.delete({ where: { id: messageId } });
+
+      const channel = message.workspace_id
+        ? `team-chat-${message.workspace_id}`
+        : `team-chat-${message.project_id}`;
+
+      try {
+        const notificationServer = getNotificationServer();
+        if (notificationServer) {
+          notificationServer.broadcastToChannel(channel, {
+            type: "MESSAGE_DELETED",
+            messageId,
+          });
+        }
+      } catch (wsError: any) {
+        logger.error("WebSocket broadcast failed:", wsError.message);
       }
 
       return { success: true };
-    } catch (error) {
-      logger.error("Error deleting chat message:", error);
+    } catch (error: any) {
+      logger.error("Error deleting message:", error);
       throw error;
     }
   }
 
-  /**
-   * Clear all messages in a workspace or project (admin/owner only)
-   */
-  static async clearChat(filter: TeamChatFilter, userId: string) {
-    try {
-      // 1. Validate permissions
-      if (filter.workspaceId) {
-        const workspace = await prisma.workspace.findUnique({
-          where: { id: filter.workspaceId },
-          include: {
-            members: {
-              where: { user_id: userId },
-            },
-          },
-        });
-
-        if (!workspace) {
-          throw new Error("Workspace not found");
-        }
-
-        const isOwner = workspace.owner_id === userId;
-        const member = workspace.members[0];
-        const isAdmin = member?.role === "admin";
-
-        if (!isOwner && !isAdmin) {
-          throw new Error(
-            "Unauthorized: Only workspace admins or owners can clear the workspace chat",
-          );
-        }
-      }
-
-      if (filter.projectId) {
-        const project = await prisma.project.findUnique({
-          where: { id: filter.projectId },
-          include: {
-            collaborators: {
-              where: { user_id: userId },
-            },
-          },
-        });
-
-        if (!project) {
-          throw new Error("Project not found");
-        }
-
-        const isOwner = project.user_id === userId;
-        const collaborator = project.collaborators[0];
-        const isAdminOrEditor =
-          collaborator?.role === "admin" || collaborator?.role === "editor";
-
-        if (!isOwner && !isAdminOrEditor) {
-          throw new Error(
-            "Unauthorized: Only project owners, admins, or editors can clear the project chat",
-          );
-        }
-      }
-
-      const where: any = {
-        workspace_id: filter.workspaceId,
-        project_id: filter.projectId,
-      };
-
-      if (!where.workspace_id && !where.project_id) {
-        throw new Error("Workspace or Project ID is required to clear chat");
-      }
-
-      const result = await prisma.teamChatMessage.deleteMany({
-        where,
-      });
-
-      logger.info(`[CHAT] Chat cleared by user ${userId}`, {
-        workspaceId: filter.workspaceId,
-        projectId: filter.projectId,
-        deletedCount: result.count,
-      });
-
-      return { success: true, count: result.count };
-    } catch (error) {
-      logger.error("Error clearing chat:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Mark a message as read by a user
-   */
   static async markMessageAsRead(messageId: string, userId: string) {
     try {
       await prisma.teamChatMessageRead.upsert({
@@ -427,56 +364,41 @@ export class TeamChatService {
             user_id: userId,
           },
         },
+        update: { read_at: new Date() },
         create: {
           message_id: messageId,
           user_id: userId,
         },
-        update: {}, // No change if already exists
       });
 
-      // Broadcast to channel that message was read
-      const message = await prisma.teamChatMessage.findUnique({
-        where: { id: messageId },
-        select: { workspace_id: true, project_id: true },
-      });
-
-      if (message) {
-        const channelName = `team-chat-${message.workspace_id || message.project_id}`;
-        getNotificationServer().broadcastToChannel(channelName, {
-          type: "MESSAGE_READ",
-          messageId,
-          userId,
-        });
+      const channel = `team-chat-read-${messageId}`;
+      try {
+        const notificationServer = getNotificationServer();
+        if (notificationServer) {
+          notificationServer.broadcastToChannel(channel, {
+            type: "MESSAGE_READ",
+            messageId,
+            userId,
+          });
+        }
+      } catch (wsError: any) {
+        logger.error("WebSocket broadcast failed:", wsError.message);
       }
 
       return { success: true };
-    } catch (error) {
+    } catch (error: any) {
       logger.error("Error marking message as read:", error);
       throw error;
     }
   }
 
-  /**
-   * Update user presence status
-   */
-  static async updatePresence(userId: string, status: string) {
-    try {
-      const user = await prisma.user.update({
-        where: { id: userId },
-        data: {
-          online_status: status,
-          last_seen_at: new Date(),
-        },
-      });
-
-      // Broadcast presence change to relevant workspaces (simplified: broadcast to all active user channels)
-      // For now, we'll let the NotificationServer handle the broadness
-      return user;
-    } catch (error) {
-      logger.error("Error updating user presence:", error);
-      throw error;
+  static extractMentions(content: string): string[] {
+    const mentionRegex = /@\[([^\]]+)\]\(([^)]+)\)/g;
+    const mentions: string[] = [];
+    let match;
+    while ((match = mentionRegex.exec(content)) !== null) {
+      mentions.push(match[2]);
     }
+    return mentions;
   }
 }
-
-export default TeamChatService;

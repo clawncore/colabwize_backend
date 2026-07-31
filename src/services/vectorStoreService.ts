@@ -74,32 +74,22 @@ export class VectorStoreService {
     let results: any[];
 
     if (filter) {
-      // Use metadata filtering
-      // Note: We're using raw SQL for pgvector similarity search with metadata filter
-      // The <=> operator is cosine distance, so 1 - (a <=> b) is cosine similarity
-      // We explicitly cast the metadata column and filter to jsonb for the @> operator
-      results = await prisma.$queryRawUnsafe(
-        `SELECT id, content, metadata, 1 - (embedding <=> $1::vector) as similarity
-         FROM documents
-         WHERE 1 - (embedding <=> $1::vector) > 0.5
-         AND metadata @> $2::jsonb
-         ORDER BY similarity DESC
-         LIMIT $3`,
-        vectorString,
-        JSON.stringify(filter),
-        k,
-      );
+      results = await prisma.$queryRaw`
+        SELECT id, content, metadata, 1 - (embedding <=> ${vectorString}::vector) as similarity
+        FROM documents
+        WHERE 1 - (embedding <=> ${vectorString}::vector) > 0.5
+        AND metadata @> ${JSON.stringify(filter)}::jsonb
+        ORDER BY similarity DESC
+        LIMIT ${k}
+      `;
     } else {
-      // No filter, simple similarity search
-      results = await prisma.$queryRawUnsafe(
-        `SELECT id, content, metadata, 1 - (embedding <=> $1::vector) as similarity
-         FROM documents
-         WHERE 1 - (embedding <=> $1::vector) > 0.5
-         ORDER BY similarity DESC
-         LIMIT $2`,
-        vectorString,
-        k,
-      );
+      results = await prisma.$queryRaw`
+        SELECT id, content, metadata, 1 - (embedding <=> ${vectorString}::vector) as similarity
+        FROM documents
+        WHERE 1 - (embedding <=> ${vectorString}::vector) > 0.5
+        ORDER BY similarity DESC
+        LIMIT ${k}
+      `;
     }
 
     // Convert results to Document format

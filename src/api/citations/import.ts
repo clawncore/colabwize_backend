@@ -3,6 +3,20 @@ import logger from "../../monitoring/logger";
 import { CrossRefService } from "../../services/crossRefService";
 import axios from "axios";
 
+const PRIVATE_HOST_RE = /^(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|0\.0\.0\.0|\[::1\]|\[0:.*:1\])$/;
+
+function isSafeUrl(urlString: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  if (PRIVATE_HOST_RE.test(parsed.hostname)) return false;
+  return true;
+}
+
 const router = express.Router();
 
 interface AuthenticatedRequest extends Request {
@@ -59,9 +73,13 @@ router.post("/url", async (req: Request, res: Response) => {
         if (!url) {
             return res.status(400).json({ success: false, message: "URL is required" });
         }
+        if (!isSafeUrl(url)) {
+            return res.status(400).json({ success: false, message: "Invalid or disallowed URL" });
+        }
 
         const response = await axios.get(url, {
             timeout: 10000,
+            maxRedirects: 0,
             headers: {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
             }

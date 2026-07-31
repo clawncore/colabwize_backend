@@ -18,6 +18,8 @@ model User {
   otp_method            String?
   email_verified        Boolean              @default(false)
   survey_completed      Boolean              @default(false)
+  email_unusual_logins  Boolean              @default(true)
+  notify_new_devices    Boolean              @default(true)
   storage_used          Float                @default(0)
   created_at            DateTime             @default(now())
   updated_at            DateTime             @updatedAt
@@ -82,6 +84,8 @@ model User {
   collaborators            CollaboratorPresence[]
   document_versions        DocumentVersion[]
   audit_jobs               AuditJob[]
+  security_logs            SecurityLog[]
+  login_history            LoginHistory[]
 
   // Workspace Relations
   owned_workspaces           Workspace[]           @relation("WorkspaceOwner")
@@ -382,6 +386,13 @@ model UserSession {
   id               String    @id @default(uuid())
   user_id          String
   session_id       String    @unique
+  device_info      String?
+  browser          String?
+  device_type      String?   // "Desktop", "Mobile", "Tablet"
+  ip_address       String?
+  location         String?
+  last_active      DateTime?
+  is_current       Boolean   @default(false)
   started_at       DateTime  @default(now())
   ended_at         DateTime?
   duration_seconds Int?
@@ -391,6 +402,46 @@ model UserSession {
   @@index([user_id])
   @@index([session_id])
   @@map("user_sessions")
+}
+
+model LoginHistory {
+  id           String   @id @default(uuid())
+  user_id      String
+  device_info  String?
+  browser      String?
+  device_type  String?  // "Desktop", "Mobile", "Tablet"
+  ip_address   String?
+  location     String?
+  status       String   // "success", "failed"
+  error_code   String?
+  created_at   DateTime @default(now())
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([created_at])
+  @@map("login_history")
+}
+
+model SecurityLog {
+  id           String   @id @default(uuid())
+  user_id      String
+  event_type   String   // "login", "logout", "password_change", "email_change", "2fa_enable", "2fa_disable", "session_terminated", "security_alert", "profile_update", "api_key_access", "data_export", "account_deletion", "permission_change", "other"
+  description  String
+  ip_address   String?
+  user_agent   String?
+  device_info  String?
+  browser      String?
+  device_type  String?  // "Desktop", "Mobile", "Tablet"
+  location     String?
+  status       String   // "success", "failed", "warning"
+  metadata     Json?
+  created_at   DateTime @default(now())
+  user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([event_type])
+  @@index([created_at])
+  @@map("security_logs")
 }
 
 model Project {
@@ -1451,7 +1502,8 @@ model TeamChatMessage {
   project_id   String?
   user_id      String
   content      String
-  parent_id    String? // For threading
+  parent_id    String?          // For threading
+  status       String   @default("active")  // "active", "resolved"
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
 

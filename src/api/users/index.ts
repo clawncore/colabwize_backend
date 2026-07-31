@@ -14,6 +14,8 @@ import { POST as EXPORT_POST } from "./export/route";
 import { POST_REQUEST_OTP as REQUEST_OTP_POST } from "./route";
 import { uploadAvatar } from "./avatar-express";
 import multer from "multer";
+import securityRouter from "./security";
+import securityLogRouter from "./security-log";
 
 const router: Router = Router();
 
@@ -274,5 +276,8 @@ router.get("/referrals", async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 });
+
+router.use("/security", securityRouter);
+router.use("/security-log", securityLogRouter);
 
 export default router;

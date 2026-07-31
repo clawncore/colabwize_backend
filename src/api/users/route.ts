@@ -213,6 +213,8 @@ export async function GET(request: Request) {
         institution: true,
         location: true,
         two_factor_enabled: true,
+        email_unusual_logins: true,
+        notify_new_devices: true,
         zotero_user_id: true,
         zotero_api_key: true,
         zotero_auto_sync: true,

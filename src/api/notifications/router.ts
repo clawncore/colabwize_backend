@@ -107,11 +107,14 @@ router.post("/", async (req, res) => {
       body: req.body,
     });
 
-    // Add user ID to request body
-    const requestBody = {
-      ...req.body,
-      userId: (req as any).user?.id,
-    };
+    // Add user ID to request body — pick only allowed fields
+    const allowedFields = ["notificationId", "markAllAsRead", "type", "title", "message", "data", "recipientId"];
+    const requestBody: Record<string, unknown> = { userId: (req as any).user?.id };
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        requestBody[field] = req.body[field];
+      }
+    }
 
     // Create a mock request object that matches the Edge function signature
     const fullUrl = `http://localhost:3001${req.url}`;
@@ -367,11 +370,11 @@ router.post("/push/test", async (req, res) => {
       body: req.body,
     });
 
-    // Add user ID to request body
-    const requestBody = {
-      ...req.body,
-      userId: (req as any).user?.id,
-    };
+    // Pick only allowed fields for push test
+    const requestBody: Record<string, unknown> = { userId: (req as any).user?.id };
+    for (const f of ["title", "message", "data"]) {
+      if (req.body[f] !== undefined) requestBody[f] = req.body[f];
+    }
 
     // Create a mock request object that matches the Edge function signature
     const fullUrl = `http://localhost:3001${req.url}`;
@@ -560,11 +563,11 @@ router.post("/test", async (req, res) => {
       body: req.body,
     });
 
-    // Add user ID to request body
-    const requestBody = {
-      ...req.body,
-      userId: (req as any).user?.id,
-    };
+    // Pick only allowed fields for test notification
+    const requestBody: Record<string, unknown> = { userId: (req as any).user?.id };
+    for (const f of ["type", "title", "message"]) {
+      if (req.body[f] !== undefined) requestBody[f] = req.body[f];
+    }
 
     // Create a mock request object that matches the Edge function signature
     const fullUrl = `http://localhost:3001${req.url}`;
@@ -602,11 +605,11 @@ router.post("/test/send", async (req, res) => {
       body: req.body,
     });
 
-    // Add user ID to request body
-    const requestBody = {
-      ...req.body,
-      userId: (req as any).user?.id,
-    };
+    // Pick only allowed fields for send test notification
+    const requestBody: Record<string, unknown> = { userId: (req as any).user?.id };
+    for (const f of ["type", "title", "message", "data"]) {
+      if (req.body[f] !== undefined) requestBody[f] = req.body[f];
+    }
 
     // Create a mock request object that matches the Edge function signature
     const fullUrl = `http://localhost:3001${req.url}`;

@@ -1,7 +1,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { DOMParser } from 'xmldom';
+import { DOMParser } from '@xmldom/xmldom';
 import CSL from 'citeproc';
 import { PrismaClient } from '@prisma/client';
 import { CitationCacheManager } from './citationCacheManager.js';

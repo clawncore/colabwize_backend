@@ -749,49 +749,40 @@ You ONLY:
   }
 
   /**
-   * PROMPT 2 — SIMILARITY CLASSIFICATION (LIGHT AI)
-   * Triggered only when match % > threshold.
+   * Rule-based similarity classification (replaces AI).
    */
   private static async classifyMatchWithAI(
     userSegment: string,
     sourceSegment: string
   ): Promise<{ classification: string; explanation: string }> {
-    try {
-      const prompt = `Given:
-- User text segment: "${userSegment}"
-- External source text segment: "${sourceSegment}"
+    const sim = compareTwoStrings(userSegment.toLowerCase(), sourceSegment.toLowerCase());
+    const userWords = userSegment.split(/\s+/).length;
+    const hasQuotes = /^['""']+.*['""']+$/.test(userSegment.trim());
+    const hasCitation = /\([A-Za-z\s]+,?\s?\d{4}\)|\[\d+\]/.test(userSegment);
 
-Classify similarity as one of:
-- Near-verbatim
-- Structural paraphrase
-- Common knowledge
-- Accidental overlap
-
-Explain classification in one sentence.
-Return JSON: { "classification": "...", "explanation": "..." }`;
-
-      const response = await import("./openaiService.js").then(m => m.OpenAIService.generateCompletion(
-        [
-          { role: "system", content: this.FORENSIC_SYSTEM_PROMPT },
-          { role: "user", content: prompt }
-        ],
-        { temperature: 0.2, maxTokens: 150 } // Low temp for deterministic classification
-      ));
-
-      // Simple JSON extraction (robust enough for MVP)
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-      return { classification: "Structural paraphrase", explanation: "AI response parsing failed, defaulting to paraphrase." };
-    } catch (error) {
-      logger.error("AI Classification failed", { error });
-      return { classification: "Structural paraphrase", explanation: "AI Classification unavailable." };
+    let classification = "Structural paraphrase";
+    let explanation = "Moderate textual overlap detected.";
+    if (hasQuotes) {
+      classification = "Quoted";
+      explanation = "Text appears to be a direct quotation.";
+    } else if (sim > 0.85 && userWords > 5) {
+      classification = "Near-verbatim";
+      explanation = `Very high textual similarity (${Math.round(sim * 100)}%) — likely verbatim reuse.`;
+    } else if (sim > 0.55) {
+      classification = "Structural paraphrase";
+      explanation = `Significant textual similarity (${Math.round(sim * 100)}%). Review and rephrase for originality.`;
+    } else if (hasCitation) {
+      classification = "Common knowledge";
+      explanation = "Text includes a citation and appears to reference established knowledge.";
+    } else {
+      classification = "Accidental overlap";
+      explanation = "Minor textual overlap — may be coincidental or common phrasing.";
     }
+    return { classification, explanation };
   }
 
   /**
-   * PROMPT 3 — RISK ASSESSMENT (CRITICAL)
+   * Rule-based risk assessment (replaces AI).
    */
   private static async assessRiskWithAI(
     similarityPercentage: number,
@@ -799,61 +790,48 @@ Return JSON: { "classification": "...", "explanation": "..." }`;
     sourceType: string,
     hasCitation: boolean
   ): Promise<{ level: "Low" | "Moderate" | "High"; reason: string }> {
-    try {
-      const prompt = `Assess academic risk level based on:
-- Similarity percentage: ${similarityPercentage}%
-- Match length: ${matchLength} words
-- Source type: ${sourceType}
-- Presence of citation nearby: ${hasCitation}
+    let level: "Low" | "Moderate" | "High" = "Low";
+    let reason = "Minor overlap with external sources.";
 
-Return JSON: { "level": "Low" | "Moderate" | "High", "reason": "One sentence reason" }`;
-
-      const response = await import("./openaiService.js").then(m => m.OpenAIService.generateCompletion(
-        [
-          { role: "system", content: this.FORENSIC_SYSTEM_PROMPT },
-          { role: "user", content: prompt }
-        ],
-        { temperature: 0.2, maxTokens: 100 }
-      ));
-
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-      return { level: "Moderate", reason: "AI Assessment parsing failed." };
-    } catch (error) {
-      return { level: "Moderate", reason: "AI Assessment unavailable." };
+    if (similarityPercentage > 70 && matchLength > 20 && !hasCitation) {
+      level = "High";
+      reason = `High similarity (${Math.round(similarityPercentage)}%) over ${matchLength} words without citation — requires immediate review.`;
+    } else if (similarityPercentage > 40 && !hasCitation) {
+      level = "Moderate";
+      reason = `Moderate similarity (${Math.round(similarityPercentage)}%) from ${sourceType} source. Add citation or rephrase.`;
+    } else if (similarityPercentage > 70 && hasCitation) {
+      level = "Moderate";
+      reason = "High similarity detected but citation present — verify citation accuracy.";
+    } else if (similarityPercentage > 20) {
+      level = "Low";
+      reason = "Minor overlap detected. Likely common phrasing or well-integrated source material.";
     }
+
+    return { level, reason };
   }
 
   /**
-   * PROMPT 4 — USER-INITIATED ASSISTANCE (OPTIONAL)
+   * Template-based risk explanation (replaces AI).
    */
   public static async explainRiskWithAI(
     matchText: string,
     sourceText: string,
     riskLevel: string
   ): Promise<string> {
-    const prompt = `The user has requested an explanation for a "${riskLevel}" risk match.
-    
-User Text: "${matchText}"
-Source Text: "${sourceText}"
+    const sim = Math.round(compareTwoStrings(matchText.toLowerCase(), sourceText.toLowerCase()) * 100);
+    const isQuoted = /^['""']+.*['""']+$/.test(matchText.trim());
+    const hasCitation = /\([A-Za-z\s]+,?\s?\d{4}\)|\[\d+\]/.test(matchText);
 
-Explain why this similarity may be problematic in an academic context.
-Suggest general corrective strategies WITHOUT rewriting the text.
-Keep it advisory, not intrusive.`;
-
-    try {
-      return await import("./openaiService.js").then(m => m.OpenAIService.generateCompletion(
-        [
-          { role: "system", content: this.FORENSIC_SYSTEM_PROMPT },
-          { role: "user", content: prompt }
-        ],
-        { temperature: 0.5 }
-      ));
-    } catch (error) {
-      return "Unable to generate explanation at this time. Please review the source manualy.";
+    if (isQuoted) {
+      return `This passage appears to be a direct quotation (${sim}% textual similarity). Quotations are acceptable when properly attributed with quotation marks and a citation. Ensure the source is correctly cited per your style guide.`;
     }
+    if (riskLevel === "High" || riskLevel === "CRITICAL") {
+      return `This passage shows high similarity (${sim}%) to the source "${sourceText.substring(0, 100)}". This may constitute verbatim reuse without attribution. Strategies: (1) paraphrase in your own words, (2) add a citation with page number, or (3) use a direct quotation with proper formatting.`;
+    }
+    if (riskLevel === "Moderate" || riskLevel === "MAJOR") {
+      return `This passage has moderate similarity (${sim}%) to "${sourceText.substring(0, 100)}". ${hasCitation ? "A citation is present — verify it accurately represents this content." : "Consider adding a citation or rephrasing to reduce overlap."} Review the original source to ensure your treatment is sufficiently original.`;
+    }
+    return `Minor overlap detected (${sim}%). This is common with standard academic phrasing and is generally not problematic. No action required, but always ensure ideas from external sources are properly cited.`;
   }
 
   /**

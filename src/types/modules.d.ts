@@ -8,4 +8,4 @@ declare module '@google/generative-ai';
 declare module '@prisma/config';
 declare module 'node-fetch'; // Fallback if @types/node-fetch issues persist
 declare module 'citeproc';
-declare module 'xmldom';
+// xmldom replaced by @xmldom/xmldom (has built-in types)

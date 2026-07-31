@@ -717,3 +717,115 @@ export async function sendReferralRewardEmail(
 
   return success;
 }
+/**
+ * Sends a security alert email for unusual login attempts.
+ */
+export async function sendUnusualLoginAlertEmail(
+  to: string,
+  fullName: string,
+  ipAddress: string,
+  location: string,
+  device: string,
+  browser: string,
+): Promise<boolean> {
+  const frontendUrl = await SecretsService.getFrontendUrl();
+  const content = `
+    <p>Hello ${fullName || "there"},</p>
+    <p>We detected an unusual login attempt on your ColabWize account.</p>
+    
+    <div style="background-color: #fef3c7; padding: 16px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+      <h3 style="color: #92400e; margin-top: 0; font-size: 16px;">⚠️ Security Alert</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 6px 0; color: #6b7280;">IP Address:</td><td style="padding: 6px 0; font-family: monospace;">${ipAddress}</td></tr>
+        <tr><td style="padding: 6px 0; color: #6b7280;">Location:</td><td style="padding: 6px 0;">${location}</td></tr>
+        <tr><td style="padding: 6px 0; color: #6b7280;">Device:</td><td style="padding: 6px 0;">${device} - ${browser}</td></tr>
+      </table>
+    </div>
+    
+    <p>If this was you, no action is needed. If you don't recognize this activity, please secure your account immediately.</p>
+    <p><a href="${frontendUrl}/settings/security" style="color: #2563eb;">Review Security Settings</a></p>
+  `;
+
+  const html = buildEmailHtml({
+    title: "Unusual Login Alert",
+    content,
+    ctaText: "Review Security",
+    ctaUrl: `${frontendUrl}/settings/security`,
+  });
+
+  const { success } = await sendEmail({
+    from: "SECURITY",
+    to,
+    subject: "Unusual login attempt detected on your ColabWize account",
+    html,
+    text: `Hello ${fullName || "there"},
+
+We detected an unusual login attempt on your account.
+IP: ${ipAddress}
+Location: ${location}
+Device: ${device} - ${browser}
+
+If this was not you, please secure your account: ${frontendUrl}/settings/security
+
+ColabWize Team`,
+  });
+
+  return success;
+}
+
+/**
+ * Sends a new device login notification email.
+ */
+export async function sendNewDeviceLoginEmail(
+  to: string,
+  fullName: string,
+  ipAddress: string,
+  location: string,
+  device: string,
+  browser: string,
+): Promise<boolean> {
+  const frontendUrl = await SecretsService.getFrontendUrl();
+  const content = `
+    <p>Hello ${fullName || "there"},</p>
+    <p>You signed in from a new device on your ColabWize account.</p>
+    
+    <div style="background-color: #dbeafe; padding: 16px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3b82f6;">
+      <h3 style="color: #1e40af; margin-top: 0; font-size: 16px;">🖥️ New Device</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 6px 0; color: #6b7280;">Device:</td><td style="padding: 6px 0;">${device} - ${browser}</td></tr>
+        <tr><td style="padding: 6px 0; color: #6b7280;">IP Address:</td><td style="padding: 6px 0; font-family: monospace;">${ipAddress}</td></tr>
+        <tr><td style="padding: 6px 0; color: #6b7280;">Location:</td><td style="padding: 6px 0;">${location}</td></tr>
+      </table>
+    </div>
+    
+    <p>If this was you, no action is needed. If you don't recognize this device, please secure your account.</p>
+    <p><a href="${frontendUrl}/settings/security" style="color: #2563eb;">Review Active Sessions</a></p>
+  `;
+
+  const html = buildEmailHtml({
+    title: "New Device Login Detected",
+    content,
+    ctaText: "Check Active Sessions",
+    ctaUrl: `${frontendUrl}/settings/security`,
+  });
+
+  const { success } = await sendEmail({
+    from: "SECURITY",
+    to,
+    subject: "New device login detected on your ColabWize account",
+    html,
+    text: `Hello ${fullName || "there"},
+
+You signed in from a new device.
+Device: ${device} - ${browser}
+IP: ${ipAddress}
+Location: ${location}
+
+If this was not you, please review your sessions: ${frontendUrl}/settings/security
+
+ColabWize Team`,
+  });
+
+  return success;
+}
+
