@@ -594,7 +594,7 @@ class HybridAuthService {
     }
     static async recordLogin(userId, ipAddress, userAgent) {
         try {
-            let formattedIp = (0, browserDetection_1.formatIpAddress)(null, ipAddress);
+            let formattedIp = (0, browserDetection_1.formatIpAddress)(ipAddress, "");
             if (formattedIp === "127.0.0.1" || formattedIp === "::1") {
                 const publicIp = await (0, ipGeolocation_1.getPublicIp)();
                 if (publicIp)

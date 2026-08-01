@@ -307,7 +307,10 @@ class SecurityService {
             const deviceInfo = (0, browserDetection_1.detectDeviceType)(userAgent);
             const alertIp = (0, browserDetection_1.formatIpAddress)(null, ipAddress);
             if (eventType === "login" && user.notify_new_devices) {
-                await emailService_1.EmailService.sendNewDeviceLoginEmail(user.email, user.full_name || "there", alertIp, location || "Unknown", deviceInfo.deviceType, browserInfo.browser);
+                const isNew = await SecurityService.isNewDevice(userId, deviceInfo.deviceType, browserInfo.browser);
+                if (isNew) {
+                    await emailService_1.EmailService.sendNewDeviceLoginEmail(user.email, user.full_name || "there", alertIp, location || "Unknown", deviceInfo.deviceType, browserInfo.browser);
+                }
             }
             if (eventType === "login_failed" && user.email_unusual_logins) {
                 await emailService_1.EmailService.sendUnusualLoginAlertEmail(user.email, user.full_name || "there", alertIp, location || "Unknown", deviceInfo.deviceType, browserInfo.browser);
@@ -315,6 +318,26 @@ class SecurityService {
         }
         catch (error) {
             logger_1.default.error("Error sending security alert email:", error);
+        }
+    }
+    static async isNewDevice(userId, deviceType, browser) {
+        try {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const recentLogins = await prisma_1.prisma.loginHistory.findMany({
+                where: {
+                    user_id: userId,
+                    device_type: deviceType,
+                    browser,
+                    status: "success",
+                    created_at: { gte: sevenDaysAgo },
+                },
+                take: 1,
+            });
+            return recentLogins.length === 0;
+        }
+        catch {
+            return true;
         }
     }
 }

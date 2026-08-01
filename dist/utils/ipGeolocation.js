@@ -20,7 +20,10 @@ async function getPublicIp() {
     }
 }
 function isLocalhost(ip) {
-    return !ip || ip === "127.0.0.1" || ip === "::1" || ip === "unknown" || ip === "localhost";
+    return !ip || ip === "127.0.0.1" || ip === "::1" || ip === "unknown" || ip === "localhost" ||
+        ip.startsWith("10.") ||
+        ip.startsWith("192.168.") ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
 }
 async function getLocationFromIp(ip) {
     if (isLocalhost(ip)) {
@@ -61,9 +64,9 @@ async function fetchLocationFromIpApiCom(ip) {
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
-        let url = "http://ip-api.com/json/?fields=city,regionName,countryName,lat,lon";
+        let url = "https://ip-api.com/json/?fields=city,regionName,countryName,lat,lon";
         if (ip && !isLocalhost(ip)) {
-            url = `http://ip-api.com/json/${ip}?fields=city,regionName,countryName,lat,lon`;
+            url = `https://ip-api.com/json/${ip}?fields=city,regionName,countryName,lat,lon`;
         }
         const response = await fetch(url, {
             signal: controller.signal,
