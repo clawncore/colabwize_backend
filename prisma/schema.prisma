@@ -2058,3 +2058,293 @@ model ExportJob {
   @@index([status])
   @@index([docVersionId])
 }
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  adminId    String?  @map("admin_id")
+  adminEmail String   @map("admin_email")
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  enabled     Boolean  @default(false)
+  rollout     Float    @default(0)
+  variant     Json?
+  targeting   Json?
+  environment String   @default("production")
+  created_at  DateTime @default(now()) @map("created_at")
+  updated_at  DateTime @updatedAt @map("updated_at")
+
+  @@index([key])
+  @@index([environment])
+  @@map("feature_flags")
+}
+
+model SystemConfig {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?
+  updatedBy   String?  @map("updated_by")
+  created_at  DateTime @default(now()) @map("created_at")
+  updated_at  DateTime @updatedAt @map("updated_at")
+
+  @@index([key])
+  @@map("system_config")
+}
+
+model AiModelConfig {
+  id         String   @id @default(uuid())
+  provider   String
+  model      String
+  apiKeyRef  String?  @map("api_key_ref")
+  enabled    Boolean  @default(true)
+  maxTokens  Int?     @map("max_tokens")
+  temperature Float?
+  priority   Int      @default(0)
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
+
+  @@index([provider])
+  @@index([priority])
+  @@map("ai_model_config")
+}
+
+model CmsPage {
+  id               String   @id @default(uuid())
+  slug             String   @unique
+  title            String
+  content          String   @db.Text
+  metaTitle        String?  @map("meta_title")
+  metaDescription  String?  @map("meta_description")
+  status           String   @default("draft")
+  authorId         String?  @map("author_id")
+  created_at       DateTime @default(now()) @map("created_at")
+  updated_at       DateTime @updatedAt @map("updated_at")
+
+  @@index([slug])
+  @@index([status])
+  @@map("cms_pages")
+}
+
+model WebhookEndpoint {
+  id         String   @id @default(uuid())
+  name       String
+  url        String
+  secret     String?
+  events     String[]
+  active     Boolean  @default(true)
+  retryCount Int      @default(3) @map("retry_count")
+  timeout    Int      @default(30)
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
+
+  @@index([url])
+  @@index([active])
+  @@map("webhook_endpoints")
+}
+
+// ─────────────────── Security Administration ───────────────────
+
+model SecurityEvent {
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id")
+  adminId    String?  @map("admin_id")
+  type       String   // "login", "logout", "failed_login", "password_change", "2fa_enabled", "2fa_disabled", "ip_change", "session_revoked", "impersonation", "permission_change", "config_change", "api_key_created", "api_key_revoked"
+  severity   String   @default("info") // "info", "warning", "critical"
+  description String
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([type])
+  @@index([severity])
+  @@index([userId])
+  @@index([adminId])
+  @@index([createdAt])
+  @@map("security_events")
+}
+
+model LoginAudit {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  email      String
+  success    Boolean
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  failureReason String? @map("failure_reason")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([email])
+  @@index([createdAt])
+  @@index([success])
+  @@map("login_audit")
+}
+
+model IpAllowlist {
+  id         String   @id @default(uuid())
+  ipAddress  String   @unique @map("ip_address")
+  cidr       String?
+  description String?
+  blocked    Boolean  @default(false)
+  reason     String?
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([ipAddress])
+  @@index([blocked])
+  @@map("ip_allowlist")
+}
+
+model AccountLock {
+  id         String   @id @default(uuid())
+  userId     String   @unique @map("user_id")
+  lockedAt   DateTime @default(now()) @map("locked_at")
+  unlockedAt DateTime? @map("unlocked_at")
+  reason     String
+  lockedBy   String?  @map("locked_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("account_locks")
+}
+
+model ApiKey {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  name       String
+  keyHash    String   @unique @map("key_hash")
+  lastFour   String   @map("last_four")
+  permissions Json   @default("[]")
+  isActive   Boolean  @default(true) @map("is_active")
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  @@index([userId])
+  @@index([isActive])
+  @@map("api_keys")
+}
+
+// ─────────────────── Platform Operations ───────────────────
+
+model MaintenanceWindow {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  startTime   DateTime @map("start_time")
+  endTime     DateTime @map("end_time")
+  mode        String   @default("scheduled") // "scheduled", "active", "completed", "cancelled"
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([startTime])
+  @@index([endTime])
+  @@index([mode])
+  @@map("maintenance_windows")
+}
+
+model BackupRecord {
+  id          String   @id @default(uuid())
+  type        String   // "full", "incremental", "differential"
+  status      String   @default("pending") // "pending", "in_progress", "completed", "failed"
+  sizeBytes   Int?     @map("size_bytes")
+  fileName    String?  @map("file_name")
+  storagePath String?  @map("storage_path")
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  errorMessage String?  @map("error_message")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("backup_records")
+}
+
+// ─────────────────── Analytics ───────────────────
+
+model PlatformMetric {
+  id         String   @id @default(uuid())
+  metricName String   @map("metric_name")
+  category   String   // "platform", "api", "error", "usage", "resource", "admin"
+  value      Float
+  unit       String?
+  metadata    Json?
+  recordedAt DateTime @default(now()) @map("recorded_at")
+
+  @@index([metricName])
+  @@index([category])
+  @@index([recordedAt])
+  @@map("platform_metrics")
+}
+
+// ─────────────────── Separate Admin User Table ───────────────────
+
+model AdminUser {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  password_hash   String    @map("password_hash")
+  full_name       String?   @map("full_name")
+  role            String    @default("admin") // "super_admin", "admin", "support", "finance", "moderator", "devops", "analytics"
+  permissions     String[]  @default([]) @map("permissions")
+  mfa_enabled     Boolean   @default(true) @map("mfa_enabled")
+  mfa_secret      String?   @map("mfa_secret")
+  backup_codes    String[]  @default([]) @map("backup_codes")
+  allowed_ips     String[]  @default([]) @map("allowed_ips")
+  trusted_devices String[]  @default([]) @map("trusted_devices")
+  last_login      DateTime? @map("last_login")
+  created_at      DateTime  @default(now()) @map("created_at")
+  updated_at      DateTime  @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@index([role])
+  @@map("admin_users")
+}
+
+model SecretRotation {
+  id           String    @id @default(uuid())
+  key          String    @unique
+  label        String
+  lastRotated  DateTime  @default(now()) @map("last_rotated")
+  rotationDays Int       @default(90) @map("rotation_days")
+  rotatedBy    String?   @map("rotated_by")
+  created_at   DateTime  @default(now()) @map("created_at")
+  updated_at   DateTime  @updatedAt @map("updated_at")
+
+  @@index([key])
+  @@map("secret_rotations")
+}
+
+model ExportAuditLog {
+  id         String   @id @default(uuid())
+  adminEmail String   @map("admin_email")
+  exportType String   @map("export_type")
+  rowCount   Int      @default(0) @map("row_count")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([adminEmail])
+  @@index([exportType])
+  @@index([createdAt])
+  @@map("export_audit_logs")
+}
