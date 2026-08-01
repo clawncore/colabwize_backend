@@ -351,14 +351,17 @@ export class SecurityService {
       const alertIp = formatIpAddress(null, ipAddress);
 
       if (eventType === "login" && user.notify_new_devices) {
-        await EmailService.sendNewDeviceLoginEmail(
-          user.email,
-          user.full_name || "there",
-          alertIp,
-          location || "Unknown",
-          deviceInfo.deviceType,
-          browserInfo.browser,
-        );
+        const isNew = await SecurityService.isNewDevice(userId, deviceInfo.deviceType, browserInfo.browser);
+        if (isNew) {
+          await EmailService.sendNewDeviceLoginEmail(
+            user.email,
+            user.full_name || "there",
+            alertIp,
+            location || "Unknown",
+            deviceInfo.deviceType,
+            browserInfo.browser,
+          );
+        }
       }
 
       if (eventType === "login_failed" && user.email_unusual_logins) {
@@ -373,6 +376,28 @@ export class SecurityService {
       }
     } catch (error) {
       logger.error("Error sending security alert email:", error);
+    }
+  }
+
+  static async isNewDevice(userId: string, deviceType: string, browser: string): Promise<boolean> {
+    try {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      const recentLogins = await prisma.loginHistory.findMany({
+        where: {
+          user_id: userId,
+          device_type: deviceType,
+          browser,
+          status: "success",
+          created_at: { gte: sevenDaysAgo },
+        },
+        take: 1,
+      });
+
+      return recentLogins.length === 0;
+    } catch {
+      return true;
     }
   }
 }
