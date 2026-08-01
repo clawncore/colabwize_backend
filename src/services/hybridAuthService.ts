@@ -723,7 +723,7 @@ export class HybridAuthService {
 
   static async recordLogin(userId: string, ipAddress: string, userAgent: string) {
     try {
-      let formattedIp = formatIpAddress(null, ipAddress);
+      let formattedIp = formatIpAddress(ipAddress, "");
       if (formattedIp === "127.0.0.1" || formattedIp === "::1") {
         const publicIp = await getPublicIp();
         if (publicIp) formattedIp = publicIp;
