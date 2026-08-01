@@ -149,18 +149,18 @@ export class CommentService {
         for (const mentionedUser of mentionedUsers) {
           if (mentionedUser.id !== userId) {
             try {
-              await createNotification({
-                user_id: mentionedUser.id,
-                type: "mention",
-                title: "You were mentioned in a comment",
-                message: content.substring(0, 150),
-                metadata: {
+              await createNotification(
+                mentionedUser.id,
+                "mention",
+                "You were mentioned in a comment",
+                content.substring(0, 150),
+                {
                   commentId: message.id,
                   projectId: filter.projectId,
                   workspaceId: filter.workspaceId,
                   mentionedBy: userId,
                 },
-              });
+              );
             } catch (notifError: any) {
               logger.error("Failed to create mention notification", {
                 error: notifError.message,
@@ -178,19 +178,19 @@ export class CommentService {
 
         if (parentMessage && parentMessage.user_id !== userId) {
           try {
-            await createNotification({
-              user_id: parentMessage.user_id,
-              type: "comment",
-              title: "New reply to your comment",
-              message: content.substring(0, 150),
-              metadata: {
+            await createNotification(
+              parentMessage.user_id,
+              "comment",
+              "New reply to your comment",
+              content.substring(0, 150),
+              {
                 commentId: message.id,
                 parentId: filter.parentId,
                 projectId: filter.projectId,
                 workspaceId: filter.workspaceId,
                 repliedBy: userId,
               },
-            });
+            );
           } catch (notifError: any) {
             logger.error("Failed to create reply notification", {
               error: notifError.message,
@@ -401,4 +401,18 @@ export class CommentService {
     }
     return mentions;
   }
+
+  /**
+   * Update a user's presence status.
+   * Presence is broadcast via the notification WebSocket channel;
+   * this method is a no-op stub kept for interface compatibility.
+   */
+  static async updatePresence(userId: string, status: string): Promise<void> {
+    // Presence is managed by the NotificationServer through WebSocket channels.
+    // No-op here; callers rely on broadcastToChannel for the actual fan-out.
+    logger.debug(`[CommentService] updatePresence called: userId=${userId} status=${status}`);
+  }
 }
+
+// Backward-compatible alias used by older imports
+export { CommentService as TeamChatService };

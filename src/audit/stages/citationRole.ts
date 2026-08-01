@@ -1,11 +1,13 @@
 import { AuditJob, AuditContext, AuditPipelineStage } from "../types";
-import { CitationRoleClassifier } from "../../services/citationRoleClassifier";
+import { CitationRoleClassifier, CitationRole, ClassifiedCitation } from "../../services/citationRoleClassifier";
 
 interface CitationRoleEntry {
   citationText: string;
   role: CitationRole;
   confidence: number;
   matchedPattern?: string;
+  // Keep text field so we can pass directly to ClassifiedCitation helpers
+  text?: string;
 }
 
 /**
@@ -44,9 +46,14 @@ export const CitationRoleStage: AuditPipelineStage = {
       });
     }
 
-    const roleSummary = CitationRoleClassifier.summarize(
-      classifiedEntries.map((e) => ({ text: e.citationText, context: e.citationText }))
-    );
+    // Build ClassifiedCitation[] required by summarize()
+    const classifiedForSummary: ClassifiedCitation[] = classifiedEntries.map((e) => ({
+      text: e.citationText,
+      role: e.role,
+      confidence: e.confidence,
+      matchedPattern: e.matchedPattern,
+    }));
+    const roleSummary = CitationRoleClassifier.summarize(classifiedForSummary);
 
     (job.report as any).citationRoles = classifiedEntries;
     (job.report as any).roleSummary = roleSummary;
