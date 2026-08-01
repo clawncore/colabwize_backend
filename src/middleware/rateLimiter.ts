@@ -52,6 +52,9 @@ export const uploadLimiter = rateLimit({
   }
 });
 
+// Admin Auth Rate Limiter — alias of authLimiter for admin login routes
+export const adminAuthRateLimiter = authLimiter;
+
 // Admin Operation Limiter (Internal)
 export const adminOperationRateLimiter = rateLimit({
   windowMs: 60 * 1000,

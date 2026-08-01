@@ -5,8 +5,6 @@ import {
   onDisconnectPayload,
   onAwarenessUpdatePayload,
   onChangePayload,
-  Unauthorized,
-  Forbidden,
 } from "@hocuspocus/server";
 import { WebSocketServer } from "ws";
 import logger from "../../monitoring/logger";
@@ -699,7 +697,7 @@ export class HocuspocusCollaborationServer {
             });
 
             logger.info("Sending AUTH_REQUIRED response to client");
-            throw new Unauthorized({ reason: "AUTH_REQUIRED" });
+            throw new Error("AUTH_REQUIRED");
           }
 
           let userRecord: any;
@@ -745,10 +743,10 @@ export class HocuspocusCollaborationServer {
                   },
                 );
 
-                throw new Unauthorized({ reason: "TOKEN_EXPIRED" });
+                throw new Error("TOKEN_EXPIRED");
               }
 
-              throw new Unauthorized({ reason: "AUTH_FAILED" });
+              throw new Error("AUTH_FAILED");
             }
 
             userRecord = userData.user;
@@ -774,10 +772,10 @@ export class HocuspocusCollaborationServer {
                 },
               );
 
-              throw new Unauthorized({ reason: "TOKEN_EXPIRED" });
+              throw new Error("TOKEN_EXPIRED");
             }
 
-              throw new Unauthorized({ reason: "AUTH_FAILED" });
+              throw new Error("AUTH_FAILED");
           }
 
           if (!userRecord) {
@@ -785,7 +783,7 @@ export class HocuspocusCollaborationServer {
               documentName,
               timestamp: new Date().toISOString(),
             });
-            throw new Unauthorized({ reason: "NO_USER" });
+            throw new Error("NO_USER");
           }
 
           // Extract project or workspace ID from document name
@@ -797,7 +795,7 @@ export class HocuspocusCollaborationServer {
               documentName,
               timestamp: new Date().toISOString(),
             });
-              throw new Unauthorized({ reason: "INVALID_DOCUMENT" });
+              throw new Error("INVALID_DOCUMENT");
           }
 
           let authenticatedId = "";
@@ -830,7 +828,7 @@ export class HocuspocusCollaborationServer {
                    projectId: authenticatedId,
                    timestamp: new Date().toISOString(),
                  });
-                  throw new Forbidden({ reason: "ACCESS_DENIED" });
+                  throw new Error("ACCESS_DENIED");
                }
             } catch (dbError) {
               logger.error("Database error during project authentication", {
@@ -838,7 +836,7 @@ export class HocuspocusCollaborationServer {
                 userId: userRecord.id,
                 error: (dbError as Error).message,
               });
-              throw new Unauthorized({ reason: "DB_ERROR" });
+              throw new Error("DB_ERROR");
             }
           } else if (workspaceIdMatch) {
             authenticatedId = workspaceIdMatch[1];
@@ -859,7 +857,7 @@ export class HocuspocusCollaborationServer {
                    workspaceId: authenticatedId,
                    timestamp: new Date().toISOString(),
                  });
-                  throw new Forbidden({ reason: "ACCESS_DENIED" });
+                  throw new Error("ACCESS_DENIED");
                }
             } catch (dbError) {
               logger.error("Database error during workspace authentication", {
@@ -867,7 +865,7 @@ export class HocuspocusCollaborationServer {
                 userId: userRecord.id,
                 error: (dbError as Error).message,
               });
-              throw new Unauthorized({ reason: "DB_ERROR" });
+              throw new Error("DB_ERROR");
             }
           }
 
@@ -931,9 +929,7 @@ export class HocuspocusCollaborationServer {
               stack: (error as Error).stack,
               timestamp: new Date().toISOString(),
             });
-            throw new Unauthorized({
-              reason: (error as Error).message || "AUTH_FAILED",
-            });
+            throw new Error((error as Error).message || "AUTH_FAILED");
           }
       },
 

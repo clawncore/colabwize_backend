@@ -23,7 +23,7 @@ export class SecurityService {
       const currentIp = formatIpAddress(xForwardedFor || null, directIp);
 
       const sessions = await Promise.all(
-        userSessions.map(async (session) => {
+        userSessions.map(async (session: any) => {
           const browserInfo = detectBrowser(session.device_info || "");
           const deviceInfo = detectDeviceType(session.device_info || "");
 
@@ -62,7 +62,7 @@ export class SecurityService {
       });
 
       const sessions = await Promise.all(
-        userSessions.map(async (session) => {
+        userSessions.map(async (session: any) => {
           const browserInfo = detectBrowser(session.device_info || "");
           const deviceInfo = detectDeviceType(session.device_info || "");
 
@@ -183,7 +183,7 @@ export class SecurityService {
         skip: offset,
       });
 
-      const formattedHistory = loginHistory.map((login) => ({
+      const formattedHistory = loginHistory.map((login: any) => ({
         id: login.id,
         date: login.created_at,
         device: getDeviceLabel(login.device_info || ""),
