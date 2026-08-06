@@ -135,7 +135,7 @@ function logEmailToDatabase(
       error: error || null,
       message_body: maskedBody,
     },
-  }).catch((err) => {
+  }).catch((err: any) => {
     // Never let logging failures affect email delivery
     logger.warn("Failed to log email to database:", { error: err.message });
   });

@@ -17,7 +17,7 @@ export const activityTracker = async (req: Request, res: Response, next: NextFun
       prisma.user.update({
         where: { id: userId },
         data: { last_seen_at: new Date() },
-      }).catch((err) => {
+      }).catch((err: any) => {
         logger.debug("Activity tracker update failed:", err);
       });
     }

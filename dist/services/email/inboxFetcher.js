@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processIncomingSupportEmails = processIncomingSupportEmails;
+exports.recategorizeExistingMessages = recategorizeExistingMessages;
 const imapflow_1 = require("imapflow");
 const mailparser_1 = require("mailparser");
 const isomorphic_dompurify_1 = __importDefault(require("isomorphic-dompurify"));
@@ -13,20 +14,46 @@ const prisma_async_1 = require("../../lib/prisma-async");
 /**
  * Categorize email based on keywords in subject or body
  */
-function categorizeEmail(subject, body) {
+function categorizeEmail(subject, body, senderEmail) {
+    const sub = subject.toLowerCase();
     const content = (subject + " " + body).toLowerCase();
-    if (/billing|invoice|payment|subscription|refund|charge|receipt|premium|plan/i.test(content)) {
+    const sender = senderEmail.toLowerCase();
+    // Spam — obvious junk first (override everything else)
+    if (/unsubscribe|opt.out|click.here|act.now|limited.time|congratulations.*won|you.*won|free.*prize|claim.*reward|viagra|cialis|casino|lottery|winner|nigerian|prince|inheritance|crypto.*invest|make.*money.*fast|work.from.home.*\$|dear.*friend|beloved|urgent.*business|million.*dollars|bank.*transfer|atm.*card|pharmacy|pills|supplement|enlargement|weight.loss|miracle|cure|remedy|treatment|diagnosis|doctor|prescription|buy.*now|order.*now|limited.*offer|special.*promotion|exclusive.*deal|free.*trial|risk.free|money.back|guarantee|satisfaction|best.price|lowest.price|save.*percent|discount.*code|coupon.*code|promo.*code/i.test(content)) {
+        return { folder: "Spam", priority: "low" };
+    }
+    // Spam — suspicious sender patterns
+    if (/^(no[-_.]?reply|noreply|mailer[-_.]?daemon|postmaster)@/i.test(sender) && !/colabwize/i.test(sender)) {
+        return { folder: "Spam", priority: "low" };
+    }
+    // Spam — known junk domains
+    if (/\.(top|xyz|club|buzz|gq|cf|ml|tk|click|link|download|stream|racing|win|party|ru|cn|biz|info|pro|icu)$/i.test(sender)) {
+        return { folder: "Spam", priority: "low" };
+    }
+    // Billing — require subject match OR strong body indicators
+    const billingSub = /billing|invoice|payment|subscription|refund|charge|receipt|premium\s*plan|upgrade|downgrade|cancel\s*subscription|pricing|coupon|discount/i.test(sub);
+    const billingBody = /billing|invoice|payment|subscription|refund|charge|receipt/i.test(content);
+    const billingStrong = /refund|cancel.*subscription|charge.*twice|double.*charge|overcharged|payment.*failed|billing.*issue/i.test(content);
+    if (billingSub || billingStrong || (billingBody && /billing|invoice|refund/i.test(content))) {
         return { folder: "Billing", priority: "high" };
     }
-    if (/security|password|login|auth|hacked|verify|2fa|suspicious|unauthorized|breach/i.test(content)) {
+    // Security — require subject match OR strong body indicators
+    const securitySub = /security|password|login|auth|hacked|verify|2fa|suspicious|unauthorized|breach/i.test(sub);
+    const securityStrong = /cannot.*log.*in|locked.*out|account.*compromised|unauthorized.*access|password.*reset|two.?factor/i.test(content);
+    if (securitySub || securityStrong) {
         return { folder: "Security", priority: "high" };
     }
-    if (/contact|hello|inquiry|question|help|request/i.test(content)) {
-        return { folder: "Contact", priority: "medium" };
-    }
-    if (/system|update|maintenance|feature|feedback|platform|error|bug/i.test(content)) {
+    // Platform — only if subject clearly indicates
+    const platformSub = /bug|error|crash|not\s*working|broken|feature\s*request|maintenance|downtime/i.test(sub);
+    if (platformSub) {
         return { folder: "Platform", priority: "medium" };
     }
+    // Contact — only if subject is clearly a greeting/inquiry
+    const contactSub = /^(hello|hi|hey|greetings|contact|inquiry|question|feedback)/i.test(sub);
+    if (contactSub) {
+        return { folder: "Contact", priority: "medium" };
+    }
+    // Default — Support (most emails should land here)
     return { folder: "Support", priority: "medium" };
 }
 async function processIncomingSupportEmails() {
@@ -86,7 +113,7 @@ async function processIncomingSupportEmails() {
                 const html = parsed.html || parsed.textAsHtml || "";
                 const text = parsed.text || "";
                 const sanitizedHtml = isomorphic_dompurify_1.default.sanitize(html);
-                const { folder, priority } = categorizeEmail(subject, text);
+                const { folder, priority } = categorizeEmail(subject, text, senderEmail);
                 let threadId = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).substring(7);
                 const cleanSubject = subject.replace(/^Re:\s+/i, "").trim();
                 if (subject.toLowerCase().startsWith("re:")) {
@@ -136,4 +163,26 @@ async function processIncomingSupportEmails() {
             stack: err.stack
         });
     }
+}
+/**
+ * One-time recategorization of existing support messages using updated categorizeEmail logic.
+ */
+async function recategorizeExistingMessages() {
+    const prisma = await (0, prisma_async_1.initializePrisma)();
+    const messages = await prisma.supportMessage.findMany({
+        select: { id: true, subject: true, message_text: true, sender_email: true, folder: true },
+    });
+    let updated = 0;
+    for (const msg of messages) {
+        const { folder } = categorizeEmail(msg.subject, msg.message_text || "", msg.sender_email);
+        if (folder !== msg.folder) {
+            await prisma.supportMessage.update({
+                where: { id: msg.id },
+                data: { folder },
+            });
+            updated++;
+        }
+    }
+    logger_1.default.info(`[InboxFetcher] Recategorized ${updated}/${messages.length} messages.`);
+    return { total: messages.length, updated };
 }

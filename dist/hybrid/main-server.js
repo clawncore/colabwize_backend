@@ -89,6 +89,8 @@ const index_18 = __importDefault(require("../api/feedback/index"));
 const index_19 = __importDefault(require("../api/support-ticket/index"));
 const index_20 = __importDefault(require("../api/feature-request/index"));
 const index_21 = __importDefault(require("../api/contact/index"));
+const evidence_route_1 = __importDefault(require("../api/contact/evidence-route"));
+const contact_requests_1 = __importDefault(require("../api/admin/contact-requests"));
 const index_22 = __importDefault(require("../api/onboarding/index"));
 const index_23 = __importDefault(require("../api/chat/index"));
 const index_24 = __importDefault(require("../api/waitlist/index"));
@@ -382,6 +384,7 @@ app.use("/api/analytics", authMiddleware, index_14.default);
 app.use("/api/admin/auth", adminAuth_1.default);
 app.use("/api/admin/observability", rateLimiter_1.adminOperationRateLimiter, observability_1.default);
 app.use("/api/admin", rateLimiter_1.adminOperationRateLimiter, index_33.default);
+app.use("/api/admin/contact-requests", rateLimiter_1.adminOperationRateLimiter, contact_requests_1.default);
 // Subscription API
 app.use("/api/subscription", index_15.default);
 // Document Upload API (MVP Core Feature)
@@ -407,6 +410,7 @@ app.use("/api/support-ticket", authMiddleware, index_19.default);
 app.use("/api/feature-request", index_20.default);
 // Contact API (Public)
 app.use("/api/contact", index_21.default);
+app.use("/api/contact", evidence_route_1.default);
 // Waitlist API (Public)
 app.use("/api/waitlist", index_24.default);
 // Public Blog API (No auth required - serves published posts to the website)
