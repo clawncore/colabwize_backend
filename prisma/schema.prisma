@@ -132,6 +132,9 @@ model User {
   onedrive_token_expires_at DateTime?
   
   @@index([email])
+  @@index([online_status])
+  @@index([last_seen_at])
+  @@index([created_at])
   @@map("users")
 }
 
@@ -401,6 +404,7 @@ model UserSession {
 
   @@index([user_id])
   @@index([session_id])
+  @@index([ended_at])
   @@map("user_sessions")
 }
 
@@ -682,6 +686,7 @@ model Subscription {
   user                         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
+  @@index([status])
   @@index([lemonsqueezy_customer_id])
   @@index([lemonsqueezy_subscription_id])
   @@map("subscriptions")
@@ -923,6 +928,9 @@ model SupportMessage {
 
   @@index([thread_id])
   @@index([sender_email])
+  @@index([status])
+  @@index([is_read])
+  @@index([folder])
   @@map("support_messages")
 }
 
@@ -1196,22 +1204,38 @@ model AuthorshipConfidenceReport {
 }
 
 model ContactRequest {
-  id          String    @id @default(uuid())
-  name        String
-  email       String
-  subject     String
-  message     String
-  status      String    @default("new")
-  replied_at  DateTime?
-  ip_address  String?
-  user_agent  String?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
+  id            String    @id @default(uuid())
+  ticket_number String    @unique @default("")
+  name          String
+  email         String
+  subject       String
+  message       String
+  status        String    @default("new")
+  replied_at    DateTime?
+  ip_address    String?
+  user_agent    String?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  attachments   ContactAttachment[]
 
   @@index([email])
   @@index([status])
   @@index([created_at])
   @@map("contact_requests")
+}
+
+model ContactAttachment {
+  id               String   @id @default(uuid())
+  contactRequestId String
+  file_name        String
+  file_url         String
+  file_type        String
+  file_size        Int
+  created_at       DateTime @default(now())
+  contactRequest   ContactRequest @relation(fields: [contactRequestId], references: [id], onDelete: Cascade)
+
+  @@index([contactRequestId])
+  @@map("contact_attachments")
 }
 
 model CreditBalance {
@@ -1955,16 +1979,18 @@ model CaseStudy {
 }
 
 model EmailLog {
-  id         String   @id @default(uuid())
-  recipient  String
-  sender     String
-  subject    String
-  status     String   @default("sent") // "sent", "failed", "pending"
-  sent_at    DateTime @default(now())
-  error      String?  @db.Text
+  id           String   @id @default(uuid())
+  recipient    String
+  sender       String
+  subject      String
+  status       String   @default("sent") // "sent", "failed", "pending"
+  sent_at      DateTime @default(now())
+  error        String?  @db.Text
+  message_body String?  @db.Text
 
   @@index([recipient])
   @@index([sender])
+  @@index([status])
   @@index([sent_at])
   @@map("email_logs")
 }

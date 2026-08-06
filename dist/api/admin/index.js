@@ -11,6 +11,8 @@ const emailLayout_1 = require("../../services/email/emailLayout");
 const prisma_1 = require("../../lib/prisma");
 const logger_1 = __importDefault(require("../../monitoring/logger"));
 const broadcastService_1 = require("../../services/admin/broadcastService");
+const auditLogService_1 = require("../../services/admin/auditLogService");
+const integrations_1 = __importDefault(require("./integrations"));
 const router = express_1.default.Router();
 // Diagnostic route
 router.get("/health", (req, res) => {
@@ -57,6 +59,13 @@ router.post("/email/send", async (req, res) => {
             }
         });
         if (result.success) {
+            await (0, auditLogService_1.createAuditLog)({
+                action: "EMAIL_SENT",
+                adminEmail: (0, auditLogService_1.getAdminEmail)(req),
+                entityType: "EmailLog",
+                metadata: { to, senderAlias, subject },
+                ...(0, auditLogService_1.extractAuditContext)(req),
+            });
             return res.json({ success: true, message: "Email sent successfully", id: result.data?.id });
         }
         else {
@@ -92,6 +101,13 @@ router.post("/email/broadcast", async (req, res) => {
             message,
             fromAddress,
         }).catch(err => logger_1.default.error("Background Broadcast Error:", err));
+        await (0, auditLogService_1.createAuditLog)({
+            action: "EMAIL_BROADCAST",
+            adminEmail: (0, auditLogService_1.getAdminEmail)(req),
+            entityType: "EmailLog",
+            metadata: { recipientCount: userIds.length, senderAlias, subject },
+            ...(0, auditLogService_1.extractAuditContext)(req),
+        });
         res.status(202).json({
             success: true,
             message: `Broadcast of ${userIds.length} emails has been initiated in the background.`
@@ -200,6 +216,13 @@ router.post("/inbox/reply", async (req, res) => {
                     imap_uid: Math.floor(Math.random() * 1000000000) // Dummy UID for locally generated outbound msg
                 }
             });
+            await (0, auditLogService_1.createAuditLog)({
+                action: "INBOX_REPLY_SENT",
+                adminEmail: (0, auditLogService_1.getAdminEmail)(req),
+                entityType: "SupportMessage",
+                metadata: { threadId, to, subject },
+                ...(0, auditLogService_1.extractAuditContext)(req),
+            });
             return res.json({ success: true });
         }
         else {
@@ -226,6 +249,14 @@ router.patch("/inbox/:threadId/status", async (req, res) => {
         await prisma_1.prisma.supportMessage.updateMany({
             where: { thread_id: threadId },
             data: { status }
+        });
+        await (0, auditLogService_1.createAuditLog)({
+            action: "THREAD_STATUS_CHANGED",
+            adminEmail: (0, auditLogService_1.getAdminEmail)(req),
+            entityType: "SupportMessage",
+            entityId: threadId,
+            metadata: { status },
+            ...(0, auditLogService_1.extractAuditContext)(req),
         });
         res.json({ success: true });
     }
@@ -503,8 +534,16 @@ router.post("/blogs", async (req, res) => {
                 category,
                 image,
                 is_published: is_published || false,
-                author_id: req.user?.id // Assuming user ID is attached by middleware
+                author_id: req.adminUser?.userId || req.user?.id
             }
+        });
+        await (0, auditLogService_1.createAuditLog)({
+            action: "BLOG_CREATED",
+            adminEmail: (0, auditLogService_1.getAdminEmail)(req),
+            entityType: "BlogPost",
+            entityId: blog.id,
+            metadata: { title },
+            ...(0, auditLogService_1.extractAuditContext)(req),
         });
         res.json({ success: true, blog });
     }
@@ -529,6 +568,14 @@ router.patch("/blogs/:id", async (req, res) => {
             where: { id },
             data: updateData
         });
+        await (0, auditLogService_1.createAuditLog)({
+            action: "BLOG_UPDATED",
+            adminEmail: (0, auditLogService_1.getAdminEmail)(req),
+            entityType: "BlogPost",
+            entityId: id,
+            metadata: { title: updateData.title },
+            ...(0, auditLogService_1.extractAuditContext)(req),
+        });
         res.json({ success: true, blog });
     }
     catch (error) {
@@ -547,6 +594,13 @@ router.delete("/blogs/:id", async (req, res) => {
         await prisma_1.prisma.blogPost.delete({
             where: { id }
         });
+        await (0, auditLogService_1.createAuditLog)({
+            action: "BLOG_DELETED",
+            adminEmail: (0, auditLogService_1.getAdminEmail)(req),
+            entityType: "BlogPost",
+            entityId: id,
+            ...(0, auditLogService_1.extractAuditContext)(req),
+        });
         res.json({ success: true });
     }
     catch (error) {
@@ -554,4 +608,6 @@ router.delete("/blogs/:id", async (req, res) => {
         res.status(500).json({ success: false, error: "Internal server error" });
     }
 });
+// Google Analytics 4 & Third-party Integrations
+router.use("/analytics", integrations_1.default);
 exports.default = router;

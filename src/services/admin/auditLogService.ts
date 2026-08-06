@@ -5,6 +5,7 @@ import { Request } from "express";
 export interface AuditLogEntry {
   action: string;
   adminEmail: string;
+  adminId?: string;
   entityType?: string;
   entityId?: string;
   metadata?: Record<string, unknown>;
@@ -21,7 +22,7 @@ export async function createAuditLog(entry: AuditLogEntry): Promise<void> {
     await prisma.auditLog.create({
       data: {
         action: entry.action,
-        adminId: undefined,
+        adminId: entry.adminId,
         adminEmail: entry.adminEmail,
         entityType: entry.entityType,
         entityId: entry.entityId,
@@ -38,10 +39,11 @@ export async function createAuditLog(entry: AuditLogEntry): Promise<void> {
 /**
  * Extracts audit-relevant context from an Express request.
  */
-export function extractAuditContext(req: Request): Pick<AuditLogEntry, "ipAddress" | "userAgent"> {
+export function extractAuditContext(req: Request): Pick<AuditLogEntry, "ipAddress" | "userAgent" | "adminId"> {
   return {
     ipAddress: req.ip ?? req.headers["x-forwarded-for"] as string | undefined,
     userAgent: req.get("user-agent") ?? undefined,
+    adminId: (req as any).adminUser?.id ?? undefined,
   };
 }
 
@@ -49,5 +51,5 @@ export function extractAuditContext(req: Request): Pick<AuditLogEntry, "ipAddres
  * Gets the admin email from a request object attached by auth middleware.
  */
 export function getAdminEmail(req: Request): string {
-  return (req as any).user?.email ?? "unknown-admin";
+  return (req as any).adminUser?.email ?? (req as any).user?.email ?? "unknown-admin";
 }

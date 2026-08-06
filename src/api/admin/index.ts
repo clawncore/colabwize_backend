@@ -3,15 +3,55 @@ import { isPlatformAdmin } from "../../middleware/platformAdmin";
 import { sendEmail } from "../../services/email/baseMailer";
 import { SENDER_IDENTITIES, EmailSender } from "../../services/email/emailConfig";
 import { wrapInPremiumLayout } from "../../services/email/emailLayout";
+import { buildEmailAssistantPrompt } from "../../knowledge";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { processBroadcast } from "../../services/admin/broadcastService";
+import { createAuditLog, extractAuditContext, getAdminEmail } from "../../services/admin/auditLogService";
+import { OpenAIService } from "../../services/openaiService";
+import { TeamChatService } from "../../services/teamChatService";
+import integrationsRouter from "./integrations";
+import analyticsRouter from "./analytics";
+import revenueRouter from "./revenue";
 
 const router: Router = express.Router();
+
+// Mount revenue router
+router.use("/revenue", revenueRouter);
 
 // Diagnostic route
 router.get("/health", (req, res) => {
   res.json({ status: "active", router: "admin" });
+});
+
+/**
+ * @route   GET /api/admin/presence/stats
+ * @desc    Get real-time user presence statistics
+ * @access  Admin Only
+ */
+router.get("/presence/stats", async (req, res) => {
+  try {
+    const stats = await TeamChatService.getPresenceStats();
+    res.json({ success: true, data: stats });
+  } catch (error: any) {
+    logger.error("Admin Presence Stats Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/presence/online
+ * @desc    Get list of currently online users
+ * @access  Admin Only
+ */
+router.get("/presence/online", async (req, res) => {
+  try {
+    const onlineUsers = await TeamChatService.getOnlineUsers();
+    res.json({ success: true, users: onlineUsers });
+  } catch (error: any) {
+    logger.error("Admin Online Users Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
 });
 
 // Base middleware for all admin routes
@@ -47,21 +87,16 @@ router.post("/email/send", async (req, res) => {
       text: fallbackText
     });
 
-    // Audit Log Entry — store the real "from" address and the message body so
-    // the admin Sentbox can show what was sent and from which address.
-    await prisma.emailLog.create({
-      data: {
-        recipient: to,
-        sender: senderAlias,
-        from_address: SENDER_IDENTITIES[senderAlias as EmailSender],
-        subject,
-        status: result.success ? "sent" : "failed",
-        error: result.success ? null : (result.error || "Unknown error"),
-        message_body: message,
-      }
-    });
+    // Email is automatically logged by baseMailer.sendEmail()
 
     if (result.success) {
+      await createAuditLog({
+        action: "EMAIL_SENT",
+        adminEmail: getAdminEmail(req),
+        entityType: "EmailLog",
+        metadata: { to, senderAlias, subject },
+        ...extractAuditContext(req),
+      });
       return res.json({ success: true, message: "Email sent successfully", id: result.data?.id });
     } else {
       return res.status(500).json({ success: false, error: result.error || "Failed to send email" });
@@ -69,6 +104,273 @@ router.post("/email/send", async (req, res) => {
   } catch (error: any) {
     logger.error("Admin Email Send Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   POST /api/admin/email/generate
+ * @desc    Generate email content using AI (supports multi-turn chat)
+ * @access  Admin Only
+ */
+router.post("/email/generate", async (req, res) => {
+  try {
+    const { prompt, currentMessage, chatHistory } = req.body;
+
+    if (!prompt || typeof prompt !== "string") {
+      return res.status(400).json({ error: "Missing or invalid prompt" });
+    }
+
+    const systemMessage = buildEmailAssistantPrompt({ messageText: prompt });
+
+    // Build messages array with chat history for multi-turn conversation
+    const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
+      { role: "system", content: systemMessage },
+    ];
+
+    // Add chat history if provided (last 10 messages for context window management)
+    if (Array.isArray(chatHistory) && chatHistory.length > 0) {
+      const recentHistory = chatHistory.slice(-10);
+      for (const msg of recentHistory) {
+        messages.push({
+          role: msg.role === "assistant" ? "assistant" : "user",
+          content: msg.content,
+        });
+      }
+    }
+
+    // Add current prompt with optional email context
+    const userMessage = currentMessage
+      ? `Here is the current email draft I'm working on:\n---\n${currentMessage}\n---\n\nMy request: ${prompt}`
+      : prompt;
+
+    messages.push({ role: "user", content: userMessage });
+
+    const generated = await OpenAIService.generateCompletion(messages, {
+      maxTokens: 2000,
+      temperature: 0.7,
+      model: "gpt-4o-mini",
+    });
+
+    await createAuditLog({
+      action: "EMAIL_AI_GENERATED",
+      adminEmail: getAdminEmail(req),
+      entityType: "EmailLog",
+      metadata: { prompt: prompt.substring(0, 100) },
+      ...extractAuditContext(req),
+    });
+
+    res.json({ success: true, html: generated });
+  } catch (error: any) {
+    logger.error("Admin Email Generate Error:", error);
+    res.status(500).json({ success: false, error: "Failed to generate email content" });
+  }
+});
+
+/**
+ * @route   POST /api/admin/email/search-support
+ * @desc    Search support messages by sender name or email
+ * @access  Admin Only
+ */
+router.post("/email/search-support", async (req, res) => {
+  try {
+    const { query } = req.body;
+    if (!query || typeof query !== "string") {
+      return res.status(400).json({ error: "Missing search query" });
+    }
+
+    const q = query.trim();
+    // Search by email (exact or partial) or by name in subject/message
+    const messages = await prisma.supportMessage.findMany({
+      where: {
+        OR: [
+          { sender_email: { contains: q, mode: "insensitive" } },
+          { subject: { contains: q, mode: "insensitive" } },
+          { message_text: { contains: q, mode: "insensitive" } },
+        ],
+      },
+      orderBy: { received_at: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        sender_email: true,
+        subject: true,
+        message_text: true,
+        received_at: true,
+        status: true,
+        thread_id: true,
+        folder: true,
+        priority: true,
+      },
+    });
+
+    // Group by sender to show unique contacts
+    const senderMap = new Map<string, { email: string; count: number; latest: string; subjects: string[] }>();
+    for (const msg of messages) {
+      const existing = senderMap.get(msg.sender_email);
+      if (existing) {
+        existing.count++;
+        if (!existing.subjects.includes(msg.subject)) existing.subjects.push(msg.subject);
+      } else {
+        senderMap.set(msg.sender_email, {
+          email: msg.sender_email,
+          count: 1,
+          latest: msg.received_at.toISOString(),
+          subjects: [msg.subject],
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      messages,
+      contacts: Array.from(senderMap.values()),
+    });
+  } catch (error: any) {
+    logger.error("Support search error:", error);
+    res.status(500).json({ success: false, error: "Search failed" });
+  }
+});
+
+/**
+ * @route   POST /api/admin/email/smart-reply
+ * @desc    Auto-fetch support messages for a person and generate a contextual reply
+ * @access  Admin Only
+ */
+router.post("/email/smart-reply", async (req, res) => {
+  try {
+    const { senderEmail, senderName, chatHistory } = req.body;
+
+    if (!senderEmail && !senderName) {
+      return res.status(400).json({ error: "Provide senderEmail or senderName" });
+    }
+
+    const searchQuery = senderEmail || senderName;
+
+    // Check if search query is a ticket number (CW-YYYY-XXXX)
+    const isTicket = /^CW-\d{4}-\d{4,}$/i.test(searchQuery);
+
+    let contactRequest = null;
+    if (isTicket) {
+      contactRequest = await prisma.contactRequest.findFirst({
+        where: { ticket_number: { equals: searchQuery, mode: "insensitive" } },
+        include: { attachments: true },
+      });
+    }
+
+    // Fetch support messages for this person
+    const messages = await prisma.supportMessage.findMany({
+      where: {
+        OR: [
+          { sender_email: { contains: searchQuery, mode: "insensitive" } },
+          { subject: { contains: searchQuery, mode: "insensitive" } },
+        ],
+      },
+      orderBy: { received_at: "desc" },
+      take: 10,
+      select: {
+        sender_email: true,
+        subject: true,
+        message_text: true,
+        received_at: true,
+        status: true,
+        folder: true,
+        priority: true,
+      },
+    });
+
+    if (messages.length === 0 && !contactRequest) {
+      return res.json({
+        success: true,
+        found: false,
+        message: `No support messages found for "${searchQuery}". Try pasting the email content directly.`,
+      });
+    }
+
+    // Build context from contact request if found
+    let contactContext = "";
+    if (contactRequest) {
+      const attachmentInfo = contactRequest.attachments.length > 0
+        ? `\nAttachments: ${contactRequest.attachments.map((a) => a.file_name).join(", ")}`
+        : "";
+      contactContext = `
+CONTACT TICKET: ${contactRequest.ticket_number}
+From: ${contactRequest.name} <${contactRequest.email}>
+Subject: ${contactRequest.subject}
+Status: ${contactRequest.status}
+Date: ${contactRequest.created_at.toISOString()}
+Message: ${contactRequest.message}${attachmentInfo}
+---`;
+    }
+
+    // Build context from their messages
+    const messageContext = messages
+      .map(
+        (m) =>
+          `[${m.received_at.toISOString().split("T")[0]}] From: ${m.sender_email} | Subject: ${m.subject} | Folder: ${m.folder || "Support"} | Priority: ${m.priority || "medium"}\n${m.message_text}`
+      )
+      .join("\n\n---\n\n");
+
+    const latestSubject = contactRequest?.subject || messages[0]?.subject || "";
+    const latestMessage = contactRequest?.message || messages[0]?.message_text || "";
+
+    const systemMessage = buildEmailAssistantPrompt({
+      messageText: latestMessage,
+    });
+
+    // Build messages for AI
+    const aiMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
+      { role: "system", content: systemMessage },
+    ];
+
+    // Add chat history for context (last 6 messages)
+    if (Array.isArray(chatHistory) && chatHistory.length > 0) {
+      for (const msg of chatHistory.slice(-6)) {
+        aiMessages.push({
+          role: msg.role === "assistant" ? "assistant" : "user",
+          content: msg.content,
+        });
+      }
+    }
+
+    // Add the person's message history as context
+    const contextParts = [];
+    if (contactContext) {
+      contextParts.push(contactContext);
+    }
+    if (messageContext) {
+      contextParts.push(`Support message history:\n\n${messageContext}`);
+    }
+
+    aiMessages.push({
+      role: "user",
+      content: `Here is the context for this ticket:\n\n${contextParts.join("\n\n")}\n\nPlease draft a professional reply to: "${latestSubject}". Address their specific concern and provide a clear next step.`,
+    });
+
+    const generated = await OpenAIService.generateCompletion(aiMessages, {
+      maxTokens: 2000,
+      temperature: 0.7,
+      model: "gpt-4o-mini",
+    });
+
+    await createAuditLog({
+      action: "EMAIL_SMART_REPLY",
+      adminEmail: getAdminEmail(req),
+      entityType: "EmailLog",
+      metadata: { senderEmail: messages[0].sender_email, messageCount: messages.length },
+      ...extractAuditContext(req),
+    });
+
+    res.json({
+      success: true,
+      found: true,
+      html: generated,
+      sender: messages[0].sender_email,
+      subject: latestSubject,
+      messageCount: messages.length,
+    });
+  } catch (error: any) {
+    logger.error("Smart reply error:", error);
+    res.status(500).json({ success: false, error: "Failed to generate smart reply" });
   }
 });
 
@@ -100,6 +402,14 @@ router.post("/email/broadcast", async (req, res) => {
       fromAddress,
     }).catch(err => logger.error("Background Broadcast Error:", err));
 
+    await createAuditLog({
+      action: "EMAIL_BROADCAST",
+      adminEmail: getAdminEmail(req),
+      entityType: "EmailLog",
+      metadata: { recipientCount: userIds.length, senderAlias, subject },
+      ...extractAuditContext(req),
+    });
+
     res.status(202).json({
       success: true,
       message: `Broadcast of ${userIds.length} emails has been initiated in the background.`
@@ -107,6 +417,51 @@ router.post("/email/broadcast", async (req, res) => {
   } catch (error: any) {
     logger.error("Admin Broadcast Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/inbox/sent
+ * @desc    Fetch sent messages from email_logs (replies sent from inbox)
+ * @access  Admin Only
+ */
+router.get("/inbox/sent", async (req, res) => {
+  try {
+    const messages = await prisma.emailLog.findMany({
+      where: {
+        sender: { in: ["support@colabwize.com", "help@colabwize.com", "billing@colabwize.com"] },
+      },
+      orderBy: { sent_at: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        recipient: true,
+        sender: true,
+        subject: true,
+        status: true,
+        sent_at: true,
+        message_body: true,
+      },
+    });
+
+    // Format as inbox-style messages
+    const formatted = messages.map((msg) => ({
+      id: msg.id,
+      sender_email: msg.recipient,
+      subject: msg.subject,
+      message_text: msg.message_body || "",
+      received_at: msg.sent_at,
+      status: msg.status,
+      is_read: true,
+      folder: "Sent",
+      source_alias: msg.sender,
+      thread_id: msg.id,
+    }));
+
+    res.json({ success: true, messages: formatted });
+  } catch (error: any) {
+    logger.error("Sent messages error:", error);
+    res.status(500).json({ success: false, error: "Failed to fetch sent messages" });
   }
 });
 
@@ -166,7 +521,8 @@ router.get("/inbox/:threadId", async (req, res) => {
 
     const messages = await prisma.supportMessage.findMany({
       where: { thread_id: threadId },
-      orderBy: { received_at: "asc" }
+      orderBy: { received_at: "asc" },
+      take: 100, // Limit messages per thread
     });
 
     res.json({ success: true, messages });
@@ -216,6 +572,13 @@ router.post("/inbox/reply", async (req, res) => {
           imap_uid: Math.floor(Math.random() * 1000000000) // Dummy UID for locally generated outbound msg
         }
       });
+      await createAuditLog({
+        action: "INBOX_REPLY_SENT",
+        adminEmail: getAdminEmail(req),
+        entityType: "SupportMessage",
+        metadata: { threadId, to, subject },
+        ...extractAuditContext(req),
+      });
       return res.json({ success: true });
     } else {
       return res.status(500).json({ success: false, error: result.error || "Failed to send reply" });
@@ -243,6 +606,15 @@ router.patch("/inbox/:threadId/status", async (req, res) => {
     await prisma.supportMessage.updateMany({
       where: { thread_id: threadId },
       data: { status }
+    });
+
+    await createAuditLog({
+      action: "THREAD_STATUS_CHANGED",
+      adminEmail: getAdminEmail(req),
+      entityType: "SupportMessage",
+      entityId: threadId,
+      metadata: { status },
+      ...extractAuditContext(req),
     });
 
     res.json({ success: true });
@@ -325,29 +697,205 @@ router.get("/email/logs", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 100;
     const offset = parseInt(req.query.offset as string) || 0;
+    const senderFilter = req.query.sender as string | undefined;
+    const recipientFilter = req.query.recipient as string | undefined;
 
-    const logs = await prisma.emailLog.findMany({
-      take: limit,
-      skip: offset,
-      orderBy: { sent_at: "desc" },
-      select: {
-        id: true,
-        recipient: true,
-        sender: true,
-        from_address: true,
-        subject: true,
-        status: true,
-        sent_at: true,
-        error: true,
-        message_body: true,
-      }
-    });
+    const where: any = {};
+    if (senderFilter && senderFilter !== "all") {
+      where.sender = senderFilter;
+    }
+    if (recipientFilter) {
+      where.recipient = recipientFilter;
+    }
 
-    const total = await prisma.emailLog.count();
+    const [logs, total, senderCounts] = await Promise.all([
+      prisma.emailLog.findMany({
+        take: limit,
+        skip: offset,
+        orderBy: { sent_at: "desc" },
+        where,
+        select: {
+          id: true,
+          recipient: true,
+          sender: true,
+          subject: true,
+          status: true,
+          sent_at: true,
+          error: true,
+          message_body: true,
+        }
+      }),
+      prisma.emailLog.count({ where }),
+      prisma.emailLog.groupBy({
+        by: ['sender'],
+        _count: true,
+        orderBy: { sender: 'asc' },
+      }),
+    ]);
 
-    res.json({ success: true, logs, total });
+    const tabs = senderCounts.map((s) => ({
+      sender: s.sender,
+      count: s._count,
+    }));
+
+    res.json({ success: true, logs, total, tabs });
   } catch (error: any) {
     logger.error("Admin Log Fetch Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/email/analytics
+ * @desc    Comprehensive email analytics — totals, per-sender breakdown,
+ *          delivery rate, recent daily volume, top recipients.
+ * @access  Admin Only
+ */
+router.get("/email/analytics", async (req, res) => {
+  try {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [
+      totalEmails,
+      emailsToday,
+      emailsYesterday,
+      emailsLast7d,
+      emailsLast30d,
+      statusBreakdown,
+      senderBreakdown,
+      recentDaily,
+      topRecipients,
+      subjectBreakdown,
+      failedEmails,
+      uniqueRecipients,
+      hourlyDistribution,
+      weeklyTrend,
+      topFailingRecipients,
+      recentFailed,
+    ] = await Promise.all([
+      prisma.emailLog.count(),
+      prisma.emailLog.count({ where: { sent_at: { gte: today } } }),
+      prisma.emailLog.count({ where: { sent_at: { gte: yesterday, lt: today } } }),
+      prisma.emailLog.count({ where: { sent_at: { gte: sevenDaysAgo } } }),
+      prisma.emailLog.count({ where: { sent_at: { gte: thirtyDaysAgo } } }),
+      prisma.emailLog.groupBy({ by: ['status'], _count: true }),
+      prisma.emailLog.groupBy({ by: ['sender'], _count: true, orderBy: { _count: { sender: 'desc' } } }),
+      prisma.$queryRaw`
+        SELECT DATE(sent_at) as date, COUNT(*)::int as count, status
+        FROM email_logs
+        GROUP BY DATE(sent_at), status
+        ORDER BY date DESC
+      `,
+      prisma.emailLog.groupBy({ by: ['recipient'], _count: true, orderBy: { _count: { recipient: 'desc' } }, take: 20 }),
+      prisma.emailLog.groupBy({ by: ['subject'], _count: true, orderBy: { _count: { subject: 'desc' } }, take: 20 }),
+      prisma.emailLog.findMany({ where: { status: 'failed' }, select: { id: true, recipient: true, sender: true, subject: true, error: true, sent_at: true }, orderBy: { sent_at: 'desc' }, take: 50 }),
+      prisma.$queryRaw`SELECT COUNT(DISTINCT recipient)::int as count FROM email_logs`,
+      prisma.$queryRaw`
+        SELECT EXTRACT(HOUR FROM sent_at)::int as hour, COUNT(*)::int as count
+        FROM email_logs
+        GROUP BY EXTRACT(HOUR FROM sent_at)
+        ORDER BY hour
+      `,
+      prisma.$queryRaw`
+        SELECT DATE(sent_at) as date, COUNT(*)::int as count
+        FROM email_logs
+        GROUP BY DATE(sent_at)
+        ORDER BY date ASC
+      `,
+      prisma.$queryRaw`
+        SELECT recipient, COUNT(*)::int as fail_count, ARRAY_AGG(DISTINCT subject) as subjects
+        FROM email_logs
+        WHERE status = 'failed'
+        GROUP BY recipient
+        ORDER BY fail_count DESC
+        LIMIT 10
+      `,
+      prisma.emailLog.findMany({ where: { status: 'failed' }, select: { id: true, recipient: true, sender: true, subject: true, error: true, sent_at: true }, orderBy: { sent_at: 'desc' }, take: 5 }),
+    ]);
+
+    const sentCount = statusBreakdown.find((s) => s.status === "sent")?._count || 0;
+    const failedCount = statusBreakdown.find((s) => s.status === "failed")?._count || 0;
+    const deliveryRate = totalEmails > 0 ? Number(((sentCount / totalEmails) * 100).toFixed(1)) : 0;
+    const uniqueRecipientCount = Array.isArray(uniqueRecipients) ? uniqueRecipients[0]?.count || 0 : 0;
+
+    const dayOverDayChange = emailsYesterday > 0 ? Number((((emailsToday - emailsYesterday) / emailsYesterday) * 100).toFixed(1)) : 0;
+
+    const errorCategories: Record<string, number> = {};
+    for (const email of failedEmails) {
+      const err = email.error || 'Unknown error';
+      let category = 'Other';
+      const lower = err.toLowerCase();
+      if (lower.includes('bounce') || lower.includes('undeliverable')) category = 'Bounced';
+      else if (lower.includes('spam') || lower.includes('rejected')) category = 'Spam/Rejected';
+      else if (lower.includes('rate') || lower.includes('throttl')) category = 'Rate Limited';
+      else if (lower.includes('auth') || lower.includes('dkim') || lower.includes('spf') || lower.includes('dmarc')) category = 'Authentication';
+      else if (lower.includes('timeout') || lower.includes('network') || lower.includes('connection')) category = 'Network';
+      else if (lower.includes('invalid') || lower.includes('format')) category = 'Invalid Address';
+      errorCategories[category] = (errorCategories[category] || 0) + 1;
+    }
+
+    const hourlyMap: Record<number, number> = {};
+    for (let h = 0; h < 24; h++) hourlyMap[h] = 0;
+    for (const row of (hourlyDistribution as any[])) {
+      hourlyMap[row.hour] = row.count;
+    }
+    const peakHour = Object.entries(hourlyMap).reduce((a, b) => b[1] > a[1] ? b : a, ['0', 0]);
+
+    const avgDaily = weeklyTrend.length > 0 ? Number(((weeklyTrend as any[]).reduce((sum: number, r: any) => sum + r.count, 0) / (weeklyTrend as any[]).length).toFixed(1)) : 0;
+
+    res.json({
+      success: true,
+      data: {
+        totals: {
+          allTime: totalEmails,
+          today: emailsToday,
+          yesterday: emailsYesterday,
+          last7d: emailsLast7d,
+          last30d: emailsLast30d,
+          sent: sentCount,
+          failed: failedCount,
+          deliveryRate,
+          uniqueRecipients: uniqueRecipientCount,
+          dayOverDayChange,
+        },
+        bySender: senderBreakdown.map((s) => ({
+          sender: s.sender,
+          count: s._count,
+        })),
+        bySubject: subjectBreakdown.map((s) => ({
+          subject: s.subject,
+          count: s._count,
+        })),
+        daily: recentDaily,
+        weeklyTrend: weeklyTrend,
+        topRecipients: topRecipients.map((r) => ({
+          recipient: r.recipient,
+          count: r._count,
+        })),
+        hourlyDistribution: Object.entries(hourlyMap).map(([h, c]) => ({
+          hour: parseInt(h),
+          count: c,
+        })),
+        peakHour: { hour: parseInt(peakHour[0] as string), count: peakHour[1] as number },
+        avgDailyVolume: avgDaily,
+        failures: {
+          total: failedCount,
+          categories: errorCategories,
+          topFailingRecipients: (topFailingRecipients as any[]).map((r) => ({
+            recipient: r.recipient,
+            failCount: r.fail_count,
+            subjects: r.subjects,
+          })),
+          recent: recentFailed,
+        },
+      },
+    });
+  } catch (error: any) {
+    logger.error("Admin Email Analytics Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
@@ -409,6 +957,182 @@ router.get("/analytics", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Admin Analytics Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/marketing/metrics
+ * @desc    Get comprehensive marketing metrics for academic writing platform
+ * @access  Admin Only
+ */
+router.get("/marketing/metrics", async (req, res) => {
+  try {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // User metrics
+    const [
+      totalUsers,
+      newUsersLast30Days,
+      activeUsersLast7Days,
+      paidUsers,
+      freeUsers,
+    ] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { created_at: { gte: thirtyDaysAgo } } }),
+      prisma.user.count({ where: { last_seen_at: { gte: sevenDaysAgo } } }),
+      prisma.subscription.count({ where: { status: "active" } }),
+      prisma.user.count({
+        where: {
+          OR: [
+            { subscription: null },
+            { subscription: { status: { not: "active" } } },
+          ],
+        },
+      }),
+    ]);
+
+    // Blog content metrics
+    const [totalBlogs, publishedBlogs] = await Promise.all([
+      prisma.blogPost.count(),
+      prisma.blogPost.count({ where: { is_published: true } }),
+    ]);
+
+    // Support metrics
+    const [openSupportTickets, resolvedToday] = await Promise.all([
+      prisma.supportMessage.count({ where: { status: "open" } }),
+      prisma.supportMessage.count({
+        where: {
+          status: "resolved",
+          received_at: { gte: todayStart },
+        },
+      }),
+    ]);
+
+    // Academic platform metrics
+    const [totalDocuments, citationsVerified, certificatesIssued, aiDetectionRuns] = await Promise.all([
+      prisma.project.count(),
+      prisma.citation.count(),
+      prisma.certificate.count(),
+      prisma.auditJob.count(),
+    ]);
+
+    // Email metrics
+    const [emailsSentToday, totalEmailsSent, totalEmailsOpened] = await Promise.all([
+      prisma.emailLog.count({
+        where: {
+          status: "sent",
+          sent_at: { gte: todayStart },
+        },
+      }),
+      prisma.emailLog.count({ where: { status: "sent" } }),
+      prisma.emailLog.count({ where: { status: "opened" } }),
+    ]);
+
+    const emailOpenRate = totalEmailsSent > 0 ? Math.round((totalEmailsOpened / totalEmailsSent) * 100) : 0;
+
+    // Referral metrics
+    const [referralSignups] = await Promise.all([
+      prisma.user.count({
+        where: {
+          referral_code: { not: null },
+          created_at: { gte: thirtyDaysAgo },
+        },
+      }),
+    ]);
+
+    const referralConversionRate = totalUsers > 0 ? Math.round((referralSignups / totalUsers) * 100) : 0;
+
+    res.json({
+      success: true,
+      data: {
+        totalUsers,
+        newUsersLast30Days,
+        activeUsersLast7Days,
+        paidUsers,
+        freeUsers,
+        totalBlogs,
+        publishedBlogs,
+        openSupportTickets,
+        resolvedToday,
+        totalDocuments,
+        citationsVerified,
+        certificatesIssued,
+        aiDetectionRuns,
+        emailsSentToday,
+        emailOpenRate,
+        referralSignups,
+        referralConversionRate,
+      },
+    });
+  } catch (error: any) {
+    logger.error("Admin Marketing Metrics Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/dashboard/metrics
+ * @desc    Get main dashboard metrics for academic writing platform
+ * @access  Admin Only
+ */
+router.get("/dashboard/metrics", async (req, res) => {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    // User metrics
+    const [totalUsers, newUsersLast30Days, paidUsers] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { created_at: { gte: thirtyDaysAgo } } }),
+      prisma.subscription.count({ where: { status: "active" } }),
+    ]);
+
+    // Online users (real-time presence)
+    const activeUsersNow = await prisma.user.count({
+      where: { online_status: true },
+    });
+
+    // Academic platform metrics
+    const [totalDocuments, citationsVerified, certificatesIssued, aiDetectionRuns] = await Promise.all([
+      prisma.project.count(),
+      prisma.citation.count(),
+      prisma.certificate.count(),
+      prisma.auditJob.count(),
+    ]);
+
+    // Support tickets
+    const openSupportTickets = await prisma.supportMessage.count({
+      where: { status: "open" },
+    });
+
+    // Revenue (MRR from active subscriptions)
+    const revenueData = await prisma.subscription.aggregate({
+      _sum: { amount_cents: true },
+      where: { status: "active" },
+    });
+    const mrr = (revenueData._sum.amount_cents ?? 0) / 100;
+
+    res.json({
+      success: true,
+      data: {
+        totalUsers,
+        newUsersLast30Days,
+        activeUsersNow,
+        paidUsers,
+        totalDocuments,
+        citationsVerified,
+        certificatesIssued,
+        aiDetectionRuns,
+        openSupportTickets,
+        systemHealth: "Operational",
+        mrr,
+      },
+    });
+  } catch (error: any) {
+    logger.error("Admin Dashboard Metrics Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
@@ -485,6 +1209,10 @@ router.get("/users", async (req, res) => {
         email: true,
         full_name: true,
         created_at: true,
+        last_seen_at: true,
+        online_status: true,
+        email_verified: true,
+        updated_at: true,
         subscription: {
           select: { plan: true, status: true }
         }
@@ -503,13 +1231,84 @@ router.get("/users", async (req, res) => {
 });
 
 /**
+ * @route   GET /api/admin/users/:email/activity
+ * @desc    Fetch all email logs sent to a user + support messages from them
+ * @access  Admin Only
+ */
+router.get("/users/:email/activity", async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+
+    const [emailLogs, supportMessages, user] = await Promise.all([
+      prisma.emailLog.findMany({
+        where: { recipient: email },
+        orderBy: { sent_at: "desc" },
+        take: 100,
+        select: {
+          id: true,
+          sender: true,
+          subject: true,
+          status: true,
+          sent_at: true,
+          error: true,
+          message_body: true,
+        },
+      }),
+      prisma.supportMessage.findMany({
+        where: { sender_email: email },
+        orderBy: { received_at: "desc" },
+        take: 100,
+        select: {
+          id: true,
+          subject: true,
+          message_text: true,
+          message_html: true,
+          received_at: true,
+          status: true,
+          thread_id: true,
+          source_alias: true,
+          is_read: true,
+        },
+      }),
+      prisma.user.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          email: true,
+          full_name: true,
+          created_at: true,
+          last_seen_at: true,
+          online_status: true,
+          email_verified: true,
+          subscription: {
+            select: { plan: true, status: true }
+          },
+        },
+      }),
+    ]);
+
+    res.json({
+      success: true,
+      user,
+      emailLogs,
+      supportMessages,
+    });
+  } catch (error: any) {
+    logger.error("Admin User Activity Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
  * @route   GET /api/admin/blogs
  * @desc    Fetch all blog posts
  * @access  Admin Only
  */
 router.get("/blogs", async (req, res) => {
   try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
     const blogs = await prisma.blogPost.findMany({
+      take: limit,
       orderBy: { created_at: "desc" }
     });
     res.json({ success: true, blogs });
@@ -544,8 +1343,17 @@ router.post("/blogs", async (req, res) => {
         category,
         image,
         is_published: is_published || false,
-        author_id: (req as any).user?.id // Assuming user ID is attached by middleware
+        author_id: (req as any).adminUser?.userId || (req as any).user?.id
       }
+    });
+
+    await createAuditLog({
+      action: "BLOG_CREATED",
+      adminEmail: getAdminEmail(req),
+      entityType: "BlogPost",
+      entityId: blog.id,
+      metadata: { title },
+      ...extractAuditContext(req),
     });
 
     res.json({ success: true, blog });
@@ -574,6 +1382,15 @@ router.patch("/blogs/:id", async (req, res) => {
       data: updateData
     });
 
+    await createAuditLog({
+      action: "BLOG_UPDATED",
+      adminEmail: getAdminEmail(req),
+      entityType: "BlogPost",
+      entityId: id,
+      metadata: { title: updateData.title },
+      ...extractAuditContext(req),
+    });
+
     res.json({ success: true, blog });
   } catch (error: any) {
     logger.error("Admin Blog Update Error:", error);
@@ -594,11 +1411,24 @@ router.delete("/blogs/:id", async (req, res) => {
       where: { id }
     });
 
+    await createAuditLog({
+      action: "BLOG_DELETED",
+      adminEmail: getAdminEmail(req),
+      entityType: "BlogPost",
+      entityId: id,
+      ...extractAuditContext(req),
+    });
+
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Admin Blog Delete Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
+
+// Google Analytics 4 & Third-party Integrations
+// integrationsRouter must come first so GA4 routes are matched before analyticsRouter
+router.use("/analytics", integrationsRouter);
+router.use("/analytics", analyticsRouter);
 
 export default router;

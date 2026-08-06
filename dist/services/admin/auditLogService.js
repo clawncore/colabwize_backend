@@ -17,7 +17,7 @@ async function createAuditLog(entry) {
         await prisma_1.prisma.auditLog.create({
             data: {
                 action: entry.action,
-                adminId: undefined,
+                adminId: entry.adminId,
                 adminEmail: entry.adminEmail,
                 entityType: entry.entityType,
                 entityId: entry.entityId,
@@ -38,11 +38,12 @@ function extractAuditContext(req) {
     return {
         ipAddress: req.ip ?? req.headers["x-forwarded-for"],
         userAgent: req.get("user-agent") ?? undefined,
+        adminId: req.adminUser?.id ?? undefined,
     };
 }
 /**
  * Gets the admin email from a request object attached by auth middleware.
  */
 function getAdminEmail(req) {
-    return req.user?.email ?? "unknown-admin";
+    return req.adminUser?.email ?? req.user?.email ?? "unknown-admin";
 }

@@ -1,9 +1,26 @@
-import { EmailService } from "./emailService";
+import { sendEmail } from "./email/baseMailer";
+import { buildEmailHtml } from "./email/emailLayout";
 import { prisma } from "../lib/prisma";
 
 import { SecretsService } from "./secrets-service";
 
 export class ContactService {
+  // Generate ticket number: CW-YYYY-XXXX (e.g. CW-2026-0001)
+  private static async generateTicketNumber(): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = `CW-${year}-`;
+
+    // Count tickets created this year to get next sequence number
+    const count = await prisma.contactRequest.count({
+      where: {
+        ticket_number: { startsWith: prefix },
+      },
+    });
+
+    const seq = (count + 1).toString().padStart(4, "0");
+    return `${prefix}${seq}`;
+  }
+
   // Handle contact form submission
   static async handleContactSubmission(data: {
     name: string;
@@ -25,9 +42,13 @@ export class ContactService {
         throw new Error("Invalid email format");
       }
 
+      // Generate ticket number
+      const ticketNumber = await this.generateTicketNumber();
+
       // Store the contact request in the database
       const contactRequest = await prisma.contactRequest.create({
         data: {
+          ticket_number: ticketNumber,
           name: data.name,
           email: data.email,
           subject: data.subject,
@@ -35,6 +56,23 @@ export class ContactService {
           ip_address: data.ip_address,
           user_agent: data.user_agent,
           status: "new",
+        },
+      });
+
+      // Also insert into support_messages so it appears in the admin inbox
+      const threadId = `contact-${ticketNumber}`;
+      const imapUid = Math.floor(Date.now() / 1000);
+      await prisma.supportMessage.create({
+        data: {
+          sender_email: data.email,
+          subject: `[${ticketNumber}] ${data.subject}`,
+          message_text: `Name: ${data.name}\nTicket: ${ticketNumber}\n\n${data.message}`,
+          message_html: `<p><strong>Name:</strong> ${data.name}</p><p><strong>Ticket:</strong> ${ticketNumber}</p><hr><p>${data.message.replace(/\n/g, "<br>")}</p>`,
+          thread_id: threadId,
+          source_alias: "contact-form",
+          imap_uid: imapUid,
+          status: "open",
+          folder: "Support",
         },
       });
 
@@ -50,9 +88,19 @@ export class ContactService {
         // Continue with the process even if email fails
       }
 
+      // Send email to admin so they receive the message in their inbox
+      try {
+        await this.sendAdminEmail({ ...data, ticketNumber });
+      } catch (emailError) {
+        console.warn(
+          "Warning: Failed to send admin email notification:",
+          emailError
+        );
+      }
+
       // Send confirmation email to the user (if email service is configured)
       try {
-        await this.sendUserConfirmation(data);
+        await this.sendUserConfirmation({ ...data, ticketNumber });
       } catch (emailError) {
         console.warn(
           "Warning: Failed to send user confirmation email:",
@@ -65,6 +113,7 @@ export class ContactService {
         success: true,
         message:
           "Your message has been sent successfully. We'll get back to you soon.",
+        ticketNumber,
         contactRequestId: contactRequest.id,
       };
     } catch (error) {
@@ -226,47 +275,114 @@ export class ContactService {
     email: string;
     subject: string;
     message: string;
+    ticketNumber: string;
   }): Promise<boolean> {
     try {
-      const subjectLine = "We've Received Your Message - ColabWize";
+      const subjectLine = `Support Request Received — ${data.ticketNumber}`;
 
-      const htmlBody = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #3B82F6;">Thanks for Reaching Out!</h2>
-          
-          <p>Hello ${data.name},</p>
-          
-          <p>We've received your message and appreciate you taking the time to contact us. Our team will review your inquiry and get back to you within 24 hours.</p>
-          
-          <div style="background-color: #f1f5f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <h3 style="margin-top: 0; color: #1e293b;">Your Message Summary</h3>
-            <p><strong>Subject:</strong> ${data.subject}</p>
-            <p><strong>Message:</strong></p>
-            <p style="white-space: pre-wrap; line-height: 1.5;">${data.message}</p>
-          </div>
-
-          <p>In the meantime, you might find answers to common questions in our <a href="https://app.colabwize.com/resources/help-center" style="color: #3B82F6;">Help Center</a>.</p>
-          
-          <p>Best regards,<br/>
-          The ColabWize Team</p>
-          
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;">
-          
-          <p style="font-size: 12px; color: #64748b;">
-            This is an automated confirmation. Please do not reply to this email. If you need immediate assistance, contact us at hello@colabwize.com.
-          </p>
+      const content = `
+        <p>Hello ${data.name},</p>
+        <p>Your request has been received. Our team will review it and respond within 24 hours.</p>
+        
+        <div style="background-color: #f1f5f9; padding: 24px; border-radius: 12px; margin: 24px 0; border: 1px solid #e2e8f0;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 6px 0; color: #64748b; font-size: 14px;">Ticket Number</td>
+              <td style="padding: 6px 0; color: #0ea5e9; font-weight: 700; font-size: 16px; text-align: right;">${data.ticketNumber}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #64748b; font-size: 14px;">Subject</td>
+              <td style="padding: 6px 0; text-align: right;">${data.subject}</td>
+            </tr>
+          </table>
+          <hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;">
+          <p style="margin: 0; white-space: pre-wrap; line-height: 1.6; color: #334155;">${data.message}</p>
         </div>
+
+        <p style="color: #64748b; font-size: 14px;">Save your ticket number — you'll need it to check status or reopen this request.</p>
       `;
 
-      return EmailService.sendNotificationEmail(
-        data.email,
-        data.name,
-        subjectLine,
-        htmlBody,
-        "contact"
-      );
+      const html = buildEmailHtml({
+        title: "Support Request Received",
+        content,
+        titleColor: "#0ea5e9",
+      });
+
+      const { success } = await sendEmail({
+        from: "NOTIFICATIONS",
+        to: data.email,
+        subject: subjectLine,
+        html,
+        text: `Hello ${data.name},\n\nYour support request has been received.\n\nTicket: ${data.ticketNumber}\nSubject: ${data.subject}\n\nOur team will review it and respond within 24 hours.\n\nColabWize Support`,
+      });
+
+      return success;
     } catch (error) {
       console.error("Error sending user confirmation:", error);
+      return false;
+    }
+  }
+
+  // Send admin email so the team receives the contact form in their inbox
+  private static async sendAdminEmail(data: {
+    name: string;
+    email: string;
+    subject: string;
+    message: string;
+    ticketNumber: string;
+  }): Promise<boolean> {
+    try {
+      const adminEmail = await SecretsService.getContactAdminEmail();
+      if (!adminEmail) {
+        console.warn("No admin email configured for contact notifications");
+        return false;
+      }
+
+      const subjectLine = `[${data.ticketNumber}] ${data.subject}`;
+
+      const content = `
+        <div style="background-color: #f1f5f9; padding: 24px; border-radius: 12px; margin: 24px 0; border: 1px solid #e2e8f0;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 6px 0; color: #64748b; font-size: 14px;">Ticket</td>
+              <td style="padding: 6px 0; color: #0ea5e9; font-weight: 700; font-size: 16px; text-align: right;">${data.ticketNumber}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #64748b; font-size: 14px;">From</td>
+              <td style="padding: 6px 0; text-align: right;">${data.name} &lt;${data.email}&gt;</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #64748b; font-size: 14px;">Subject</td>
+              <td style="padding: 6px 0; text-align: right;">${data.subject}</td>
+            </tr>
+          </table>
+          <hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;">
+          <p style="margin: 0 0 8px 0; font-weight: 600; color: #1e293b;">Message</p>
+          <p style="white-space: pre-wrap; line-height: 1.6; margin: 0; color: #334155;">${data.message}</p>
+        </div>
+
+        <p style="color: #64748b; font-size: 14px;">
+          Reply directly to <strong>${data.email}</strong> to respond to this inquiry.
+        </p>
+      `;
+
+      const html = buildEmailHtml({
+        title: "New Contact Form Submission",
+        content,
+        titleColor: "#111827",
+      });
+
+      const { success } = await sendEmail({
+        from: "SUPPORT",
+        to: adminEmail,
+        subject: subjectLine,
+        html,
+        text: `New Contact Form Submission\n\nTicket: ${data.ticketNumber}\nFrom: ${data.name} <${data.email}>\nSubject: ${data.subject}\n\nMessage:\n${data.message}\n\nReply to: ${data.email}`,
+      });
+
+      return success;
+    } catch (error) {
+      console.error("Error sending admin email notification:", error);
       return false;
     }
   }

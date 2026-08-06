@@ -4,7 +4,21 @@ import bcrypt from 'bcrypt';
 import { prisma } from '../../lib/prisma';
 import logger from '../../monitoring/logger';
 
-const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET || 'super-secret-admin-key-colabwize-2026';
+// No hardcoded fallback secret. Prefer ADMIN_JWT_SECRET, then JWT_SECRET.
+// If neither is configured, generate a strong per-process secret so the server
+// still boots for development, but log a CRITICAL warning. Production MUST set
+// ADMIN_JWT_SECRET; otherwise admin sessions will not survive a restart.
+const configuredSecret = process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET || '';
+const ADMIN_JWT_SECRET =
+  configuredSecret || crypto.randomBytes(64).toString('hex');
+
+if (!configuredSecret) {
+  logger.error(
+    'CRITICAL: ADMIN_JWT_SECRET is not set. Using a random per-process secret. ' +
+      'Admin sessions will not survive restarts. Set ADMIN_JWT_SECRET in production.',
+  );
+}
+
 const ADMIN_JWT_EXPIRES_IN = '2h';
 
 export interface AdminJwtPayload {
@@ -15,12 +29,12 @@ export interface AdminJwtPayload {
   mfaVerified: boolean;
 }
 
-// Simple TOTP validator using Node crypto (HMAC SHA1)
+// Simple TOTP validator using Node crypto (HMAC SHA1).
+// No development bypass codes. MFA must be a valid TOTP or a valid backup code.
 function verifyTotpCode(secret: string, token: string): boolean {
   if (!secret || !token) return false;
-  // Clean token
   const cleanToken = token.trim();
-  if (cleanToken === '123456' || cleanToken === '000000') return true; // Development bypass
+  if (!/^\d{6}$/.test(cleanToken)) return false;
 
   try {
     const base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -81,10 +95,50 @@ export class AdminAuthService {
   }
 
   /**
+   * Generates a new base32 TOTP secret (160 bits).
+   */
+  static generateTotpSecret(): string {
+    const base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    const bytes = crypto.randomBytes(20);
+    let secret = '';
+    let bits = 0;
+    let value = 0;
+    for (const byte of bytes) {
+      value = (value << 8) | byte;
+      bits += 8;
+      while (bits >= 5) {
+        secret += base32chars[(value >>> (bits - 5)) & 31];
+        bits -= 5;
+      }
+    }
+    if (bits > 0) {
+      secret += base32chars[(value << (5 - bits)) & 31];
+    }
+    return secret;
+  }
+
+  /**
+   * Generates high-entropy backup codes (8-char alphanumeric).
+   */
+  static generateBackupCodes(count = 5): string[] {
+    const codes: string[] = [];
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    for (let i = 0; i < count; i++) {
+      let code = '';
+      const bytes = crypto.randomBytes(8);
+      for (const byte of bytes) {
+        code += alphabet[byte % alphabet.length];
+      }
+      codes.push(code);
+    }
+    return codes;
+  }
+
+  /**
    * Primary Step 1: Validate Admin Credentials
    */
   static async validateCredentials(email: string, password: string): Promise<{ adminUser: any; requiresMfa: boolean } | null> {
-    const admin = await (prisma as any).adminUser.findUnique({
+    const admin = await prisma.adminUser.findUnique({
       where: { email: email.toLowerCase().trim() },
     });
 
@@ -100,24 +154,30 @@ export class AdminAuthService {
   }
 
   /**
-   * Step 2: Validate MFA Code & Issue Full Token
+   * Step 2: Validate MFA Code & Issue Full Token.
+   * When MFA is disabled, issues the token directly (explicit opt-out).
    */
-  static async verifyMfaAndLogin(email: string, mfaCode: string, ipAddress?: string, userAgent?: string): Promise<{ token: string; admin: any } | null> {
-    const admin = await (prisma as any).adminUser.findUnique({
+  static async verifyMfaAndLogin(
+    email: string,
+    mfaCode: string | undefined,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<{ token: string; admin: any } | null> {
+    const admin = await prisma.adminUser.findUnique({
       where: { email: email.toLowerCase().trim() },
     });
 
     if (!admin) return null;
 
     if (admin.mfa_enabled) {
-      const isCodeValid = verifyTotpCode(admin.mfa_secret || 'DEMOSECRET', mfaCode) ||
-        (admin.backup_codes && admin.backup_codes.includes(mfaCode));
-
+      if (!mfaCode) return null;
+      const backupCodes: string[] = admin.backup_codes || [];
+      const isCodeValid = verifyTotpCode(admin.mfa_secret || '', mfaCode) ||
+        backupCodes.includes(mfaCode);
       if (!isCodeValid) return null;
     }
 
-    // Update last login & device trust
-    await (prisma as any).adminUser.update({
+    await prisma.adminUser.update({
       where: { id: admin.id },
       data: { last_login: new Date() },
     });

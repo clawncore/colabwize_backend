@@ -46,6 +46,7 @@ const url = __importStar(require("url"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const cors_1 = __importDefault(require("cors"));
+const helmet_1 = __importDefault(require("helmet"));
 const logger_1 = __importDefault(require("../monitoring/logger"));
 const auth_1 = require("../middleware/auth");
 const recycleBinService_1 = require("../services/recycleBinService");
@@ -104,6 +105,8 @@ const index_32 = __importDefault(require("../audit/index"));
 const subscriptionJobs_1 = require("../jobs/subscriptionJobs");
 const searchAlertJobs_1 = require("../jobs/searchAlertJobs");
 const index_33 = __importDefault(require("../api/admin/index"));
+const observability_1 = __importDefault(require("../api/admin/observability"));
+const adminAuth_1 = __importDefault(require("../api/admin/adminAuth"));
 const index_34 = __importDefault(require("../api/blogs/index"));
 // Publishing Platform (Phase 3): export job system + router
 const jobs_1 = require("../publishing/jobs");
@@ -204,6 +207,8 @@ const corsOptions = {
 app.use((0, cors_1.default)(corsOptions));
 // Explicitly handle OPTIONS preflight for all routes
 app.options("*", (0, cors_1.default)(corsOptions));
+// Security headers (sets X-Content-Type-Options, HSTS, frameguard, etc.)
+app.use((0, helmet_1.default)());
 // Webhooks MUST be registered BEFORE global express.json to get raw body
 // Important for signature verification (LemonSqueezy, etc.)
 app.use("/api/webhooks", lemonsqueezy_1.default);
@@ -367,8 +372,16 @@ app.use("/api/notifications", authMiddleware);
 app.use("/api/notifications", index_8.default);
 // Analytics API
 app.use("/api/analytics", authMiddleware, index_14.default);
-// Admin Platform API
-app.use("/api/admin", authMiddleware, index_33.default);
+// Admin Platform API.
+// NOTE: No global authMiddleware here — admin routers authenticate internally
+// via `isPlatformAdmin`, which accepts either a dedicated Admin JWT
+// (/api/admin/auth/login) or a Supabase token whose email matches an
+// `admin_users` row. The dedicated admin auth router is mounted separately
+// below (login/bootstrap must be reachable without an admin session).
+// Observability must mount before /api/admin because Express matches by prefix.
+app.use("/api/admin/auth", adminAuth_1.default);
+app.use("/api/admin/observability", rateLimiter_1.adminOperationRateLimiter, observability_1.default);
+app.use("/api/admin", rateLimiter_1.adminOperationRateLimiter, index_33.default);
 // Subscription API
 app.use("/api/subscription", index_15.default);
 // Document Upload API (MVP Core Feature)
