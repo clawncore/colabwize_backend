@@ -5,3 +5,4 @@ node_modules
 # Local binaries and logs
 /bin/
 /logs/
+dist/
