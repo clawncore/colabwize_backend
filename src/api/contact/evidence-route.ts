@@ -43,7 +43,7 @@ router.post(
       }
 
       // Find the contact request
-      const { prisma } = await import("../../lib/prisma");
+      const { prisma } = await import("../../lib/prisma.js");
       const contactRequest = await prisma.contactRequest.findFirst({
         where: { ticket_number: ticketNumber },
       });

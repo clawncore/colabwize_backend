@@ -290,7 +290,7 @@ router.post("/email/smart-reply", async (req, res) => {
     let contactContext = "";
     if (contactRequest) {
       const attachmentInfo = contactRequest.attachments.length > 0
-        ? `\nAttachments: ${contactRequest.attachments.map((a) => a.file_name).join(", ")}`
+        ? `\nAttachments: ${contactRequest.attachments.map((a: { file_name: string }) => a.file_name).join(", ")}`
         : "";
       contactContext = `
 CONTACT TICKET: ${contactRequest.ticket_number}
@@ -305,7 +305,7 @@ Message: ${contactRequest.message}${attachmentInfo}
     // Build context from their messages
     const messageContext = messages
       .map(
-        (m) =>
+        (m: any) =>
           `[${m.received_at.toISOString().split("T")[0]}] From: ${m.sender_email} | Subject: ${m.subject} | Folder: ${m.folder || "Support"} | Priority: ${m.priority || "medium"}\n${m.message_text}`
       )
       .join("\n\n---\n\n");
@@ -445,7 +445,7 @@ router.get("/inbox/sent", async (req, res) => {
     });
 
     // Format as inbox-style messages
-    const formatted = messages.map((msg) => ({
+    const formatted = messages.map((msg: any) => ({
       id: msg.id,
       sender_email: msg.recipient,
       subject: msg.subject,
@@ -733,7 +733,7 @@ router.get("/email/logs", async (req, res) => {
       }),
     ]);
 
-    const tabs = senderCounts.map((s) => ({
+    const tabs = senderCounts.map((s: any) => ({
       sender: s.sender,
       count: s._count,
     }));
@@ -817,8 +817,8 @@ router.get("/email/analytics", async (req, res) => {
       prisma.emailLog.findMany({ where: { status: 'failed' }, select: { id: true, recipient: true, sender: true, subject: true, error: true, sent_at: true }, orderBy: { sent_at: 'desc' }, take: 5 }),
     ]);
 
-    const sentCount = statusBreakdown.find((s) => s.status === "sent")?._count || 0;
-    const failedCount = statusBreakdown.find((s) => s.status === "failed")?._count || 0;
+    const sentCount = statusBreakdown.find((s: any) => s.status === "sent")?._count || 0;
+    const failedCount = statusBreakdown.find((s: any) => s.status === "failed")?._count || 0;
     const deliveryRate = totalEmails > 0 ? Number(((sentCount / totalEmails) * 100).toFixed(1)) : 0;
     const uniqueRecipientCount = Array.isArray(uniqueRecipients) ? uniqueRecipients[0]?.count || 0 : 0;
 
@@ -862,17 +862,17 @@ router.get("/email/analytics", async (req, res) => {
           uniqueRecipients: uniqueRecipientCount,
           dayOverDayChange,
         },
-        bySender: senderBreakdown.map((s) => ({
+        bySender: senderBreakdown.map((s: any) => ({
           sender: s.sender,
           count: s._count,
         })),
-        bySubject: subjectBreakdown.map((s) => ({
+        bySubject: subjectBreakdown.map((s: any) => ({
           subject: s.subject,
           count: s._count,
         })),
         daily: recentDaily,
         weeklyTrend: weeklyTrend,
-        topRecipients: topRecipients.map((r) => ({
+        topRecipients: topRecipients.map((r: any) => ({
           recipient: r.recipient,
           count: r._count,
         })),

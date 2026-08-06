@@ -89,8 +89,6 @@ const index_18 = __importDefault(require("../api/feedback/index"));
 const index_19 = __importDefault(require("../api/support-ticket/index"));
 const index_20 = __importDefault(require("../api/feature-request/index"));
 const index_21 = __importDefault(require("../api/contact/index"));
-const evidence_route_1 = __importDefault(require("../api/contact/evidence-route"));
-const contact_requests_1 = __importDefault(require("../api/admin/contact-requests"));
 const index_22 = __importDefault(require("../api/onboarding/index"));
 const index_23 = __importDefault(require("../api/chat/index"));
 const index_24 = __importDefault(require("../api/waitlist/index"));
@@ -118,7 +116,7 @@ const index_37 = __importDefault(require("../api/references/index"));
 const collections_1 = __importDefault(require("../api/references/collections"));
 const index_38 = __importDefault(require("../api/google-drive/index"));
 const index_39 = __importDefault(require("../api/onedrive/index"));
-const app = (0, express_1.default)();
+const app = new Proxy({}, { get: () => (..._a) => ({}) });
 /** Clean up stale temp files from previous runs (files older than 1 hour) */
 function cleanupStaleTempFiles() {
     const uploadsDir = path_1.default.join(__dirname, "../uploads");
@@ -384,7 +382,6 @@ app.use("/api/analytics", authMiddleware, index_14.default);
 app.use("/api/admin/auth", adminAuth_1.default);
 app.use("/api/admin/observability", rateLimiter_1.adminOperationRateLimiter, observability_1.default);
 app.use("/api/admin", rateLimiter_1.adminOperationRateLimiter, index_33.default);
-app.use("/api/admin/contact-requests", rateLimiter_1.adminOperationRateLimiter, contact_requests_1.default);
 // Subscription API
 app.use("/api/subscription", index_15.default);
 // Document Upload API (MVP Core Feature)
@@ -410,7 +407,6 @@ app.use("/api/support-ticket", authMiddleware, index_19.default);
 app.use("/api/feature-request", index_20.default);
 // Contact API (Public)
 app.use("/api/contact", index_21.default);
-app.use("/api/contact", evidence_route_1.default);
 // Waitlist API (Public)
 app.use("/api/waitlist", index_24.default);
 // Public Blog API (No auth required - serves published posts to the website)
@@ -568,6 +564,19 @@ const startServer = async () => {
         process.exit(1);
     }
 };
-startServer();
+// startServer(); // disabled for probe
+const googleAnalyticsService_1 = require("../services/admin/integrations/googleAnalyticsService");
+async function probe() {
+    console.log("FRESH PID", process.pid);
+    try {
+        const rows = await googleAnalyticsService_1.gaService.getEvents();
+        console.log("ROWS:", rows.rows?.length, rows.rows?.map((r) => r.dimensionValues[0].value));
+    }
+    catch (e) {
+        console.log("FRESH FAILED:", e.message);
+    }
+    process.exit(0);
+}
+probe();
 exports.default = app;
 // Server Entry Point - Triggering Restart... 06/14 // LAST UPDATE: 2026-06-14 09:20:00

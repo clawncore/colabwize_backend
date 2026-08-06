@@ -408,7 +408,7 @@ export class CommentService {
    */
   static async updatePresence(userId: string, status: string): Promise<void> {
     try {
-      const { prisma } = await import("../../lib/prisma.js");
+      const { prisma } = await import("../lib/prisma.js");
       
       // Update the User model with online status and last seen timestamp
       await prisma.user.update({
@@ -432,7 +432,7 @@ export class CommentService {
    */
   static async getOnlineUsers(): Promise<{ id: string; email: string; full_name: string | null; last_seen_at: Date; online_status: string }[]> {
     try {
-      const { prisma } = await import("../../lib/prisma.js");
+      const { prisma } = await import("../lib/prisma.js");
       
       const onlineUsers = await prisma.user.findMany({
         where: {
@@ -468,7 +468,7 @@ export class CommentService {
     onlineUsers: { id: string; email: string; full_name: string | null; last_seen_at: Date | null; online_status: string | null; subscription: { plan: string; status: string } | null }[];
   }> {
     try {
-      const { prisma } = await import("../../lib/prisma.js");
+      const { prisma } = await import("../lib/prisma.js");
       
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       

@@ -143,21 +143,41 @@ router.get('/me', async (req, res) => {
             return res.status(403).json({ success: false, error: 'Not an administrator' });
         }
         const resolved = req.adminUser;
-        const admin = await prisma_1.prisma.adminUser.findUnique({
-            where: { email: resolved.email },
-            select: {
-                id: true,
-                email: true,
-                full_name: true,
-                role: true,
-                permissions: true,
-                mfa_enabled: true,
-                last_login: true,
-                created_at: true,
-            },
-        });
+        let admin = null;
+        try {
+            admin = await prisma_1.prisma.adminUser.findUnique({
+                where: { email: resolved.email },
+                select: {
+                    id: true,
+                    email: true,
+                    full_name: true,
+                    role: true,
+                    permissions: true,
+                    mfa_enabled: true,
+                    last_login: true,
+                    created_at: true,
+                },
+            });
+        }
+        catch (err) {
+            logger_1.default.warn(`AdminUser profile lookup failed (using resolved identity): ${err instanceof Error ? err.message : err}`);
+        }
         if (!admin) {
-            return res.status(404).json({ success: false, error: 'Admin user not found' });
+            // The role was already resolved (either from an `admin_users` row or the
+            // @colabwize.com domain fallback), so echo back the resolved identity.
+            return res.json({
+                success: true,
+                admin: {
+                    id: resolved.userId || null,
+                    email: resolved.email,
+                    full_name: resolved.email.split("@")[0] || null,
+                    role: resolved.role,
+                    permissions: resolved.permissions || [],
+                    mfa_enabled: false,
+                    last_login: null,
+                    created_at: null,
+                },
+            });
         }
         res.json({ success: true, admin });
     }

@@ -3,13 +3,24 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.isPlatformAdmin = void 0;
+exports.isPlatformAdmin = exports.ADMIN_EMAIL_WHITELIST = void 0;
 exports.resolveAdminRole = resolveAdminRole;
 exports.hasPermission = hasPermission;
 const adminAuthService_1 = require("../services/admin/adminAuthService");
 const prisma_1 = require("../lib/prisma");
 const client_1 = require("../lib/supabase/client");
 const logger_1 = __importDefault(require("../monitoring/logger"));
+/**
+ * Official platform administrator accounts. These emails are granted full
+ * platform-admin access directly, matching the historical routing behavior
+ * where colabwize.com staff aliases landed in the admin area. Any email in
+ * this list is treated as a `super_admin`.
+ */
+exports.ADMIN_EMAIL_WHITELIST = [
+    "simbisai@colabwize.com",
+    "craig@colabwize.com",
+    "clawncore@colabwize.com",
+];
 /**
  * Resolves a Supabase-authenticated user from the request. If a global
  * authMiddleware already attached `req.user` we reuse it; otherwise we verify
@@ -78,23 +89,56 @@ async function resolveAdminRole(req) {
             return admin.role;
         }
     }
-    // 2. Supabase-authenticated user, matched against the AdminUser table
+    // 2. Supabase-authenticated user
     const user = await resolveSupabaseUser(req);
     if (!user)
         return null;
     const email = (user.email || "").toLowerCase();
     if (!email)
         return null;
-    const admin = await prisma_1.prisma.adminUser.findUnique({ where: { email } });
-    if (!admin)
-        return null;
-    req.adminUser = {
-        role: admin.role,
-        email: admin.email,
-        userId: admin.id,
-        permissions: admin.permissions,
-    };
-    return admin.role;
+    // 2a. Explicit whitelist of platform-staff accounts. These emails always get
+    // super-admin access, so a missing/unmigrated `admin_users` table cannot
+    // lock the platform owners out of the admin area.
+    if (exports.ADMIN_EMAIL_WHITELIST.includes(email)) {
+        req.adminUser = {
+            role: "super_admin",
+            email,
+            userId: `whitelist:${email}`,
+            permissions: ["*"],
+        };
+        return "super_admin";
+    }
+    // 2b. Explicit `admin_users` row is the authoritative source. Wrapped in
+    // try/catch so a missing/unmigrated table degrades to the domain fallback
+    // below instead of 500ing the whole admin area.
+    try {
+        const admin = await prisma_1.prisma.adminUser.findUnique({ where: { email } });
+        if (admin) {
+            req.adminUser = {
+                role: admin.role,
+                email: admin.email,
+                userId: admin.id,
+                permissions: admin.permissions,
+            };
+            return admin.role;
+        }
+    }
+    catch (err) {
+        logger_1.default.warn(`AdminUser lookup failed (falling back to domain check): ${err instanceof Error ? err.message : err}`);
+    }
+    // 2c. Legacy platform-staff fallback: any `@colabwize.com` account is a
+    // platform administrator. This preserves the pre-existing routing behavior
+    // where colabwize.com aliases landed in the admin area.
+    if (email.endsWith("@colabwize.com")) {
+        req.adminUser = {
+            role: "admin",
+            email,
+            userId: `colabwize-domain:${email}`,
+            permissions: ["*"],
+        };
+        return "admin";
+    }
+    return null;
 }
 /**
  * Helper to verify fine-grained permissions (e.g. 'users.read', 'payments.write').

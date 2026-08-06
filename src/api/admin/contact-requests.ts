@@ -54,7 +54,7 @@ router.get("/", async (req: Request, res: Response) => {
         pages: Math.ceil(total / limitNum),
       },
       statusCounts: statusCounts.reduce(
-        (acc, row) => ({ ...acc, [row.status]: row._count }),
+        (acc: Record<string, number>, row: { status: string; _count: number }) => ({ ...acc, [row.status]: row._count }),
         {} as Record<string, number>
       ),
     });
