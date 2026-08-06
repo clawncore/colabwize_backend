@@ -403,14 +403,141 @@ export class CommentService {
   }
 
   /**
-   * Update a user's presence status.
-   * Presence is broadcast via the notification WebSocket channel;
-   * this method is a no-op stub kept for interface compatibility.
+   * Update a user's presence status in the database.
+   * This persists online_status and last_seen_at to the User model.
    */
   static async updatePresence(userId: string, status: string): Promise<void> {
-    // Presence is managed by the NotificationServer through WebSocket channels.
-    // No-op here; callers rely on broadcastToChannel for the actual fan-out.
-    logger.debug(`[CommentService] updatePresence called: userId=${userId} status=${status}`);
+    try {
+      const { prisma } = await import("../../lib/prisma.js");
+      
+      // Update the User model with online status and last seen timestamp
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          online_status: status,
+          last_seen_at: new Date(),
+        },
+      });
+      
+      logger.debug(`[Presence] Updated user presence: userId=${userId} status=${status}`);
+    } catch (error) {
+      logger.error(`[Presence] Failed to update user presence: userId=${userId}`, error);
+    }
+  }
+
+  /**
+   * Get all currently online users from the database.
+   * Users are considered online if online_status is 'online'.
+   * We trust the WebSocket disconnect handler to set status to 'offline'.
+   */
+  static async getOnlineUsers(): Promise<{ id: string; email: string; full_name: string | null; last_seen_at: Date; online_status: string }[]> {
+    try {
+      const { prisma } = await import("../../lib/prisma.js");
+      
+      const onlineUsers = await prisma.user.findMany({
+        where: {
+          online_status: "online",
+        },
+        select: {
+          id: true,
+          email: true,
+          full_name: true,
+          last_seen_at: true,
+          online_status: true,
+        },
+        orderBy: { last_seen_at: "desc" },
+      });
+      
+      return onlineUsers;
+    } catch (error) {
+      logger.error("[Presence] Failed to fetch online users", error);
+      return [];
+    }
+  }
+
+  /**
+   * Get presence statistics for the admin dashboard.
+   * Returns real counts of online, away, and offline users.
+   */
+  static async getPresenceStats(): Promise<{
+    online: number;
+    away: number;
+    offline: number;
+    total: number;
+    recentlyActive: number;
+    onlineUsers: { id: string; email: string; full_name: string | null; last_seen_at: Date | null; online_status: string | null; subscription: { plan: string; status: string } | null }[];
+  }> {
+    try {
+      const { prisma } = await import("../../lib/prisma.js");
+      
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      
+      // Count users by status - trust online_status field
+      const [onlineCount, awayCount, offlineCount, totalCount, recentlyActiveCount] = await Promise.all([
+        prisma.user.count({
+          where: {
+            online_status: "online",
+          },
+        }),
+        prisma.user.count({
+          where: {
+            online_status: "away",
+          },
+        }),
+        prisma.user.count({
+          where: {
+            OR: [
+              { online_status: "offline" },
+              { online_status: null },
+            ],
+          },
+        }),
+        prisma.user.count(),
+        prisma.user.count({
+          where: {
+            last_seen_at: { gte: oneDayAgo },
+          },
+        }),
+      ]);
+      
+      // Get currently online users with details
+      const onlineUsers = await prisma.user.findMany({
+        where: {
+          online_status: "online",
+        },
+        select: {
+          id: true,
+          email: true,
+          full_name: true,
+          last_seen_at: true,
+          online_status: true,
+          subscription: {
+            select: { plan: true, status: true },
+          },
+        },
+        orderBy: { last_seen_at: "desc" },
+        take: 50, // Limit to prevent oversized responses
+      });
+      
+      return {
+        online: onlineCount,
+        away: awayCount,
+        offline: offlineCount,
+        total: totalCount,
+        recentlyActive: recentlyActiveCount,
+        onlineUsers,
+      };
+    } catch (error) {
+      logger.error("[Presence] Failed to fetch presence stats", error);
+      return {
+        online: 0,
+        away: 0,
+        offline: 0,
+        total: 0,
+        recentlyActive: 0,
+        onlineUsers: [],
+      };
+    }
   }
 }
 

@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const prisma_1 = require("../../lib/prisma");
 const adminAuthService_1 = require("../../services/admin/adminAuthService");
+const platformAdmin_1 = require("../../middleware/platformAdmin");
 const auditLogService_1 = require("../../services/admin/auditLogService");
 const rateLimiter_1 = require("../../middleware/rateLimiter");
 const logger_1 = __importDefault(require("../../monitoring/logger"));
@@ -69,8 +70,8 @@ router.post('/login', rateLimiter_1.adminAuthRateLimiter, async (req, res) => {
                 message: 'MFA verification required. Please enter your 6-digit TOTP code.',
             });
         }
-        // Direct login if MFA disabled (for dev/test)
-        const result = await adminAuthService_1.AdminAuthService.verifyMfaAndLogin(adminUser.email, '123456', auditCtx.ipAddress, auditCtx.userAgent);
+        // Direct login if MFA disabled (explicit opt-out on the admin record)
+        const result = await adminAuthService_1.AdminAuthService.verifyMfaAndLogin(adminUser.email, undefined, auditCtx.ipAddress, auditCtx.userAgent);
         if (!result) {
             return res.status(400).json({ success: false, error: 'Failed to issue admin session' });
         }
@@ -135,17 +136,15 @@ router.post('/verify-mfa', rateLimiter_1.adminAuthRateLimiter, async (req, res) 
 // ==========================================
 router.get('/me', async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ success: false, error: 'Missing token' });
+        // Accepts either a dedicated Admin JWT or a Supabase token whose email
+        // matches an `admin_users` row (both resolved by resolveAdminRole).
+        const role = await (0, platformAdmin_1.resolveAdminRole)(req);
+        if (!role) {
+            return res.status(403).json({ success: false, error: 'Not an administrator' });
         }
-        const token = authHeader.split(' ')[1];
-        const decoded = adminAuthService_1.AdminAuthService.verifyToken(token);
-        if (!decoded) {
-            return res.status(401).json({ success: false, error: 'Invalid or expired admin token' });
-        }
+        const resolved = req.adminUser;
         const admin = await prisma_1.prisma.adminUser.findUnique({
-            where: { id: decoded.adminId },
+            where: { email: resolved.email },
             select: {
                 id: true,
                 email: true,
@@ -172,7 +171,20 @@ router.get('/me', async (req, res) => {
 router.post('/setup-initial', async (req, res) => {
     try {
         const { email, password, fullName, secretKey } = req.body;
-        const setupKey = process.env.ADMIN_SETUP_KEY || 'colabwize-admin-setup-2026';
+        if (!email || !password) {
+            return res.status(400).json({ success: false, error: 'Email and password are required' });
+        }
+        if (password.length < 12) {
+            return res.status(400).json({ success: false, error: 'Password must be at least 12 characters' });
+        }
+        // No hardcoded fallback: refuse to run unless explicitly configured.
+        const setupKey = process.env.ADMIN_SETUP_KEY;
+        if (!setupKey) {
+            return res.status(503).json({
+                success: false,
+                error: 'Admin bootstrap is not configured. Set ADMIN_SETUP_KEY.',
+            });
+        }
         if (secretKey !== setupKey) {
             return res.status(403).json({ success: false, error: 'Invalid setup secret key' });
         }
@@ -180,7 +192,9 @@ router.post('/setup-initial', async (req, res) => {
         if (existingCount > 0) {
             return res.status(400).json({ success: false, error: 'Initial admin setup already completed' });
         }
-        const password_hash = await bcrypt_1.default.hash(password, 10);
+        const password_hash = await bcrypt_1.default.hash(password, 12);
+        const mfa_secret = adminAuthService_1.AdminAuthService.generateTotpSecret();
+        const backup_codes = adminAuthService_1.AdminAuthService.generateBackupCodes();
         const superAdmin = await prisma_1.prisma.adminUser.create({
             data: {
                 email: email.toLowerCase().trim(),
@@ -189,9 +203,15 @@ router.post('/setup-initial', async (req, res) => {
                 role: 'super_admin',
                 permissions: ['*'],
                 mfa_enabled: true,
-                mfa_secret: 'JBSWY3DPEHPK3PXP',
-                backup_codes: ['12345678', '87654321'],
+                mfa_secret,
+                backup_codes,
             },
+        });
+        await (0, auditLogService_1.createAuditLog)({
+            action: 'ADMIN_SETUP_INITIAL',
+            adminEmail: superAdmin.email,
+            metadata: { adminId: superAdmin.id },
+            ...(0, auditLogService_1.extractAuditContext)(req),
         });
         res.json({
             success: true,
@@ -200,6 +220,11 @@ router.post('/setup-initial', async (req, res) => {
                 id: superAdmin.id,
                 email: superAdmin.email,
                 role: superAdmin.role,
+            },
+            // Returned exactly once so the operator can enroll their authenticator.
+            mfa: {
+                secret: mfa_secret,
+                backupCodes: backup_codes,
             },
         });
     }

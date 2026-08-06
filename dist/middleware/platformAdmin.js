@@ -7,74 +7,128 @@ exports.isPlatformAdmin = void 0;
 exports.resolveAdminRole = resolveAdminRole;
 exports.hasPermission = hasPermission;
 const adminAuthService_1 = require("../services/admin/adminAuthService");
+const prisma_1 = require("../lib/prisma");
+const client_1 = require("../lib/supabase/client");
 const logger_1 = __importDefault(require("../monitoring/logger"));
-const ADMIN_WHITELIST = [
-    "simbisai@colabwize.com",
-    "craig@colabwize.com",
-    "admin@colabwize.com",
-];
+/**
+ * Resolves a Supabase-authenticated user from the request. If a global
+ * authMiddleware already attached `req.user` we reuse it; otherwise we verify
+ * the Bearer token directly. This lets admin routers authenticate a Supabase
+ * token without requiring the global `authMiddleware` (which would reject the
+ * dedicated admin JWT issued by /api/admin/auth/login).
+ */
+async function resolveSupabaseUser(req) {
+    const existing = req.user;
+    if (existing)
+        return existing;
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer "))
+        return null;
+    const token = authHeader.split(" ")[1];
+    try {
+        const supabase = await (0, client_1.getSupabaseAdminClient)();
+        if (!supabase)
+            return null;
+        const { data, error } = await supabase.auth.getUser(token);
+        if (error || !data.user)
+            return null;
+        return data.user;
+    }
+    catch (err) {
+        logger_1.default.error("Supabase user resolution failed:", err);
+        return null;
+    }
+}
 /**
  * Resolves the admin role for a request.
- * Prioritizes dedicated Admin JWT tokens over fallback user tokens.
+ *
+ * Two sources are accepted, both of which must resolve to a real row in the
+ * dedicated `admin_users` table:
+ *
+ *   1. A dedicated Admin JWT (issued by /api/admin/auth/login). The admin
+ *      record is re-read from the DB so role/permission changes take effect
+ *      immediately and revoked admins are denied even with a valid token.
+ *   2. A Supabase-authenticated request whose email matches an `admin_users`
+ *      row. This keeps the existing SPA flow working (the frontend sends the
+ *      Supabase token) without any implicit admin grant.
+ *
+ * NOTE: There is intentionally NO email-suffix or hardcoded-whitelist
+ * escalation here anymore. Platform access requires an explicit `AdminUser`
+ * record. Use `POST /api/admin/auth/setup-initial` (or a seed script) to
+ * provision the first super-admin.
  */
-function resolveAdminRole(req) {
-    // 1. Check for dedicated Admin JWT token in Authorization header
+async function resolveAdminRole(req) {
+    // 1. Dedicated Admin JWT
     const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split(' ')[1];
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+        const token = authHeader.split(" ")[1];
         const adminPayload = adminAuthService_1.AdminAuthService.verifyToken(token);
         if (adminPayload) {
-            req.adminUser = adminPayload;
-            return adminPayload.role;
+            const admin = await prisma_1.prisma.adminUser.findUnique({
+                where: { id: adminPayload.adminId },
+            });
+            if (!admin)
+                return null;
+            req.adminUser = {
+                role: admin.role,
+                email: admin.email,
+                userId: admin.id,
+                permissions: admin.permissions,
+            };
+            return admin.role;
         }
     }
-    // 2. Fallback to user session/token check for legacy compatibility
-    const user = req.user;
+    // 2. Supabase-authenticated user, matched against the AdminUser table
+    const user = await resolveSupabaseUser(req);
     if (!user)
         return null;
-    const userRole = user.role || user.user_metadata?.role || user.app_metadata?.role;
-    const userEmail = user.email ? user.email.toLowerCase() : "";
-    const isWhitelisted = ADMIN_WHITELIST.includes(userEmail);
-    const isAuthoritativeAdmin = isWhitelisted || userEmail.endsWith("@colabwize.com");
-    if (userRole === "super_admin")
-        return "super_admin";
-    if (userRole === "admin")
-        return "admin";
-    if (userRole === "moderator")
-        return "moderator";
-    if (isAuthoritativeAdmin)
-        return "admin";
-    return null;
+    const email = (user.email || "").toLowerCase();
+    if (!email)
+        return null;
+    const admin = await prisma_1.prisma.adminUser.findUnique({ where: { email } });
+    if (!admin)
+        return null;
+    req.adminUser = {
+        role: admin.role,
+        email: admin.email,
+        userId: admin.id,
+        permissions: admin.permissions,
+    };
+    return admin.role;
 }
 /**
- * Helper to verify fine-grained permissions (e.g. 'users.read', 'payments.write')
+ * Helper to verify fine-grained permissions (e.g. 'users.read', 'payments.write').
+ * Roles are ordered so higher roles implicitly satisfy lower ones.
  */
-function hasPermission(req, requiredPermission) {
-    const role = resolveAdminRole(req);
+async function hasPermission(req, requiredPermission) {
+    const role = await resolveAdminRole(req);
     if (!role)
         return false;
-    if (role === 'super_admin')
+    if (role === "super_admin")
         return true;
-    const adminPermissions = req.adminUser?.permissions || [];
-    if (adminPermissions.includes('*') || adminPermissions.includes(requiredPermission)) {
+    const admin = req.adminUser;
+    const adminPermissions = admin?.permissions || [];
+    if (adminPermissions.includes("*") || adminPermissions.includes(requiredPermission)) {
         return true;
     }
+    // Fine-grained permissions are explicit only — there is no implicit
+    // role-to-permission mapping at this layer yet.
     return false;
 }
-const isPlatformAdmin = (req, res, next) => {
+const isPlatformAdmin = async (req, res, next) => {
     try {
-        const role = resolveAdminRole(req);
-        const userEmail = req.adminUser?.email || req.user?.email?.toLowerCase() || "unknown";
+        const role = await resolveAdminRole(req);
+        const adminEmail = req.adminUser?.email || req.user?.email?.toLowerCase() || "unknown";
         if (role) {
-            logger_1.default.info(`[ADMIN ACCESS GRANTED] ${userEmail} (Role: ${role})`);
+            logger_1.default.info(`[ADMIN ACCESS GRANTED] ${adminEmail} (Role: ${role})`);
             req.adminRole = role;
             next();
         }
         else {
-            logger_1.default.warn(`[ADMIN ACCESS DENIED] Email: ${userEmail}`);
+            logger_1.default.warn(`[ADMIN ACCESS DENIED] Email: ${adminEmail}`);
             res.status(403).json({
                 error: "Forbidden: Platform Administrator privileges required",
-                details: "Your account does not have a valid separate administrator session.",
+                details: "Your account is not provisioned as an administrator.",
             });
         }
     }

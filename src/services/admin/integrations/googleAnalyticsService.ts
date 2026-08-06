@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { syncService } from "./syncService";
 import logger from "../../../monitoring/logger";
+import fs from "fs";
 
 class GoogleAnalyticsService {
   private analyticsDataClient: any;
@@ -9,24 +10,50 @@ class GoogleAnalyticsService {
 
   constructor() {
     this.propertyId = process.env.GOOGLE_ANALYTICS_PROPERTY_ID || '';
-    
-    // In Google Cloud environments, GOOGLE_APPLICATION_CREDENTIALS automatically configures Auth.
-    // If not set, or if propertyId is empty, we mark it as unconfigured.
     this.isConfigured = !!(this.propertyId && process.env.GOOGLE_APPLICATION_CREDENTIALS);
+    this.initClient();
+  }
 
-    if (this.isConfigured) {
-      try {
-        const auth = new google.auth.GoogleAuth({
-          scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
-        });
-        this.analyticsDataClient = google.analyticsdata({
-          version: 'v1beta',
-          auth: auth,
-        });
-      } catch (err) {
-        logger.error("Failed to initialize Google Analytics Client", err);
+  private initClient() {
+    if (!this.isConfigured) return;
+    try {
+      const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || '';
+      if (!fs.existsSync(credPath)) {
+        logger.warn(`[GA4] Credentials file not found at ${credPath}`);
         this.isConfigured = false;
+        return;
       }
+      const auth = new google.auth.GoogleAuth({
+        scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
+        keyFile: credPath,
+      });
+      this.analyticsDataClient = google.analyticsdata({
+        version: 'v1beta',
+        auth: auth,
+      });
+    } catch (err) {
+      logger.error("Failed to initialize Google Analytics Client", err);
+      this.isConfigured = false;
+    }
+  }
+
+  /**
+   * Re-checks env vars and re-initializes client if config changed.
+   * Call this before making API requests to handle server restarts.
+   */
+  private ensureConfigured() {
+    const propId = process.env.GOOGLE_ANALYTICS_PROPERTY_ID || '';
+    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || '';
+    const shouldBeConfigured = !!(propId && credPath);
+
+    if (shouldBeConfigured && !this.isConfigured) {
+      logger.info("[GA4] Configuration detected, re-initializing client");
+      this.propertyId = propId;
+      this.isConfigured = true;
+      this.initClient();
+    } else if (!shouldBeConfigured && this.isConfigured) {
+      logger.warn("[GA4] Configuration removed, disabling client");
+      this.isConfigured = false;
     }
   }
 
@@ -41,6 +68,7 @@ class GoogleAnalyticsService {
   }
 
   public async runReport(dimensions: string[], metrics: string[], dateRanges: { startDate: string, endDate: string }[] = [{ startDate: '30daysAgo', endDate: 'today' }]) {
+    this.ensureConfigured();
     if (!this.isConfigured) {
       throw new Error("Google Analytics is not configured. Missing credentials or Property ID.");
     }
@@ -73,6 +101,14 @@ class GoogleAnalyticsService {
     return this.runReport(
       ['sessionSourceMedium'], 
       ['activeUsers', 'newUsers', 'sessions', 'screenPageViews', 'averageSessionDuration', 'bounceRate']
+    );
+  }
+
+  public async getDailyTraffic(days = 30) {
+    return this.runReport(
+      ['date'],
+      ['activeUsers', 'newUsers', 'sessions', 'screenPageViews'],
+      [{ startDate: `${days}daysAgo`, endDate: 'today' }],
     );
   }
 

@@ -50,6 +50,13 @@ router.get("/google-analytics/traffic", async (req, res) => {
   catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+router.get("/google-analytics/daily", async (req, res) => {
+  try {
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
+    res.json({ success: true, data: await gaService.getDailyTraffic(days) }); 
+  } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 router.get("/google-analytics/geography", async (req, res) => {
   try { res.json({ success: true, data: await gaService.getGeography() }); } 
   catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
@@ -134,3 +141,4 @@ router.get("/lemon/revenue", async (req, res) => {
 
 
 export default router;
+

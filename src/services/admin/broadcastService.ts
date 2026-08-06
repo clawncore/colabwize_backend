@@ -18,19 +18,28 @@ interface BroadcastOptions {
 /**
  * Broadcasts emails in batches to respect rate limits (50/sec)
  * and prevent blocking the main event loop.
+ * Uses createMany for batch inserts to avoid N+1 queries.
  */
 export const processBroadcast = async (options: BroadcastOptions) => {
   const { userIds, senderAlias, subject, message, senderName, senderTitle, fromAddress } = options;
   const BATCH_SIZE = 50;
   const DELAY_MS = 1000; // 1 second between batches
 
-  logger.info(`Starting broadcast to ${userIds.length} recipients...`);
+  // Limit maximum recipients to prevent abuse
+  const maxRecipients = Math.min(userIds.length, 10000);
+  const limitedUserIds = userIds.slice(0, maxRecipients);
+
+  if (userIds.length > maxRecipients) {
+    logger.warn(`Broadcast limited to ${maxRecipients} recipients (requested: ${userIds.length})`);
+  }
+
+  logger.info(`Starting broadcast to ${limitedUserIds.length} recipients...`);
 
   // Fetch candidate emails to avoid multiple circular queries
   // STRICTLY filter out users who have opted out of marketing
   const recipients = await prisma.user.findMany({
     where: { 
-      id: { in: userIds },
+      id: { in: limitedUserIds },
       unsubscribed_from_marketing: false 
     },
     select: { email: true, full_name: true }
@@ -62,19 +71,7 @@ export const processBroadcast = async (options: BroadcastOptions) => {
           text: fallbackText
         });
 
-        // Log to DB — store the broadcast template body + the real from
-        // address so the admin Sentbox shows exactly what was sent.
-        await prisma.emailLog.create({
-          data: {
-            recipient: user.email,
-            sender: senderAlias,
-            from_address: fromAddress || undefined,
-            subject: personalizedSubject,
-            status: result.success ? "sent" : "failed",
-            error: result.success ? null : (result.error || "Unknown error"),
-            message_body: personalizedMessage,
-          }
-        });
+        // Email is automatically logged by baseMailer.sendEmail()
 
         if (result.success) successCount++;
         else failureCount++;

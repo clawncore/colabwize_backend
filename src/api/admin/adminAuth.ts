@@ -2,6 +2,7 @@ import express, { Router } from 'express';
 import bcrypt from 'bcrypt';
 import { prisma } from '../../lib/prisma';
 import { AdminAuthService } from '../../services/admin/adminAuthService';
+import { resolveAdminRole } from '../../middleware/platformAdmin';
 import { createAuditLog, extractAuditContext } from '../../services/admin/auditLogService';
 import { adminAuthRateLimiter } from '../../middleware/rateLimiter';
 import logger from '../../monitoring/logger';
@@ -72,8 +73,13 @@ router.post('/login', adminAuthRateLimiter, async (req, res) => {
       });
     }
 
-    // Direct login if MFA disabled (for dev/test)
-    const result = await AdminAuthService.verifyMfaAndLogin(adminUser.email, '123456', auditCtx.ipAddress, auditCtx.userAgent);
+    // Direct login if MFA disabled (explicit opt-out on the admin record)
+    const result = await AdminAuthService.verifyMfaAndLogin(
+      adminUser.email,
+      undefined,
+      auditCtx.ipAddress,
+      auditCtx.userAgent,
+    );
     if (!result) {
       return res.status(400).json({ success: false, error: 'Failed to issue admin session' });
     }
@@ -145,33 +151,51 @@ router.post('/verify-mfa', adminAuthRateLimiter, async (req, res) => {
 // ==========================================
 router.get('/me', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, error: 'Missing token' });
+    // Accepts either a dedicated Admin JWT or a Supabase token whose email
+    // matches an `admin_users` row (both resolved by resolveAdminRole).
+    const role = await resolveAdminRole(req);
+    if (!role) {
+      return res.status(403).json({ success: false, error: 'Not an administrator' });
     }
 
-    const token = authHeader.split(' ')[1];
-    const decoded = AdminAuthService.verifyToken(token);
-    if (!decoded) {
-      return res.status(401).json({ success: false, error: 'Invalid or expired admin token' });
+    const resolved = (req as any).adminUser;
+    let admin = null;
+    try {
+      admin = await prisma.adminUser.findUnique({
+        where: { email: resolved.email },
+        select: {
+          id: true,
+          email: true,
+          full_name: true,
+          role: true,
+          permissions: true,
+          mfa_enabled: true,
+          last_login: true,
+          created_at: true,
+        },
+      });
+    } catch (err) {
+      logger.warn(
+        `AdminUser profile lookup failed (using resolved identity): ${err instanceof Error ? err.message : err}`,
+      );
     }
-
-    const admin = await (prisma as any).adminUser.findUnique({
-      where: { id: decoded.adminId },
-      select: {
-        id: true,
-        email: true,
-        full_name: true,
-        role: true,
-        permissions: true,
-        mfa_enabled: true,
-        last_login: true,
-        created_at: true,
-      },
-    });
 
     if (!admin) {
-      return res.status(404).json({ success: false, error: 'Admin user not found' });
+      // The role was already resolved (either from an `admin_users` row or the
+      // @colabwize.com domain fallback), so echo back the resolved identity.
+      return res.json({
+        success: true,
+        admin: {
+          id: resolved.userId || null,
+          email: resolved.email,
+          full_name: resolved.email.split("@")[0] || null,
+          role: resolved.role,
+          permissions: resolved.permissions || [],
+          mfa_enabled: false,
+          last_login: null,
+          created_at: null,
+        },
+      });
     }
 
     res.json({ success: true, admin });
@@ -186,19 +210,36 @@ router.get('/me', async (req, res) => {
 router.post('/setup-initial', async (req, res) => {
   try {
     const { email, password, fullName, secretKey } = req.body;
-    
-    const setupKey = process.env.ADMIN_SETUP_KEY || 'colabwize-admin-setup-2026';
+
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: 'Email and password are required' });
+    }
+
+    if (password.length < 12) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 12 characters' });
+    }
+
+    // No hardcoded fallback: refuse to run unless explicitly configured.
+    const setupKey = process.env.ADMIN_SETUP_KEY;
+    if (!setupKey) {
+      return res.status(503).json({
+        success: false,
+        error: 'Admin bootstrap is not configured. Set ADMIN_SETUP_KEY.',
+      });
+    }
     if (secretKey !== setupKey) {
       return res.status(403).json({ success: false, error: 'Invalid setup secret key' });
     }
 
-    const existingCount = await (prisma as any).adminUser.count();
+    const existingCount = await prisma.adminUser.count();
     if (existingCount > 0) {
       return res.status(400).json({ success: false, error: 'Initial admin setup already completed' });
     }
 
-    const password_hash = await bcrypt.hash(password, 10);
-    const superAdmin = await (prisma as any).adminUser.create({
+    const password_hash = await bcrypt.hash(password, 12);
+    const mfa_secret = AdminAuthService.generateTotpSecret();
+    const backup_codes = AdminAuthService.generateBackupCodes();
+    const superAdmin = await prisma.adminUser.create({
       data: {
         email: email.toLowerCase().trim(),
         password_hash,
@@ -206,9 +247,16 @@ router.post('/setup-initial', async (req, res) => {
         role: 'super_admin',
         permissions: ['*'],
         mfa_enabled: true,
-        mfa_secret: 'JBSWY3DPEHPK3PXP',
-        backup_codes: ['12345678', '87654321'],
+        mfa_secret,
+        backup_codes,
       },
+    });
+
+    await createAuditLog({
+      action: 'ADMIN_SETUP_INITIAL',
+      adminEmail: superAdmin.email,
+      metadata: { adminId: superAdmin.id },
+      ...extractAuditContext(req),
     });
 
     res.json({
@@ -218,6 +266,11 @@ router.post('/setup-initial', async (req, res) => {
         id: superAdmin.id,
         email: superAdmin.email,
         role: superAdmin.role,
+      },
+      // Returned exactly once so the operator can enroll their authenticator.
+      mfa: {
+        secret: mfa_secret,
+        backupCodes: backup_codes,
       },
     });
   } catch (err: any) {
