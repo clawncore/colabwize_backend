@@ -8,6 +8,7 @@ import * as url from "url";
 import path from "path";
 import fs from "fs";
 import cors from "cors";
+import helmet from "helmet";
 import logger from "../monitoring/logger";
 import { authenticateExpressRequest } from "../middleware/auth";
 import { RecycleBinService } from "../services/recycleBinService";
@@ -17,6 +18,7 @@ import {
   apiLimiter,
   authLimiter,
   uploadLimiter,
+  adminOperationRateLimiter,
 } from "../middleware/rateLimiter";
 
 import { scheduleCleanupTask } from "../scheduledTasks/cleanupExpiredItems";
@@ -56,6 +58,8 @@ import feedbackRouter from "../api/feedback/index";
 import supportTicketRouter from "../api/support-ticket/index";
 import featureRequestRouter from "../api/feature-request/index";
 import contactRouter from "../api/contact/index";
+import contactEvidenceRouter from "../api/contact/evidence-route";
+import adminContactRequestsRouter from "../api/admin/contact-requests";
 import onboardingRouter from "../api/onboarding/index";
 import chatRouter from "../api/chat/index";
 import waitlistRouter from "../api/waitlist/index";
@@ -72,6 +76,8 @@ import auditRouter from "../audit/index";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
 import adminRouter from "../api/admin/index";
+import observabilityRouter from "../api/admin/observability";
+import adminAuthRouter from "../api/admin/adminAuth";
 import publicBlogsRouter from "../api/blogs/index";
 // Publishing Platform (Phase 3): export job system + router
 import {
@@ -188,6 +194,9 @@ app.use(cors(corsOptions));
 
 // Explicitly handle OPTIONS preflight for all routes
 app.options("*", cors(corsOptions));
+
+// Security headers (sets X-Content-Type-Options, HSTS, frameguard, etc.)
+app.use(helmet());
 
 // Webhooks MUST be registered BEFORE global express.json to get raw body
 // Important for signature verification (LemonSqueezy, etc.)
@@ -394,8 +403,17 @@ app.use("/api/notifications", notificationsRouter);
 // Analytics API
 app.use("/api/analytics", authMiddleware, analyticsRouter);
 
-// Admin Platform API
-app.use("/api/admin", authMiddleware, adminRouter);
+// Admin Platform API.
+// NOTE: No global authMiddleware here — admin routers authenticate internally
+// via `isPlatformAdmin`, which accepts either a dedicated Admin JWT
+// (/api/admin/auth/login) or a Supabase token whose email matches an
+// `admin_users` row. The dedicated admin auth router is mounted separately
+// below (login/bootstrap must be reachable without an admin session).
+// Observability must mount before /api/admin because Express matches by prefix.
+app.use("/api/admin/auth", adminAuthRouter);
+app.use("/api/admin/observability", adminOperationRateLimiter, observabilityRouter);
+app.use("/api/admin", adminOperationRateLimiter, adminRouter);
+app.use("/api/admin/contact-requests", adminOperationRateLimiter, adminContactRequestsRouter);
 
 // Subscription API
 app.use("/api/subscription", subscriptionRouter);
@@ -433,6 +451,7 @@ app.use("/api/feature-request", featureRequestRouter);
 
 // Contact API (Public)
 app.use("/api/contact", contactRouter);
+app.use("/api/contact", contactEvidenceRouter);
 
 // Waitlist API (Public)
 app.use("/api/waitlist", waitlistRouter);
@@ -633,4 +652,8 @@ const startServer = async () => {
 startServer();
 
 export default app;
+<<<<<<< HEAD
 // Server Entry Point - Triggering Restart... 03/18// LAST UPDATE: 2026-03-18 18:55:00
+=======
+// Server Entry Point - Triggering Restart... 06/14 // LAST UPDATE: 2026-06-14 09:20:00
+>>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b

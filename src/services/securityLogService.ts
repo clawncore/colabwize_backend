@@ -109,7 +109,11 @@ export class SecurityLogService {
         prisma.securityLog.count({ where }),
       ]);
 
+<<<<<<< HEAD
       const formattedLogs = logs.map((log) => ({
+=======
+      const formattedLogs = logs.map((log: any) => ({
+>>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
         id: log.id,
         event_type: log.event_type,
         description: log.description,
@@ -176,7 +180,11 @@ export class SecurityLogService {
         email_changes: emailChanges,
         two_factor_changes: twoFactorChanges,
         sessions_terminated: sessionsTerminated,
+<<<<<<< HEAD
         recent_activity: recentActivity.map((log) => ({
+=======
+        recent_activity: recentActivity.map((log: any) => ({
+>>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
           id: log.id,
           event_type: log.event_type,
           description: log.description,

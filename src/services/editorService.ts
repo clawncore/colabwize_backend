@@ -850,13 +850,9 @@ export class EditorService {
       });
 
       // Update user's last active timestamp
-      await prismaClient.userCollaborationSettings.upsert({
-        where: { user_id: userId },
-        update: { last_active: new Date() },
-        create: {
-          user_id: userId,
-          last_active: new Date(),
-        },
+      await prismaClient.user.update({
+        where: { id: userId },
+        data: { last_seen_at: new Date() },
       });
 
       // For "save" actions, increment the daily save counter for billing purposes

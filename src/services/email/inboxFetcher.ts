@@ -8,6 +8,7 @@ import { initializePrisma } from "../../lib/prisma-async";
 /**
  * Categorize email based on keywords in subject or body
  */
+<<<<<<< HEAD
 function categorizeEmail(subject: string, body: string): { folder: string; priority: string } {
   const content = (subject + " " + body).toLowerCase();
 
@@ -27,6 +28,55 @@ function categorizeEmail(subject: string, body: string): { folder: string; prior
     return { folder: "Platform", priority: "medium" };
   }
 
+=======
+function categorizeEmail(subject: string, body: string, senderEmail: string): { folder: string; priority: string } {
+  const sub = subject.toLowerCase();
+  const content = (subject + " " + body).toLowerCase();
+  const sender = senderEmail.toLowerCase();
+
+  // Spam — obvious junk first (override everything else)
+  if (/unsubscribe|opt.out|click.here|act.now|limited.time|congratulations.*won|you.*won|free.*prize|claim.*reward|viagra|cialis|casino|lottery|winner|nigerian|prince|inheritance|crypto.*invest|make.*money.*fast|work.from.home.*\$|dear.*friend|beloved|urgent.*business|million.*dollars|bank.*transfer|atm.*card|pharmacy|pills|supplement|enlargement|weight.loss|miracle|cure|remedy|treatment|diagnosis|doctor|prescription|buy.*now|order.*now|limited.*offer|special.*promotion|exclusive.*deal|free.*trial|risk.free|money.back|guarantee|satisfaction|best.price|lowest.price|save.*percent|discount.*code|coupon.*code|promo.*code/i.test(content)) {
+    return { folder: "Spam", priority: "low" };
+  }
+
+  // Spam — suspicious sender patterns
+  if (/^(no[-_.]?reply|noreply|mailer[-_.]?daemon|postmaster)@/i.test(sender) && !/colabwize/i.test(sender)) {
+    return { folder: "Spam", priority: "low" };
+  }
+  // Spam — known junk domains
+  if (/\.(top|xyz|club|buzz|gq|cf|ml|tk|click|link|download|stream|racing|win|party|ru|cn|biz|info|pro|icu)$/i.test(sender)) {
+    return { folder: "Spam", priority: "low" };
+  }
+
+  // Billing — require subject match OR strong body indicators
+  const billingSub = /billing|invoice|payment|subscription|refund|charge|receipt|premium\s*plan|upgrade|downgrade|cancel\s*subscription|pricing|coupon|discount/i.test(sub);
+  const billingBody = /billing|invoice|payment|subscription|refund|charge|receipt/i.test(content);
+  const billingStrong = /refund|cancel.*subscription|charge.*twice|double.*charge|overcharged|payment.*failed|billing.*issue/i.test(content);
+  if (billingSub || billingStrong || (billingBody && /billing|invoice|refund/i.test(content))) {
+    return { folder: "Billing", priority: "high" };
+  }
+
+  // Security — require subject match OR strong body indicators
+  const securitySub = /security|password|login|auth|hacked|verify|2fa|suspicious|unauthorized|breach/i.test(sub);
+  const securityStrong = /cannot.*log.*in|locked.*out|account.*compromised|unauthorized.*access|password.*reset|two.?factor/i.test(content);
+  if (securitySub || securityStrong) {
+    return { folder: "Security", priority: "high" };
+  }
+
+  // Platform — only if subject clearly indicates
+  const platformSub = /bug|error|crash|not\s*working|broken|feature\s*request|maintenance|downtime/i.test(sub);
+  if (platformSub) {
+    return { folder: "Platform", priority: "medium" };
+  }
+
+  // Contact — only if subject is clearly a greeting/inquiry
+  const contactSub = /^(hello|hi|hey|greetings|contact|inquiry|question|feedback)/i.test(sub);
+  if (contactSub) {
+    return { folder: "Contact", priority: "medium" };
+  }
+
+  // Default — Support (most emails should land here)
+>>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
   return { folder: "Support", priority: "medium" };
 }
 
@@ -95,7 +145,11 @@ export async function processIncomingSupportEmails() {
         const text = parsed.text || "";
 
         const sanitizedHtml = DOMPurify.sanitize(html as string);
+<<<<<<< HEAD
         const { folder, priority } = categorizeEmail(subject, text);
+=======
+        const { folder, priority } = categorizeEmail(subject, text, senderEmail);
+>>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 
         let threadId = (globalThis as any).crypto?.randomUUID?.() || Math.random().toString(36).substring(7);
         const cleanSubject = subject.replace(/^Re:\s+/i, "").trim();
@@ -149,3 +203,30 @@ export async function processIncomingSupportEmails() {
     });
   }
 }
+<<<<<<< HEAD
+=======
+
+/**
+ * One-time recategorization of existing support messages using updated categorizeEmail logic.
+ */
+export async function recategorizeExistingMessages() {
+  const prisma = await initializePrisma();
+  const messages = await (prisma as any).supportMessage.findMany({
+    select: { id: true, subject: true, message_text: true, sender_email: true, folder: true },
+  });
+
+  let updated = 0;
+  for (const msg of messages) {
+    const { folder } = categorizeEmail(msg.subject, msg.message_text || "", msg.sender_email);
+    if (folder !== msg.folder) {
+      await (prisma as any).supportMessage.update({
+        where: { id: msg.id },
+        data: { folder },
+      });
+      updated++;
+    }
+  }
+  logger.info(`[InboxFetcher] Recategorized ${updated}/${messages.length} messages.`);
+  return { total: messages.length, updated };
+}
+>>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b

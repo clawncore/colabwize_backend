@@ -1,7 +1,17 @@
+<<<<<<< HEAD
 node_modules
 
 # Environment Variables
+=======
+node_modules
+
+# Environment Variables
+>>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 .env
 # Local binaries and logs
 /bin/
 /logs/
+<<<<<<< HEAD
+=======
+dist/
+>>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
