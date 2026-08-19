@@ -1,6 +1,7 @@
 import express, { Router } from "express";
 import { z } from "zod";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { createAuditLog, extractAuditContext, getAdminEmail } from "../../services/admin/auditLogService";
@@ -8,6 +9,7 @@ import { createAuditLog, extractAuditContext, getAdminEmail } from "../../servic
 const router: Router = express.Router();
 
 router.use(isPlatformAdmin);
+router.use(adminOperationRateLimiter);
 
 // ────────────────────────────────────────────────
 // Active sessions (remote management)

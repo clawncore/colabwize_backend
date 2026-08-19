@@ -1,12 +1,14 @@
 import express, { Router } from "express";
 import os from "os";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 
 const router: Router = express.Router();
 
 router.use(isPlatformAdmin);
+router.use(adminOperationRateLimiter);
 
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400);

@@ -2,6 +2,7 @@ import express, { Router } from "express";
 import crypto from "crypto";
 import { z } from "zod";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { prisma as prismaClient } from "../../lib/prisma";
 import type { PrismaClient } from "@prisma/client";
 import logger from "../../monitoring/logger";
@@ -10,6 +11,9 @@ import { createAuditLog, extractAuditContext, getAdminEmail } from "../../servic
 const router: Router = express.Router();
 
 router.use(isPlatformAdmin);
+// Rate-limit admin security operations — prevents abuse of heavy endpoints
+// (vuln scan, audit log explorer, events) that could strain the database.
+router.use(adminOperationRateLimiter);
 
 // The shared `prisma` singleton in lib/prisma is typed `any` (global reuse
 // pattern). Use a typed alias here so the generated delegate types are
@@ -22,10 +26,53 @@ const db = prismaClient as PrismaClient;
 router.get("/events", async (req, res) => {
   try {
     const limit = Math.min(parseInt(String(req.query.limit || "50")), 200);
-    const events = await db.securityEvent.findMany({
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    });
+    const offset = parseInt(String(req.query.offset || "0"));
+    const { severity, type, userId, adminId, ipAddress, dateFrom, dateTo, search } = req.query;
+
+    const where: any = {};
+    if (severity) where.severity = String(severity);
+    if (type) where.type = { contains: String(type), mode: "insensitive" };
+    if (userId) where.userId = String(userId);
+    if (adminId) where.adminId = String(adminId);
+    if (ipAddress) where.ipAddress = { contains: String(ipAddress), mode: "insensitive" };
+
+    const parseDate = (val: string | undefined): Date | undefined => {
+      if (!val) return undefined;
+      const d = new Date(String(val));
+      return isNaN(d.getTime()) ? undefined : d;
+    };
+    const from = parseDate(dateFrom);
+    const to = parseDate(dateTo);
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = from;
+      if (to) {
+        const end = new Date(to);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+
+    // Full-text search across description, type, ipAddress, metadata
+    if (search) {
+      const term = String(search).trim();
+      where.OR = [
+        { description: { contains: term, mode: "insensitive" } },
+        { type: { contains: term, mode: "insensitive" } },
+        { ipAddress: { contains: term, mode: "insensitive" } },
+        { metadata: { contains: term, mode: "insensitive" } },
+      ];
+    }
+
+    const [events, total] = await Promise.all([
+      db.securityEvent.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: offset,
+      }),
+      db.securityEvent.count({ where }),
+    ]);
 
     const userIds = [...new Set(events.map((e) => e.userId).filter(Boolean))] as string[];
     const adminIds = [...new Set(events.map((e) => e.adminId).filter(Boolean))] as string[];
@@ -61,7 +108,7 @@ router.get("/events", async (req, res) => {
         : null,
     }));
 
-    res.json({ success: true, data: { events: enriched } });
+    res.json({ success: true, data: { events: enriched, total, limit, offset } });
   } catch (error: any) {
     logger.error("Security events error:", error);
     res.status(500).json({ success: false, error: error.message });
@@ -75,16 +122,29 @@ router.get("/login-audit", async (req, res) => {
   try {
     const limit = Math.min(parseInt(String(req.query.limit || "50")), 200);
     const offset = parseInt(String(req.query.offset || "0"));
-    const { userId, email, success, dateFrom, dateTo } = req.query;
+    const { userId, email, success, ipAddress, dateFrom, dateTo } = req.query;
 
     const where: any = {};
     if (userId) where.userId = String(userId);
     if (email) where.email = { contains: String(email), mode: "insensitive" };
     if (success !== undefined) where.success = success === "true";
-    if (dateFrom || dateTo) {
+    if (ipAddress) where.ipAddress = { contains: String(ipAddress), mode: "insensitive" };
+
+    const parseDate = (val: string | undefined): Date | undefined => {
+      if (!val) return undefined;
+      const d = new Date(String(val));
+      return isNaN(d.getTime()) ? undefined : d;
+    };
+    const from = parseDate(dateFrom);
+    const to = parseDate(dateTo);
+    if (from || to) {
       where.createdAt = {};
-      if (dateFrom) where.createdAt.gte = new Date(String(dateFrom));
-      if (dateTo) where.createdAt.lte = new Date(String(dateTo));
+      if (from) where.createdAt.gte = from;
+      if (to) {
+        const end = new Date(to);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
     }
 
     const [logs, total] = await Promise.all([
@@ -633,6 +693,20 @@ const SECURITY_CONFIG_DEFAULTS: Record<string, unknown> = {
   "security.session_concurrent_limit": 5,
 };
 
+// Zod schema for security config updates — enforces type safety on persisted values
+const securityConfigSchema = z.object({
+  "security.max_login_attempts": z.number().int().min(1).max(100).optional(),
+  "security.lockout_duration_minutes": z.number().int().min(1).max(1440).optional(),
+  "security.session_timeout_minutes": z.number().int().min(5).max(10080).optional(),
+  "security.require_2fa_for_admins": z.boolean().optional(),
+  "security.ip_allowlist_enabled": z.boolean().optional(),
+  "security.password_min_length": z.number().int().min(4).max(128).optional(),
+  "security.password_require_special_char": z.boolean().optional(),
+  "security.password_require_number": z.boolean().optional(),
+  "security.password_require_uppercase": z.boolean().optional(),
+  "security.session_concurrent_limit": z.number().int().min(1).max(100).optional(),
+});
+
 router.get("/config", async (req, res) => {
   try {
     const rows = await db.systemConfig.findMany({
@@ -651,7 +725,8 @@ router.get("/config", async (req, res) => {
 
 router.put("/config", async (req, res) => {
   try {
-    const body = req.body as Record<string, unknown>;
+    // Validate body against Zod schema — rejects unknown keys and wrong types
+    const body = securityConfigSchema.parse(req.body);
     const keys = Object.keys(SECURITY_CONFIG_DEFAULTS);
 
     for (const key of keys) {
@@ -679,32 +754,345 @@ router.put("/config", async (req, res) => {
 });
 
 // ────────────────────────────────────────────────
+// Vulnerability Scan
+// ────────────────────────────────────────────────
+router.get("/vulnerability-scan", async (req, res) => {
+  try {
+    const findings: {
+      id: string;
+      category: string;
+      title: string;
+      description: string;
+      severity: "critical" | "high" | "medium" | "low" | "info";
+      recommendation: string;
+      affectedCount?: number;
+      passed: boolean;
+    }[] = [];
+
+    // Load config once
+    const configRows = await db.systemConfig.findMany({
+      where: { key: { in: Object.keys(SECURITY_CONFIG_DEFAULTS) } },
+    });
+    const config: Record<string, unknown> = { ...SECURITY_CONFIG_DEFAULTS };
+    for (const row of configRows) config[row.key] = row.value;
+
+    // ── 1. 2FA Adoption ──────────────────────────────────────
+    const [totalUsers, twoFaUsers] = await Promise.all([
+      db.user.count(),
+      db.user.count({ where: { two_factor_enabled: true } }),
+    ]);
+    const twoFaRate = totalUsers > 0 ? (twoFaUsers / totalUsers) * 100 : 100;
+    findings.push({
+      id: "2fa-adoption",
+      category: "Authentication",
+      title: "2FA Adoption Rate",
+      description: `${twoFaUsers} of ${totalUsers} users have 2FA enabled (${twoFaRate.toFixed(1)}%).`,
+      severity: twoFaRate < 50 ? "critical" : twoFaRate < 80 ? "high" : twoFaRate < 95 ? "medium" : "low",
+      recommendation: "Force 2FA for all users or at minimum all admin accounts. Use the 2FA Admin tab to enable it per user.",
+      affectedCount: totalUsers - twoFaUsers,
+      passed: twoFaRate >= 95,
+    });
+
+    // ── 2. Admin 2FA Requirement ──────────────────────────────
+    const require2faAdmins = config["security.require_2fa_for_admins"] === true;
+    findings.push({
+      id: "admin-2fa-enforced",
+      category: "Authentication",
+      title: "Admin 2FA Enforcement",
+      description: require2faAdmins
+        ? "2FA is enforced for all administrator accounts."
+        : "2FA is NOT enforced for admin accounts — a single compromised password can grant full admin access.",
+      severity: require2faAdmins ? "info" : "critical",
+      recommendation: "Enable 'Require 2FA for admins' in Security Config.",
+      passed: require2faAdmins,
+    });
+
+    // ── 3. Password Policy ────────────────────────────────────
+    const minLen = Number(config["security.password_min_length"] ?? 8);
+    const requireSpecial = config["security.password_require_special_char"] === true;
+    const requireNumber = config["security.password_require_number"] === true;
+    const requireUpper = config["security.password_require_uppercase"] === true;
+    const policyScore = [minLen >= 12, requireSpecial, requireNumber, requireUpper].filter(Boolean).length;
+    findings.push({
+      id: "password-policy",
+      category: "Authentication",
+      title: "Password Policy Strength",
+      description: `Min length: ${minLen}. Special char: ${requireSpecial ? "✓" : "✗"}. Number: ${requireNumber ? "✓" : "✗"}. Uppercase: ${requireUpper ? "✓" : "✗"}.`,
+      severity: policyScore <= 1 ? "high" : policyScore === 2 ? "medium" : policyScore === 3 ? "low" : "info",
+      recommendation: "Set minimum password length to 12+ and enable all complexity requirements.",
+      passed: policyScore === 4 && minLen >= 12,
+    });
+
+    // ── 4. Login Brute-Force Protection ──────────────────────
+    const maxAttempts = Number(config["security.max_login_attempts"] ?? 5);
+    findings.push({
+      id: "brute-force-protection",
+      category: "Access Control",
+      title: "Login Brute-Force Lockout Threshold",
+      description: `Accounts are locked after ${maxAttempts} failed login attempt(s).`,
+      severity: maxAttempts > 10 ? "high" : maxAttempts > 5 ? "medium" : "info",
+      recommendation: "Set max login attempts to 5 or fewer to prevent brute-force attacks.",
+      passed: maxAttempts <= 5,
+    });
+
+    // ── 5. Recent Brute-Force Activity ────────────────────────
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const failedLogins = await db.loginAudit.count({
+      where: { success: false, createdAt: { gte: since24h } },
+    });
+    findings.push({
+      id: "brute-force-activity",
+      category: "Threat Detection",
+      title: "Failed Login Attempts (Last 24h)",
+      description: `${failedLogins} failed login attempts detected in the past 24 hours.`,
+      severity: failedLogins > 100 ? "critical" : failedLogins > 30 ? "high" : failedLogins > 10 ? "medium" : "info",
+      recommendation: "Investigate IPs generating repeated failures. Consider adding CAPTCHA or rate limiting at the network layer.",
+      affectedCount: failedLogins,
+      passed: failedLogins <= 10,
+    });
+
+    // ── 6. Session Timeout ────────────────────────────────────
+    const sessionTimeout = Number(config["security.session_timeout_minutes"] ?? 120);
+    findings.push({
+      id: "session-timeout",
+      category: "Session Management",
+      title: "Session Timeout Policy",
+      description: `Sessions expire after ${sessionTimeout} minutes of inactivity.`,
+      severity: sessionTimeout > 480 ? "high" : sessionTimeout > 240 ? "medium" : "info",
+      recommendation: "Set session timeout to 60–120 minutes for most applications. Critical systems should use 30 minutes.",
+      passed: sessionTimeout <= 120,
+    });
+
+    // ── 7. Concurrent Session Limit ───────────────────────────
+    const concurrentLimit = Number(config["security.session_concurrent_limit"] ?? 5);
+    findings.push({
+      id: "concurrent-sessions",
+      category: "Session Management",
+      title: "Concurrent Session Limit",
+      description: `Users can have up to ${concurrentLimit} active sessions simultaneously.`,
+      severity: concurrentLimit > 5 ? "medium" : "info",
+      recommendation: "Limit concurrent sessions to 3 or fewer to detect and prevent session sharing or credential theft.",
+      passed: concurrentLimit <= 3,
+    });
+
+    // ── 8. Secret Rotation Overdue ────────────────────────────
+    await ensureSecretRotationSeeded();
+    const secretRows = await db.secretRotation.findMany();
+    const overdueSecrets = secretRows.filter((s) => {
+      const daysAgo = (Date.now() - new Date(s.lastRotated).getTime()) / (1000 * 60 * 60 * 24);
+      return daysAgo > s.rotationDays;
+    });
+    findings.push({
+      id: "secret-rotation",
+      category: "Secrets Management",
+      title: "Overdue Secret Rotations",
+      description:
+        overdueSecrets.length === 0
+          ? "All secrets are within their rotation schedules."
+          : `${overdueSecrets.length} secret(s) are overdue for rotation: ${overdueSecrets.map((s) => s.label).join(", ")}.`,
+      severity: overdueSecrets.length > 3 ? "critical" : overdueSecrets.length > 0 ? "high" : "info",
+      recommendation: "Rotate overdue secrets immediately from the Secret Rotation tab. Automate rotation with a CI/CD secret manager.",
+      affectedCount: overdueSecrets.length,
+      passed: overdueSecrets.length === 0,
+    });
+
+    // ── 9. Stale Active API Keys ──────────────────────────────
+    const staleKeyThreshold = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const staleKeys = await db.apiKey.count({
+      where: {
+        isActive: true,
+        OR: [{ lastUsedAt: null }, { lastUsedAt: { lte: staleKeyThreshold } }],
+      },
+    });
+    findings.push({
+      id: "stale-api-keys",
+      category: "Secrets Management",
+      title: "Stale Active API Keys",
+      description:
+        staleKeys === 0
+          ? "All active API keys have been used within the past 90 days."
+          : `${staleKeys} active API key(s) haven't been used in over 90 days.`,
+      severity: staleKeys > 5 ? "high" : staleKeys > 0 ? "medium" : "info",
+      recommendation: "Revoke unused API keys immediately. Implement automatic expiry for keys unused after 90 days.",
+      affectedCount: staleKeys,
+      passed: staleKeys === 0,
+    });
+
+    // ── 10. Locked Accounts Backlog ───────────────────────────
+    const activeLocks = await db.accountLock.count({ where: { unlockedAt: null } });
+    findings.push({
+      id: "locked-accounts",
+      category: "Access Control",
+      title: "Unresolved Account Locks",
+      description:
+        activeLocks === 0
+          ? "No accounts are currently locked."
+          : `${activeLocks} account(s) are currently locked and awaiting review.`,
+      severity: activeLocks > 10 ? "high" : activeLocks > 0 ? "medium" : "info",
+      recommendation: "Review locked accounts regularly. Persistent locks may indicate an ongoing attack or forgotten user.",
+      affectedCount: activeLocks,
+      passed: activeLocks === 0,
+    });
+
+    // ── 11. IP Allowlist Hardening ────────────────────────────
+    const ipAllowlistEnabled = config["security.ip_allowlist_enabled"] === true;
+    const ipCount = await db.ipAllowlist.count({ where: { blocked: false } });
+    findings.push({
+      id: "ip-allowlist",
+      category: "Network Security",
+      title: "IP Allowlist Enforcement",
+      description: ipAllowlistEnabled
+        ? `IP allowlist is active with ${ipCount} allowed address(es).`
+        : "IP allowlist is disabled. Any IP address can attempt access.",
+      severity: ipAllowlistEnabled ? "info" : "medium",
+      recommendation:
+        "Enable IP allowlisting for admin panel access. Restrict to your office IPs or VPN egress range.",
+      passed: ipAllowlistEnabled,
+    });
+
+    // ── 12. Critical Security Events (Last 7 days) ────────────
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const criticalEvents = await db.securityEvent.count({
+      where: { severity: "critical", createdAt: { gte: since7d } },
+    });
+    findings.push({
+      id: "critical-events",
+      category: "Threat Detection",
+      title: "Critical Security Events (Last 7 Days)",
+      description:
+        criticalEvents === 0
+          ? "No critical security events recorded in the past week."
+          : `${criticalEvents} critical security event(s) detected in the past 7 days.`,
+      severity: criticalEvents > 5 ? "critical" : criticalEvents > 0 ? "high" : "info",
+      recommendation: "Review all critical events in the Login Audit and Dashboard tabs. Correlate with IP and user activity.",
+      affectedCount: criticalEvents,
+      passed: criticalEvents === 0,
+    });
+
+    const score = Math.round((findings.filter((f) => f.passed).length / findings.length) * 100);
+    const criticalCount = findings.filter((f) => !f.passed && f.severity === "critical").length;
+    const highCount = findings.filter((f) => !f.passed && f.severity === "high").length;
+    const mediumCount = findings.filter((f) => !f.passed && f.severity === "medium").length;
+
+    await createAuditLog({
+      action: "VULNERABILITY_SCAN_RUN",
+      adminEmail: getAdminEmail(req),
+      metadata: { score, criticalCount, highCount, mediumCount },
+      ...extractAuditContext(req),
+    });
+
+    res.json({
+      success: true,
+      data: {
+        score,
+        criticalCount,
+        highCount,
+        mediumCount,
+        totalChecks: findings.length,
+        passedChecks: findings.filter((f) => f.passed).length,
+        scannedAt: new Date().toISOString(),
+        findings,
+      },
+    });
+  } catch (error: any) {
+    logger.error("Vulnerability scan error:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ────────────────────────────────────────────────
 // Audit log explorer
 // ────────────────────────────────────────────────
 router.get("/audit-log-explorer", async (req, res) => {
   try {
     const limit = Math.min(parseInt(String(req.query.limit || "50")), 200);
     const offset = parseInt(String(req.query.offset || "0"));
-    const { action, entityType, adminEmail, dateFrom, dateTo } = req.query;
+    const {
+      action,
+      entityType,
+      entityId,
+      adminEmail,
+      ipAddress,
+      search,
+      dateFrom,
+      dateTo,
+      sortBy = "createdAt",
+      sortDir = "desc",
+    } = req.query;
+
+    // Validate sort field to prevent injection
+    const allowedSortFields = ["createdAt", "action", "adminEmail", "entityType", "id"];
+    const sortField = allowedSortFields.includes(String(sortBy)) ? String(sortBy) : "createdAt";
+    const sortDirection = String(sortDir).toLowerCase() === "asc" ? "asc" : "desc";
+
+    // Validate date formats
+    const parseDate = (val: string | undefined): Date | undefined => {
+      if (!val) return undefined;
+      const d = new Date(String(val));
+      return isNaN(d.getTime()) ? undefined : d;
+    };
+    const from = parseDate(dateFrom);
+    const to = parseDate(dateTo);
 
     const where: any = {};
-    if (action) where.action = String(action);
-    if (entityType) where.entityType = String(entityType);
+    if (action) where.action = { contains: String(action), mode: "insensitive" };
+    if (entityType) where.entityType = { contains: String(entityType), mode: "insensitive" };
+    if (entityId) where.entityId = String(entityId);
     if (adminEmail) where.adminEmail = { contains: String(adminEmail), mode: "insensitive" };
-    if (dateFrom || dateTo) {
+    if (ipAddress) where.ipAddress = { contains: String(ipAddress), mode: "insensitive" };
+    if (from || to) {
       where.createdAt = {};
-      if (dateFrom) where.createdAt.gte = new Date(String(dateFrom));
-      if (dateTo) where.createdAt.lte = new Date(String(dateTo));
+      if (from) where.createdAt.gte = from;
+      if (to) {
+        const end = new Date(to);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+
+    // Full-text search across metadata JSON and userAgent
+    if (search) {
+      const term = String(search).trim();
+      const OR: any[] = [
+        { adminEmail: { contains: term, mode: "insensitive" } },
+        { action: { contains: term, mode: "insensitive" } },
+        { entityType: { contains: term, mode: "insensitive" } },
+        { ipAddress: { contains: term, mode: "insensitive" } },
+        { userAgent: { contains: term, mode: "insensitive" } },
+      ];
+      // Prisma JSON contains search (PostgreSQL)
+      OR.push({ metadata: { contains: term, mode: "insensitive" } });
+      where.OR = OR;
     }
 
     const [logs, total] = await Promise.all([
-      db.auditLog.findMany({ where, orderBy: { createdAt: "desc" }, take: limit, skip: offset }),
+      db.auditLog.findMany({
+        where,
+        orderBy: { [sortField]: sortDirection },
+        take: limit,
+        skip: offset,
+      }),
       db.auditLog.count({ where }),
     ]);
 
     res.json({
       success: true,
-      data: { logs, total },
+      data: {
+        logs: logs.map((l) => ({
+          id: l.id,
+          action: l.action,
+          adminEmail: l.adminEmail,
+          entityType: l.entityType,
+          entityId: l.entityId,
+          metadata: l.metadata,
+          ipAddress: l.ipAddress,
+          userAgent: l.userAgent,
+          createdAt: l.createdAt,
+        })),
+        total,
+        limit,
+        offset,
+      },
     });
   } catch (error: any) {
     logger.error("Audit log explorer error:", error);
