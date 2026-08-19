@@ -787,6 +787,10 @@ export class AuthorshipCertificateGenerator {
     ];
 
     try {
+      logger.info("Puppeteer configuration", {
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+        defaultExecutablePath: puppeteer.executablePath()
+      });
       // 1. Try default bundled path or ENV
       return await puppeteer.launch({
         headless: true,

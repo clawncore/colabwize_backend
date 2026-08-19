@@ -1,5 +1,6 @@
 import express, { Router } from "express";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import os from "os";
@@ -7,6 +8,7 @@ import os from "os";
 const router: Router = express.Router();
 
 router.use(isPlatformAdmin);
+router.use(adminOperationRateLimiter);
 
 // ==========================================
 // EMAIL SYSTEM STATS

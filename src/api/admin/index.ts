@@ -1,5 +1,6 @@
-﻿import express, { Router } from "express";
+import express, { Router } from "express";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { sendEmail } from "../../services/email/baseMailer";
 import { SENDER_IDENTITIES, EmailSender } from "../../services/email/emailConfig";
 import { wrapInPremiumLayout } from "../../services/email/emailLayout";
@@ -56,6 +57,7 @@ router.get("/presence/online", async (req, res) => {
 
 // Base middleware for all admin routes
 router.use(isPlatformAdmin);
+router.use(adminOperationRateLimiter);
 
 /**
  * @route   POST /api/admin/email/send
@@ -1092,7 +1094,7 @@ router.get("/dashboard/metrics", async (req, res) => {
 
     // Online users (real-time presence)
     const activeUsersNow = await prisma.user.count({
-      where: { online_status: true },
+      where: { online_status: "online" },
     });
 
     // Academic platform metrics
@@ -1108,12 +1110,12 @@ router.get("/dashboard/metrics", async (req, res) => {
       where: { status: "open" },
     });
 
-    // Revenue (MRR from active subscriptions)
-    const revenueData = await prisma.subscription.aggregate({
-      _sum: { amount_cents: true },
-      where: { status: "active" },
+    // Revenue (MRR from active subscriptions approximated by 30 day payment history)
+    const revenueData = await prisma.paymentHistory.aggregate({
+      _sum: { amount: true },
+      where: { created_at: { gte: thirtyDaysAgo }, status: "paid" },
     });
-    const mrr = (revenueData._sum.amount_cents ?? 0) / 100;
+    const mrr = (revenueData._sum.amount ?? 0) / 100;
 
     res.json({
       success: true,
@@ -1318,6 +1320,27 @@ router.get("/blogs", async (req, res) => {
   }
 });
 
+// Build a URL-safe slug from a title, then ensure it is unique against
+// existing blog posts (slug is a UNIQUE column).
+const makeUniqueSlug = async (title: string, excludeId?: string): Promise<string> => {
+  const base = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "untitled-post";
+  let slug = base;
+  let n = 2;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const existing = await prisma.blogPost.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    if (!existing || existing.id === excludeId) return slug;
+    slug = `${base}-${n++}`;
+  }
+};
+
 /**
  * @route   POST /api/admin/blogs
  * @desc    Create a new blog post
@@ -1331,7 +1354,8 @@ router.post("/blogs", async (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const slug = title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
+    const slug = await makeUniqueSlug(title);
+    const publishedNow = is_published ? new Date() : null;
 
     const blog = await prisma.blogPost.create({
       data: {
@@ -1343,6 +1367,7 @@ router.post("/blogs", async (req, res) => {
         category,
         image,
         is_published: is_published || false,
+        published_at: publishedNow,
         author_id: (req as any).adminUser?.userId || (req as any).user?.id
       }
     });
@@ -1374,7 +1399,18 @@ router.patch("/blogs/:id", async (req, res) => {
     const updateData = req.body;
 
     if (updateData.title) {
-      updateData.slug = updateData.title.toLowerCase().replace(/ /g, "-").replace(/[^\w-]+/g, "");
+      updateData.slug = await makeUniqueSlug(updateData.title, id);
+    }
+
+    // First-time publish stamps published_at so the public feed sorts correctly.
+    if (updateData.is_published === true) {
+      const existing = await prisma.blogPost.findUnique({
+        where: { id },
+        select: { published_at: true },
+      });
+      if (existing && !existing.published_at) {
+        updateData.published_at = new Date();
+      }
     }
 
     const blog = await prisma.blogPost.update({

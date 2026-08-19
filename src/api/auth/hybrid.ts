@@ -2,6 +2,7 @@ import express from "express";
 import { HybridAuthService } from "../../services/hybridAuthService";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { TwoFactorService } from "../../services/TwoFactorService";
+import { prisma } from "../../lib/prisma";
 
 const router = express.Router();
 
@@ -11,6 +12,15 @@ const router = express.Router();
  */
 router.post("/signup", async (req, res) => {
   try {
+    // Check if registration is open
+    const regConfig = await prisma.systemConfig.findUnique({ where: { key: "registration_open" } });
+    if (regConfig && (regConfig.value as { enabled?: boolean })?.enabled === false) {
+      return res.status(403).json({
+        success: false,
+        error: "Registrations are temporarily closed. Please contact support for an invitation.",
+      });
+    }
+
     const { email, password, ...userData } = req.body;
 
     if (!email || !password) {

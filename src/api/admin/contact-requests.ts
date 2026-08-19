@@ -1,7 +1,12 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
+import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 
 const router = Router();
+
+router.use(isPlatformAdmin);
+router.use(adminOperationRateLimiter);
 
 // GET /api/admin/contact-requests - List all contact requests with filters
 router.get("/", async (req: Request, res: Response) => {

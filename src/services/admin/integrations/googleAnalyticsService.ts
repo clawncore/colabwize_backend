@@ -127,6 +127,30 @@ class GoogleAnalyticsService {
   public async getEvents() {
     return this.runReport(['eventName'], ['eventCount', 'activeUsers']);
   }
+
+  /**
+   * Fetch per-page-path screen views. Returns the raw rows keyed by pagePath.
+   * Defensive: returns [] when GA4 is not configured so callers never 500.
+   */
+  public async getPageViewsByPath(days = 30): Promise<{ pagePath: string; views: number }[]> {
+    try {
+      const response = await this.runReport(
+        ['pagePath'],
+        ['screenPageViews'],
+        [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+      );
+      const rows = response?.rows || [];
+      return rows
+        .map((r: any) => ({
+          pagePath: r.dimensionValues?.[0]?.value || '',
+          views: Number(r.metricValues?.[0]?.value) || 0,
+        }))
+        .filter((r: { pagePath: string }) => r.pagePath);
+    } catch (err: any) {
+      logger.warn(`[GA4] getPageViewsByPath failed (returning empty): ${err.message}`);
+      return [];
+    }
+  }
 }
 
 export const gaService = new GoogleAnalyticsService();

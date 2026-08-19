@@ -69,7 +69,7 @@ export class ContactService {
           message_text: `Name: ${data.name}\nTicket: ${ticketNumber}\n\n${data.message}`,
           message_html: `<p><strong>Name:</strong> ${data.name}</p><p><strong>Ticket:</strong> ${ticketNumber}</p><hr><p>${data.message.replace(/\n/g, "<br>")}</p>`,
           thread_id: threadId,
-          source_alias: "contact-form",
+          source_alias: null,
           imap_uid: imapUid,
           status: "open",
           folder: "Support",

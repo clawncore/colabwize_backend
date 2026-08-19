@@ -18,6 +18,17 @@ router.use("/mendeley", mendeleyRouter);
 router.use("/google", googleDriveRouter);
 router.use("/onedrive", onedriveRouter);
 
+// Public: check if registration is currently open (used by signup page)
+router.get("/registration-status", async (_req, res) => {
+  try {
+    const cfg = await prisma.systemConfig.findUnique({ where: { key: "registration_open" } });
+    const open = cfg ? (cfg.value as { enabled?: boolean })?.enabled !== false : true;
+    res.json({ success: true, data: { open } });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Removed legacy routes (register, verify-otp, resend-otp, login)
 // as we have migrated to Supabase Hybrid Auth.
 
