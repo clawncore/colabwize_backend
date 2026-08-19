@@ -1,22 +1,7 @@
-<<<<<<< HEAD
 node_modules
 
 # Environment Variables
-=======
-node_modules
-
-# Environment Variables
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 .env
-<<<<<<< HEAD
-# Local binaries and logs
-/bin/
-/logs/
-<<<<<<< HEAD
-=======
-dist/
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
-=======
 .env.*
 
 # Local binaries and archives
@@ -40,4 +25,3 @@ build/
 !package.json
 !.swcrc
 !tsconfig.json
->>>>>>> 266af09d3027cf79df761f1016140c0bca17a1f9

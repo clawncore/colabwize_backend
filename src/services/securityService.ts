@@ -23,11 +23,7 @@ export class SecurityService {
       const currentIp = formatIpAddress(xForwardedFor || null, directIp);
 
       const sessions = await Promise.all(
-<<<<<<< HEAD
-        userSessions.map(async (session) => {
-=======
         userSessions.map(async (session: any) => {
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
           const browserInfo = detectBrowser(session.device_info || "");
           const deviceInfo = detectDeviceType(session.device_info || "");
 
@@ -66,11 +62,7 @@ export class SecurityService {
       });
 
       const sessions = await Promise.all(
-<<<<<<< HEAD
-        userSessions.map(async (session) => {
-=======
         userSessions.map(async (session: any) => {
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
           const browserInfo = detectBrowser(session.device_info || "");
           const deviceInfo = detectDeviceType(session.device_info || "");
 
@@ -191,11 +183,7 @@ export class SecurityService {
         skip: offset,
       });
 
-<<<<<<< HEAD
-      const formattedHistory = loginHistory.map((login) => ({
-=======
       const formattedHistory = loginHistory.map((login: any) => ({
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
         id: login.id,
         date: login.created_at,
         device: getDeviceLabel(login.device_info || ""),

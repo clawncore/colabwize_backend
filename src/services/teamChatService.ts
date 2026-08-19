@@ -149,31 +149,18 @@ export class CommentService {
         for (const mentionedUser of mentionedUsers) {
           if (mentionedUser.id !== userId) {
             try {
-<<<<<<< HEAD
-              await createNotification({
-                user_id: mentionedUser.id,
-                type: "mention",
-                title: "You were mentioned in a comment",
-                message: content.substring(0, 150),
-                metadata: {
-=======
               await createNotification(
                 mentionedUser.id,
                 "mention",
                 "You were mentioned in a comment",
                 content.substring(0, 150),
                 {
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
                   commentId: message.id,
                   projectId: filter.projectId,
                   workspaceId: filter.workspaceId,
                   mentionedBy: userId,
                 },
-<<<<<<< HEAD
-              });
-=======
               );
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
             } catch (notifError: any) {
               logger.error("Failed to create mention notification", {
                 error: notifError.message,
@@ -191,32 +178,19 @@ export class CommentService {
 
         if (parentMessage && parentMessage.user_id !== userId) {
           try {
-<<<<<<< HEAD
-            await createNotification({
-              user_id: parentMessage.user_id,
-              type: "comment",
-              title: "New reply to your comment",
-              message: content.substring(0, 150),
-              metadata: {
-=======
             await createNotification(
               parentMessage.user_id,
               "comment",
               "New reply to your comment",
               content.substring(0, 150),
               {
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
                 commentId: message.id,
                 parentId: filter.parentId,
                 projectId: filter.projectId,
                 workspaceId: filter.workspaceId,
                 repliedBy: userId,
               },
-<<<<<<< HEAD
-            });
-=======
             );
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
           } catch (notifError: any) {
             logger.error("Failed to create reply notification", {
               error: notifError.message,
@@ -427,9 +401,6 @@ export class CommentService {
     }
     return mentions;
   }
-<<<<<<< HEAD
-}
-=======
 
   /**
    * Update a user's presence status in the database.
@@ -572,4 +543,3 @@ export class CommentService {
 
 // Backward-compatible alias used by older imports
 export { CommentService as TeamChatService };
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b

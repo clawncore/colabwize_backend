@@ -1,20 +1,13 @@
 import { AuditJob, AuditContext, AuditPipelineStage } from "../types";
-<<<<<<< HEAD
-import { CitationRoleClassifier } from "../../services/citationRoleClassifier";
-=======
 import { CitationRoleClassifier, CitationRole, ClassifiedCitation } from "../../services/citationRoleClassifier";
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 
 interface CitationRoleEntry {
   citationText: string;
   role: CitationRole;
   confidence: number;
   matchedPattern?: string;
-<<<<<<< HEAD
-=======
   // Keep text field so we can pass directly to ClassifiedCitation helpers
   text?: string;
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 }
 
 /**
@@ -53,11 +46,6 @@ export const CitationRoleStage: AuditPipelineStage = {
       });
     }
 
-<<<<<<< HEAD
-    const roleSummary = CitationRoleClassifier.summarize(
-      classifiedEntries.map((e) => ({ text: e.citationText, context: e.citationText }))
-    );
-=======
     // Build ClassifiedCitation[] required by summarize()
     const classifiedForSummary: ClassifiedCitation[] = classifiedEntries.map((e) => ({
       text: e.citationText,
@@ -66,7 +54,6 @@ export const CitationRoleStage: AuditPipelineStage = {
       matchedPattern: e.matchedPattern,
     }));
     const roleSummary = CitationRoleClassifier.summarize(classifiedForSummary);
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 
     (job.report as any).citationRoles = classifiedEntries;
     (job.report as any).roleSummary = roleSummary;

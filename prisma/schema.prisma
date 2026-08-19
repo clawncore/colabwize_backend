@@ -1160,57 +1160,6 @@ model AuthorshipAnomaly {
   anomaly_type String
   severity    String
   score       Float
-<<<<<<< HEAD
-  message     String
-  metadata    Json?
-  detected_at DateTime @default(now())
-  created_at  DateTime @default(now())
-
-  project Project? @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  user    User?    @relation(fields: [user_id], references: [id], onDelete: SetNull)
-  evidence AuthorshipEvidence? @relation(fields: [evidence_id], references: [id], onDelete: SetNull)
-
-  @@index([project_id])
-  @@index([user_id])
-  @@index([evidence_id])
-  @@index([severity])
-  @@index([detected_at])
-  @@map("authorship_anomalies")
-}
-
-model AuthorshipConfidenceReport {
-  id                       String   @id @default(uuid())
-  project_id               String
-  user_id                  String
-  certificate_id           String?
-  report_json              Json
-  attribution_confidence   Float    @default(0)
-  contribution_confidence  Float    @default(0)
-  collaboration_clarity    Float    @default(0)
-  evidence_completeness    Float    @default(0)
-  ai_transparency          Float    @default(0)
-  anomaly_risk             Float    @default(0)
-  overall_reliability      String   @default("Insufficient")
-  generated_at             DateTime @default(now())
-  created_at               DateTime @default(now())
-
-  project Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@index([project_id])
-  @@index([user_id])
-  @@index([certificate_id])
-  @@index([generated_at])
-  @@map("authorship_confidence_reports")
-}
-
-model ContactRequest {
-  id          String    @id @default(uuid())
-  name        String
-  email       String
-  subject     String
-=======
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
   message     String
   metadata    Json?
   detected_at DateTime @default(now())
@@ -2138,8 +2087,6 @@ model ExportJob {
   @@index([status])
   @@index([docVersionId])
 }
-<<<<<<< HEAD
-=======
 
 model AuditLog {
   id         String   @id @default(cuid())
@@ -2445,4 +2392,3 @@ model ExportAuditLog {
   @@index([createdAt])
   @@map("export_audit_logs")
 }
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b

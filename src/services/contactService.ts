@@ -1,16 +1,10 @@
-<<<<<<< HEAD
-import { EmailService } from "./emailService";
-=======
 import { sendEmail } from "./email/baseMailer";
 import { buildEmailHtml } from "./email/emailLayout";
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 import { prisma } from "../lib/prisma";
 
 import { SecretsService } from "./secrets-service";
 
 export class ContactService {
-<<<<<<< HEAD
-=======
   // Generate ticket number: CW-YYYY-XXXX (e.g. CW-2026-0001)
   private static async generateTicketNumber(): Promise<string> {
     const year = new Date().getFullYear();
@@ -27,7 +21,6 @@ export class ContactService {
     return `${prefix}${seq}`;
   }
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
   // Handle contact form submission
   static async handleContactSubmission(data: {
     name: string;
@@ -49,11 +42,6 @@ export class ContactService {
         throw new Error("Invalid email format");
       }
 
-<<<<<<< HEAD
-      // Store the contact request in the database
-      const contactRequest = await prisma.contactRequest.create({
-        data: {
-=======
       // Generate ticket number
       const ticketNumber = await this.generateTicketNumber();
 
@@ -61,7 +49,6 @@ export class ContactService {
       const contactRequest = await prisma.contactRequest.create({
         data: {
           ticket_number: ticketNumber,
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
           name: data.name,
           email: data.email,
           subject: data.subject,
@@ -72,8 +59,6 @@ export class ContactService {
         },
       });
 
-<<<<<<< HEAD
-=======
       // Also insert into support_messages so it appears in the admin inbox
       const threadId = `contact-${ticketNumber}`;
       const imapUid = Math.floor(Date.now() / 1000);
@@ -91,7 +76,6 @@ export class ContactService {
         },
       });
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
       // Send notification email to admin team (if email service is configured)
       const adminEmail = await SecretsService.getContactAdminEmail();
       try {
@@ -104,11 +88,6 @@ export class ContactService {
         // Continue with the process even if email fails
       }
 
-<<<<<<< HEAD
-      // Send confirmation email to the user (if email service is configured)
-      try {
-        await this.sendUserConfirmation(data);
-=======
       // Send email to admin so they receive the message in their inbox
       try {
         await this.sendAdminEmail({ ...data, ticketNumber });
@@ -122,7 +101,6 @@ export class ContactService {
       // Send confirmation email to the user (if email service is configured)
       try {
         await this.sendUserConfirmation({ ...data, ticketNumber });
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
       } catch (emailError) {
         console.warn(
           "Warning: Failed to send user confirmation email:",
@@ -135,10 +113,7 @@ export class ContactService {
         success: true,
         message:
           "Your message has been sent successfully. We'll get back to you soon.",
-<<<<<<< HEAD
-=======
         ticketNumber,
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
         contactRequestId: contactRequest.id,
       };
     } catch (error) {
@@ -300,47 +275,6 @@ export class ContactService {
     email: string;
     subject: string;
     message: string;
-<<<<<<< HEAD
-  }): Promise<boolean> {
-    try {
-      const subjectLine = "We've Received Your Message - ColabWize";
-
-      const htmlBody = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #3B82F6;">Thanks for Reaching Out!</h2>
-          
-          <p>Hello ${data.name},</p>
-          
-          <p>We've received your message and appreciate you taking the time to contact us. Our team will review your inquiry and get back to you within 24 hours.</p>
-          
-          <div style="background-color: #f1f5f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <h3 style="margin-top: 0; color: #1e293b;">Your Message Summary</h3>
-            <p><strong>Subject:</strong> ${data.subject}</p>
-            <p><strong>Message:</strong></p>
-            <p style="white-space: pre-wrap; line-height: 1.5;">${data.message}</p>
-          </div>
-
-          <p>In the meantime, you might find answers to common questions in our <a href="https://app.colabwize.com/resources/help-center" style="color: #3B82F6;">Help Center</a>.</p>
-          
-          <p>Best regards,<br/>
-          The ColabWize Team</p>
-          
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;">
-          
-          <p style="font-size: 12px; color: #64748b;">
-            This is an automated confirmation. Please do not reply to this email. If you need immediate assistance, contact us at hello@colabwize.com.
-          </p>
-        </div>
-      `;
-
-      return EmailService.sendNotificationEmail(
-        data.email,
-        data.name,
-        subjectLine,
-        htmlBody,
-        "contact"
-      );
-=======
     ticketNumber: string;
   }): Promise<boolean> {
     try {
@@ -383,15 +317,12 @@ export class ContactService {
       });
 
       return success;
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
     } catch (error) {
       console.error("Error sending user confirmation:", error);
       return false;
     }
   }
 
-<<<<<<< HEAD
-=======
   // Send admin email so the team receives the contact form in their inbox
   private static async sendAdminEmail(data: {
     name: string;
@@ -456,7 +387,6 @@ export class ContactService {
     }
   }
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
   // Get contact requests (for admin panel)
   static async getContactRequests(status?: string, limit: number = 50) {
     try {

@@ -8,27 +8,6 @@ import { initializePrisma } from "../../lib/prisma-async";
 /**
  * Categorize email based on keywords in subject or body
  */
-<<<<<<< HEAD
-function categorizeEmail(subject: string, body: string): { folder: string; priority: string } {
-  const content = (subject + " " + body).toLowerCase();
-
-  if (/billing|invoice|payment|subscription|refund|charge|receipt|premium|plan/i.test(content)) {
-    return { folder: "Billing", priority: "high" };
-  }
-
-  if (/security|password|login|auth|hacked|verify|2fa|suspicious|unauthorized|breach/i.test(content)) {
-    return { folder: "Security", priority: "high" };
-  }
-
-  if (/contact|hello|inquiry|question|help|request/i.test(content)) {
-    return { folder: "Contact", priority: "medium" };
-  }
-
-  if (/system|update|maintenance|feature|feedback|platform|error|bug/i.test(content)) {
-    return { folder: "Platform", priority: "medium" };
-  }
-
-=======
 function categorizeEmail(subject: string, body: string, senderEmail: string): { folder: string; priority: string } {
   const sub = subject.toLowerCase();
   const content = (subject + " " + body).toLowerCase();
@@ -76,7 +55,6 @@ function categorizeEmail(subject: string, body: string, senderEmail: string): { 
   }
 
   // Default — Support (most emails should land here)
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
   return { folder: "Support", priority: "medium" };
 }
 
@@ -145,11 +123,7 @@ export async function processIncomingSupportEmails() {
         const text = parsed.text || "";
 
         const sanitizedHtml = DOMPurify.sanitize(html as string);
-<<<<<<< HEAD
-        const { folder, priority } = categorizeEmail(subject, text);
-=======
         const { folder, priority } = categorizeEmail(subject, text, senderEmail);
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 
         let threadId = (globalThis as any).crypto?.randomUUID?.() || Math.random().toString(36).substring(7);
         const cleanSubject = subject.replace(/^Re:\s+/i, "").trim();
@@ -203,8 +177,6 @@ export async function processIncomingSupportEmails() {
     });
   }
 }
-<<<<<<< HEAD
-=======
 
 /**
  * One-time recategorization of existing support messages using updated categorizeEmail logic.
@@ -229,4 +201,3 @@ export async function recategorizeExistingMessages() {
   logger.info(`[InboxFetcher] Recategorized ${updated}/${messages.length} messages.`);
   return { total: messages.length, updated };
 }
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b

@@ -4,14 +4,6 @@ import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { sendEmail } from "../../services/email/baseMailer";
 import { SENDER_IDENTITIES, EmailSender } from "../../services/email/emailConfig";
 import { wrapInPremiumLayout } from "../../services/email/emailLayout";
-<<<<<<< HEAD
-import { prisma } from "../../lib/prisma";
-import logger from "../../monitoring/logger";
-import { processBroadcast } from "../../services/admin/broadcastService";
-
-const router: Router = express.Router();
-
-=======
 import { buildEmailAssistantPrompt } from "../../knowledge";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
@@ -28,14 +20,11 @@ const router: Router = express.Router();
 // Mount revenue router
 router.use("/revenue", revenueRouter);
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 // Diagnostic route
 router.get("/health", (req, res) => {
   res.json({ status: "active", router: "admin" });
 });
 
-<<<<<<< HEAD
-=======
 /**
  * @route   GET /api/admin/presence/stats
  * @desc    Get real-time user presence statistics
@@ -66,7 +55,6 @@ router.get("/presence/online", async (req, res) => {
   }
 });
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 // Base middleware for all admin routes
 router.use(isPlatformAdmin);
 router.use(adminOperationRateLimiter);
@@ -101,23 +89,6 @@ router.post("/email/send", async (req, res) => {
       text: fallbackText
     });
 
-<<<<<<< HEAD
-    // Audit Log Entry — store the real "from" address and the message body so
-    // the admin Sentbox can show what was sent and from which address.
-    await prisma.emailLog.create({
-      data: {
-        recipient: to,
-        sender: senderAlias,
-        from_address: SENDER_IDENTITIES[senderAlias as EmailSender],
-        subject,
-        status: result.success ? "sent" : "failed",
-        error: result.success ? null : (result.error || "Unknown error"),
-        message_body: message,
-      }
-    });
-
-    if (result.success) {
-=======
     // Email is automatically logged by baseMailer.sendEmail()
 
     if (result.success) {
@@ -128,7 +99,6 @@ router.post("/email/send", async (req, res) => {
         metadata: { to, senderAlias, subject },
         ...extractAuditContext(req),
       });
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
       return res.json({ success: true, message: "Email sent successfully", id: result.data?.id });
     } else {
       return res.status(500).json({ success: false, error: result.error || "Failed to send email" });
@@ -140,8 +110,6 @@ router.post("/email/send", async (req, res) => {
 });
 
 /**
-<<<<<<< HEAD
-=======
  * @route   POST /api/admin/email/generate
  * @desc    Generate email content using AI (supports multi-turn chat)
  * @access  Admin Only
@@ -409,7 +377,6 @@ Message: ${contactRequest.message}${attachmentInfo}
 });
 
 /**
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
  * @route   POST /api/admin/email/broadcast
  * @desc    Send a broadcast email to multiple users
  * @access  Admin Only
@@ -437,8 +404,6 @@ router.post("/email/broadcast", async (req, res) => {
       fromAddress,
     }).catch(err => logger.error("Background Broadcast Error:", err));
 
-<<<<<<< HEAD
-=======
     await createAuditLog({
       action: "EMAIL_BROADCAST",
       adminEmail: getAdminEmail(req),
@@ -447,7 +412,6 @@ router.post("/email/broadcast", async (req, res) => {
       ...extractAuditContext(req),
     });
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
     res.status(202).json({
       success: true,
       message: `Broadcast of ${userIds.length} emails has been initiated in the background.`
@@ -459,8 +423,6 @@ router.post("/email/broadcast", async (req, res) => {
 });
 
 /**
-<<<<<<< HEAD
-=======
  * @route   GET /api/admin/inbox/sent
  * @desc    Fetch sent messages from email_logs (replies sent from inbox)
  * @access  Admin Only
@@ -506,7 +468,6 @@ router.get("/inbox/sent", async (req, res) => {
 });
 
 /**
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
  * @route   GET /api/admin/inbox
  * @desc    Fetch grouped support inbox threads
  * @access  Admin Only
@@ -562,12 +523,8 @@ router.get("/inbox/:threadId", async (req, res) => {
 
     const messages = await prisma.supportMessage.findMany({
       where: { thread_id: threadId },
-<<<<<<< HEAD
-      orderBy: { received_at: "asc" }
-=======
       orderBy: { received_at: "asc" },
       take: 100, // Limit messages per thread
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
     });
 
     res.json({ success: true, messages });
@@ -617,8 +574,6 @@ router.post("/inbox/reply", async (req, res) => {
           imap_uid: Math.floor(Math.random() * 1000000000) // Dummy UID for locally generated outbound msg
         }
       });
-<<<<<<< HEAD
-=======
       await createAuditLog({
         action: "INBOX_REPLY_SENT",
         adminEmail: getAdminEmail(req),
@@ -626,7 +581,6 @@ router.post("/inbox/reply", async (req, res) => {
         metadata: { threadId, to, subject },
         ...extractAuditContext(req),
       });
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
       return res.json({ success: true });
     } else {
       return res.status(500).json({ success: false, error: result.error || "Failed to send reply" });
@@ -656,8 +610,6 @@ router.patch("/inbox/:threadId/status", async (req, res) => {
       data: { status }
     });
 
-<<<<<<< HEAD
-=======
     await createAuditLog({
       action: "THREAD_STATUS_CHANGED",
       adminEmail: getAdminEmail(req),
@@ -667,7 +619,6 @@ router.patch("/inbox/:threadId/status", async (req, res) => {
       ...extractAuditContext(req),
     });
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Admin Thread Status Error:", error);
@@ -748,29 +699,6 @@ router.get("/email/logs", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 100;
     const offset = parseInt(req.query.offset as string) || 0;
-<<<<<<< HEAD
-
-    const logs = await prisma.emailLog.findMany({
-      take: limit,
-      skip: offset,
-      orderBy: { sent_at: "desc" },
-      select: {
-        id: true,
-        recipient: true,
-        sender: true,
-        from_address: true,
-        subject: true,
-        status: true,
-        sent_at: true,
-        error: true,
-        message_body: true,
-      }
-    });
-
-    const total = await prisma.emailLog.count();
-
-    res.json({ success: true, logs, total });
-=======
     const senderFilter = req.query.sender as string | undefined;
     const recipientFilter = req.query.recipient as string | undefined;
 
@@ -813,7 +741,6 @@ router.get("/email/logs", async (req, res) => {
     }));
 
     res.json({ success: true, logs, total, tabs });
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
   } catch (error: any) {
     logger.error("Admin Log Fetch Error:", error);
     res.status(500).json({ success: false, error: "Internal server error" });
@@ -821,8 +748,6 @@ router.get("/email/logs", async (req, res) => {
 });
 
 /**
-<<<<<<< HEAD
-=======
  * @route   GET /api/admin/email/analytics
  * @desc    Comprehensive email analytics — totals, per-sender breakdown,
  *          delivery rate, recent daily volume, top recipients.
@@ -978,7 +903,6 @@ router.get("/email/analytics", async (req, res) => {
 });
 
 /**
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
  * @route   GET /api/admin/analytics
  * @desc    Fetch platform and email analytics
  * @access  Admin Only
@@ -1040,8 +964,6 @@ router.get("/analytics", async (req, res) => {
 });
 
 /**
-<<<<<<< HEAD
-=======
  * @route   GET /api/admin/marketing/metrics
  * @desc    Get comprehensive marketing metrics for academic writing platform
  * @access  Admin Only
@@ -1218,7 +1140,6 @@ router.get("/dashboard/metrics", async (req, res) => {
 });
 
 /**
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
  * @route   GET /api/admin/users
  * @desc    Fetch application user list for the admin interface
  * @access  Admin Only
@@ -1290,13 +1211,10 @@ router.get("/users", async (req, res) => {
         email: true,
         full_name: true,
         created_at: true,
-<<<<<<< HEAD
-=======
         last_seen_at: true,
         online_status: true,
         email_verified: true,
         updated_at: true,
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
         subscription: {
           select: { plan: true, status: true }
         }
@@ -1315,8 +1233,6 @@ router.get("/users", async (req, res) => {
 });
 
 /**
-<<<<<<< HEAD
-=======
  * @route   GET /api/admin/users/:email/activity
  * @desc    Fetch all email logs sent to a user + support messages from them
  * @access  Admin Only
@@ -1386,20 +1302,15 @@ router.get("/users/:email/activity", async (req, res) => {
 });
 
 /**
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
  * @route   GET /api/admin/blogs
  * @desc    Fetch all blog posts
  * @access  Admin Only
  */
 router.get("/blogs", async (req, res) => {
   try {
-<<<<<<< HEAD
-    const blogs = await prisma.blogPost.findMany({
-=======
     const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
     const blogs = await prisma.blogPost.findMany({
       take: limit,
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
       orderBy: { created_at: "desc" }
     });
     res.json({ success: true, blogs });
@@ -1456,16 +1367,7 @@ router.post("/blogs", async (req, res) => {
         category,
         image,
         is_published: is_published || false,
-<<<<<<< HEAD
-<<<<<<< HEAD
-        author_id: (req as any).user?.id // Assuming user ID is attached by middleware
-      }
-    });
-
-=======
-=======
         published_at: publishedNow,
->>>>>>> 266af09d3027cf79df761f1016140c0bca17a1f9
         author_id: (req as any).adminUser?.userId || (req as any).user?.id
       }
     });
@@ -1479,7 +1381,6 @@ router.post("/blogs", async (req, res) => {
       ...extractAuditContext(req),
     });
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
     res.json({ success: true, blog });
   } catch (error: any) {
     logger.error("Admin Blog Create Error:", error);
@@ -1517,8 +1418,6 @@ router.patch("/blogs/:id", async (req, res) => {
       data: updateData
     });
 
-<<<<<<< HEAD
-=======
     await createAuditLog({
       action: "BLOG_UPDATED",
       adminEmail: getAdminEmail(req),
@@ -1528,7 +1427,6 @@ router.patch("/blogs/:id", async (req, res) => {
       ...extractAuditContext(req),
     });
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
     res.json({ success: true, blog });
   } catch (error: any) {
     logger.error("Admin Blog Update Error:", error);
@@ -1549,8 +1447,6 @@ router.delete("/blogs/:id", async (req, res) => {
       where: { id }
     });
 
-<<<<<<< HEAD
-=======
     await createAuditLog({
       action: "BLOG_DELETED",
       adminEmail: getAdminEmail(req),
@@ -1559,7 +1455,6 @@ router.delete("/blogs/:id", async (req, res) => {
       ...extractAuditContext(req),
     });
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Admin Blog Delete Error:", error);
@@ -1567,12 +1462,9 @@ router.delete("/blogs/:id", async (req, res) => {
   }
 });
 
-<<<<<<< HEAD
-=======
 // Google Analytics 4 & Third-party Integrations
 // integrationsRouter must come first so GA4 routes are matched before analyticsRouter
 router.use("/analytics", integrationsRouter);
 router.use("/analytics", analyticsRouter);
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 export default router;

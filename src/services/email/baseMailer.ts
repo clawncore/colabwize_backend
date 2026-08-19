@@ -1,8 +1,6 @@
 import logger from "../../monitoring/logger";
 import { getResendClient } from "./resendClient";
 import { SENDER_IDENTITIES, REPLY_TO, EmailOptions } from "./emailConfig";
-<<<<<<< HEAD
-=======
 import { prisma } from "../../lib/prisma";
 
 /**
@@ -24,15 +22,11 @@ function maskSensitiveContent(html: string): string {
     // Email addresses in body (keep first 2 chars + domain)
     .replace(/([a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]*@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, (_, first, domain) => `${first}***@${domain}`);
 }
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
 
 /**
  * Base function to send an email using Resend with retry logic.
  * Centralizes common parameters like reply_to and handles errors.
-<<<<<<< HEAD
-=======
  * Automatically logs every email to EmailLog for admin audit.
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
  */
 export async function sendEmail({
   from,
@@ -84,14 +78,10 @@ export async function sendEmail({
           await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
           continue;
         }
-<<<<<<< HEAD
-        
-=======
 
         // Log failed email
         logEmailToDatabase(to, from, subject, html, "failed", (error as any)?.message || "Max retries exceeded");
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
         return { success: false, error };
       }
 
@@ -101,12 +91,9 @@ export async function sendEmail({
         subject,
       });
 
-<<<<<<< HEAD
-=======
       // Log successful email
       logEmailToDatabase(to, from, subject, html, "sent");
 
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
       return { success: true, data };
     } catch (error) {
       lastError = error;
@@ -125,8 +112,6 @@ export async function sendEmail({
 
   return { success: false, error: lastError };
 }
-<<<<<<< HEAD
-=======
 
 /**
  * Non-blocking email log writer. Catches errors internally so a
@@ -155,4 +140,3 @@ function logEmailToDatabase(
     logger.warn("Failed to log email to database:", { error: err.message });
   });
 }
->>>>>>> 07fc7c4c7cf442949e68299453cab1f75a47316b
