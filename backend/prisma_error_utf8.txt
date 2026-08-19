@@ -1,0 +1,35 @@
+﻿node.exe : [2mLoaded Prisma config from 
+prisma.config.ts.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" 
+"C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ( 
+   [2mLoaded Pris...isma.config.ts.:String) [  
+  ], RemoteException
+    + FullyQualifiedErrorId : NativeCommandErr 
+   or
+ 
+[22m
+Prisma config detected, skipping environment 
+variable loading.
+
+[1m[31mError: [39m[22m[31m[1mPrisma 
+schema validation[22m[39m - (validate wasm)
+Error code: P1012
+[31m[1m[1;91merror[0m: [1mThe model 
+"SupportMessage" cannot be defined because a 
+model with that name already exists.[0m
+  [1;94m-->[0m  
+[4mprisma\schema.prisma:1518[0m
+[1;94m   | [0m
+[1;94m1517 | [0m
+[1;94m1518 | [0mmodel 
+[1;91mSupportMessage[0m {
+[1;94m   | [0m
+
+Validation Error Count: 1[22m[39m
+[Context: validate]
+
+Prisma CLI Version : 6.19.2

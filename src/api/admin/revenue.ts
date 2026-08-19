@@ -1,11 +1,13 @@
 import express, { Router } from "express";
 import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 
 const router: Router = express.Router();
 
 router.use(isPlatformAdmin);
+router.use(adminOperationRateLimiter);
 
 interface SubscriptionRow {
   id: string;

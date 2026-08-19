@@ -77,6 +77,10 @@ export class GrobidService {
         textLength: text.length,
       });
 
+      if (!text || text.trim().length === 0) {
+        logger.warn("[PDF-PARSE] Extracted text is empty", { fileName });
+      }
+
       const documentTitle = this.extractTitle(text, fileName);
       const documentAbstract = this.extractAbstract(text);
       const references = this.extractReferences(text);
@@ -98,7 +102,11 @@ export class GrobidService {
 
       return result;
     } catch (error: any) {
-      logger.warn("[PDF-PARSE] Failed to process PDF", { error: error.message });
+      logger.error("[PDF-PARSE] FAILED to process PDF", {
+        fileName,
+        error: error.message,
+        stack: error.stack
+      });
       return null;
     }
   }

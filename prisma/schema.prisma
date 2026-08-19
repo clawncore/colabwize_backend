@@ -1996,6 +1996,9 @@ model BlogPost {
   published_at DateTime?
   is_published Boolean  @default(false)
   author_id    String?
+  view_count   Int      @default(0)
+  read_count   Int      @default(0)
+  like_count   Int      @default(0)
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
 
@@ -2218,6 +2221,21 @@ model CmsPage {
   @@index([slug])
   @@index([status])
   @@map("cms_pages")
+}
+
+model ApiKeyVault {
+  id          String   @id @default(uuid())
+  service     String   @unique
+  label       String
+  envVarName  String   @map("env_var_name")
+  active      Boolean  @default(true)
+  environment String   @default("production")
+  updatedBy   String?  @map("updated_by")
+  created_at  DateTime @default(now()) @map("created_at")
+  updated_at  DateTime @updatedAt @map("updated_at")
+
+  @@index([service])
+  @@map("api_key_vault")
 }
 
 model WebhookEndpoint {

@@ -10,6 +10,7 @@ import fs from "fs";
 import cors from "cors";
 import helmet from "helmet";
 import logger from "../monitoring/logger";
+import { metricsMiddleware } from "../monitoring/metrics";
 import { authenticateExpressRequest } from "../middleware/auth";
 import { RecycleBinService } from "../services/recycleBinService";
 import { SecretsService } from "../services/secrets-service";
@@ -78,6 +79,12 @@ import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
 import adminRouter from "../api/admin/index";
 import observabilityRouter from "../api/admin/observability";
 import adminAuthRouter from "../api/admin/adminAuth";
+import adminMonitoringRouter from "../api/admin/monitoring";
+import adminOperationsRouter from "../api/admin/operations";
+import adminSystemHealthRouter from "../api/admin/system-health";
+import adminSecurityRouter from "../api/admin/security";
+import adminPlatformRouter from "../api/admin/platform";
+import adminRemoteRouter from "../api/admin/remote";
 import publicBlogsRouter from "../api/blogs/index";
 // Publishing Platform (Phase 3): export job system + router
 import {
@@ -260,6 +267,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// Metrics collection (latency / per-endpoint timings) — runs after the debug
+// instrumentation so both log and metrics see the same request lifecycle.
+app.use(metricsMiddleware);
+
 // Error handling middleware
 app.use(async (err: any, req: Request, res: Response, next: NextFunction) => {
   logger.error("Unhandled error", {
@@ -412,6 +423,12 @@ app.use("/api/analytics", authMiddleware, analyticsRouter);
 // Observability must mount before /api/admin because Express matches by prefix.
 app.use("/api/admin/auth", adminAuthRouter);
 app.use("/api/admin/observability", adminOperationRateLimiter, observabilityRouter);
+app.use("/api/admin/monitoring", adminOperationRateLimiter, adminMonitoringRouter);
+app.use("/api/admin/operations", adminOperationRateLimiter, adminOperationsRouter);
+app.use("/api/admin/system-health", adminOperationRateLimiter, adminSystemHealthRouter);
+app.use("/api/admin/security", adminOperationRateLimiter, adminSecurityRouter);
+app.use("/api/admin/platform", adminOperationRateLimiter, adminPlatformRouter);
+app.use("/api/admin/remote", adminOperationRateLimiter, adminRemoteRouter);
 app.use("/api/admin", adminOperationRateLimiter, adminRouter);
 app.use("/api/admin/contact-requests", adminOperationRateLimiter, adminContactRequestsRouter);
 
