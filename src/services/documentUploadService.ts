@@ -1,0 +1,638 @@
+import { prisma } from "../lib/prisma";
+import { Request } from "express";
+import fs from "fs/promises";
+// @ts-ignore
+import pdfParse from "pdf-parse";
+import mammoth from "mammoth";
+import { RecycleBinService } from "./recycleBinService";
+import logger from "../monitoring/logger";
+import { PdfConversionService } from "./pdfConversionService";
+import { WorkspaceActivityService } from "./workspaceActivityService";
+import { CitationMappingService } from "./citationMappingService";
+
+interface ExtendedRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+    full_name?: string;
+  };
+}
+
+export class DocumentUploadService {
+  /**
+   * Creates a project with an uploaded document
+   */
+  static async createProjectWithDocument(
+    userId: string,
+    title: string,
+    description: string,
+    file: Express.Multer.File,
+    workspaceId?: string,
+    linkedLibrary?: string | null,
+  ) {
+    // Extract text/html from the uploaded document
+    const { content: extractedContent, format } =
+      await this.extractTextFromDocument(file);
+
+    // Count words in the document
+    const wordCount = this.countWords(extractedContent);
+
+    // Parse citation structure from the document (or fall back to plain text wrapper)
+    let projectContent: any;
+    try {
+      const parsed = CitationMappingService.parseDocument(extractedContent, format);
+      // If parsing produced a structured document with content, use it
+      if (parsed && parsed.content && parsed.content.length > 0) {
+        projectContent = parsed;
+
+        // Persist bibliography entries to the citations table so the rest of the app can see them
+        const bibNodes = parsed.content.filter((n: any) => n.type === "bibliographyEntry");
+        if (bibNodes.length > 0) {
+          // We need the project ID first — create the project, then insert citations
+          // So we do this after project creation below (see post-create block)
+        }
+      } else {
+        projectContent = this.wrapPlainText(extractedContent);
+      }
+    } catch (mappingError: any) {
+      logger.warn("CitationMappingService failed, falling back to plain text:", {
+        error: mappingError.message,
+      });
+      projectContent = this.wrapPlainText(extractedContent);
+    }
+
+    // Create project record in the database
+    const project = await prisma.project.create({
+      data: {
+        user_id: userId,
+        title,
+        description,
+        content: projectContent,
+        word_count: wordCount,
+        file_path: file.path,
+        file_type: file.mimetype,
+        workspace_id: workspaceId || null,
+        linked_library: linkedLibrary || null,
+      },
+      include: {
+        originality_scans: true,
+        citations: true,
+      },
+    });
+
+    // Post-create: persist bibliography entries to citations table
+    try {
+      const bibNodes = projectContent?.content?.filter((n: any) => n.type === "bibliographyEntry") || [];
+      if (bibNodes.length > 0) {
+        const citationData = bibNodes.map((node: any) => {
+          const text = node.content?.[0]?.text || "";
+          const ieeeMatch = text.match(/^\[?(\d+)\]?[\.\s]/);
+          const yearMatch = text.match(/\((\d{4}[a-z]?)\)/) || text.match(/\b(19|20)\d{2}\b/);
+          return {
+            id: node.attrs.citationId,
+            project_id: project.id,
+            user_id: userId,
+            title: text.substring(0, 200),
+            raw_reference_text: text,
+            ieee_number: ieeeMatch ? parseInt(ieeeMatch[1], 10) : null,
+            year: yearMatch ? parseInt(yearMatch[1] || yearMatch[0]) : new Date().getFullYear(),
+            type: "journal-article",
+            source: "document_import",
+          };
+        });
+        await prisma.citation.createMany({
+          data: citationData,
+          skipDuplicates: true,
+        });
+        logger.info(`Imported ${citationData.length} bibliography entries for project ${project.id}`);
+      }
+    } catch (citeError: any) {
+      logger.warn("Failed to persist bibliography entries:", { error: citeError.message });
+      // Non-fatal: project is still created
+    }
+
+    // Log workspace activity and notify members if applicable
+    if (workspaceId) {
+      await WorkspaceActivityService.logActivity(
+        workspaceId,
+        userId,
+        "PROJECT_CREATED",
+        { title: project.title, projectId: project.id },
+      );
+
+      try {
+        const { createNotification } = require("./notificationService");
+        const workspaceMembers = await prisma.workspaceMember.findMany({
+          where: { workspace_id: workspaceId, user_id: { not: userId } },
+        });
+
+        for (const member of workspaceMembers) {
+          await createNotification(
+            member.user_id,
+            "document_shared",
+            "New Project Created",
+            `A new project "${title}" has been created in your workspace.`,
+            { workspaceId, documentId: project.id },
+          );
+        }
+      } catch (notifError) {
+        logger.error(
+          "Failed to send project creation notification:",
+          notifError,
+        );
+      }
+    }
+
+    return this.mapProjectWithProgress(project);
+  }
+
+  /**
+   * Gets all projects for a user
+   */
+  static async getUserProjects(
+    userId: string,
+    options?: {
+      personalOnly?: boolean;
+      workspaceId?: string;
+      fetchArchived?: boolean;
+    },
+  ) {
+    const where: any = {};
+
+    if (options?.personalOnly) {
+      where.user_id = userId;
+      where.workspace_id = null;
+    } else if (options?.workspaceId) {
+      where.workspace_id = options.workspaceId;
+    } else {
+      where.user_id = userId;
+    }
+
+    if (options && "fetchArchived" in options) {
+      if (options.fetchArchived) {
+        where.status = "archived";
+      } else {
+        where.status = { not: "archived" };
+      }
+    } else {
+      where.status = { not: "archived" };
+    }
+
+    const projects = await prisma.project.findMany({
+      where,
+      orderBy: {
+        created_at: "desc",
+      },
+      select: {
+        id: true,
+        user_id: true,
+        title: true,
+        description: true,
+        word_count: true,
+        file_path: true,
+        file_type: true,
+        linked_library: true,
+        created_at: true,
+        updated_at: true,
+        originality_scans: {
+          orderBy: {
+            created_at: "desc",
+          },
+          take: 1, // Get most recent scan
+        },
+        citations: {
+          take: 0, // Don't fetch citations list in dashboard
+        },
+      },
+    });
+
+    return projects.map((project: any) => this.mapProjectWithProgress(project));
+  }
+
+  /**
+   * Gets a specific project by ID for a user
+   * Allows access if the user owns the project OR is a member of the project's workspace OR is a direct collaborator.
+   */
+  static async getProjectById(projectId: string, userId: string) {
+    const project = await prisma.project.findFirst({
+      where: {
+        id: projectId,
+        OR: [
+          { user_id: userId },
+          { collaborators: { some: { user_id: userId } } },
+          {
+            workspace: {
+              members: { some: { user_id: userId } },
+            },
+          },
+        ],
+      },
+      include: {
+        workspace: {
+          include: {
+            members: true,
+          },
+        },
+        originality_scans: {
+          orderBy: {
+            created_at: "desc",
+          },
+        },
+        citations: true,
+      },
+    });
+
+    return this.mapProjectWithProgress(project);
+  }
+
+  /**
+   * DEBUG ONLY: Checks if a project exists by ID (ignoring user_id)
+   * Returns validation info
+   */
+  static async checkProjectExists(projectId: string) {
+    const project = await prisma.project.findUnique({
+      where: {
+        id: projectId,
+      },
+      select: {
+        id: true,
+        user_id: true,
+        title: true,
+      },
+    });
+    return project;
+  }
+
+  /**
+   * Updates a project
+   */
+  static async updateProject(
+    projectId: string,
+    userId: string,
+    title: string,
+    description: string,
+    content: any,
+    wordCount: number,
+    citationStyle?: string,
+    outline?: any,
+    updates?: any,
+  ) {
+    // Update project record
+    const updatedProject = await (prisma.project as any).update({
+      where: {
+        id: projectId,
+        user_id: userId,
+      },
+      data: {
+        title,
+        description,
+        content,
+        outline,
+        word_count: wordCount,
+        citation_style: citationStyle,
+        updated_at: new Date(),
+        ...updates,
+      },
+      include: {
+        originality_scans: true,
+        citations: true,
+      },
+    });
+
+    return this.mapProjectWithProgress(updatedProject);
+  }
+
+  /**
+   * Deletes a project
+   */
+  static async deleteProject(projectId: string, userId: string) {
+    // INFO: Check for existence first to provide better errors
+    const project = await this.checkProjectExists(projectId);
+
+    if (!project) {
+      throw new Error("Project ID not found in database");
+    }
+
+    // Delete access denied check
+    if (project.user_id !== userId) {
+      logger.warn(
+        `[DEBUG] Delete access denied. Owner: ${project.user_id}, Requestor: ${userId}`,
+      );
+      throw new Error(
+        `Access denied: Project owned by ${project.user_id}, not ${userId}`,
+      );
+    }
+
+    // Get full project details for recycle bin
+    const fullProject = await prisma.project.findUnique({
+      where: { id: projectId },
+    });
+
+    if (fullProject) {
+      // Add to recycle bin
+      await RecycleBinService.addItemToRecycleBin(userId, "project", {
+        id: fullProject.id,
+        title: fullProject.title,
+        description: fullProject.description,
+        content: fullProject.content,
+        word_count: fullProject.word_count,
+        file_path: fullProject.file_path,
+        file_type: fullProject.file_type,
+      });
+    }
+
+    // Delete project record by ID (safe since we verified ownership)
+    const deletedProject = await prisma.project.delete({
+      where: {
+        id: projectId,
+      },
+    });
+
+    return deletedProject;
+  }
+
+  /**
+   * Creates a project without an uploaded document
+   */
+  static async createProject(
+    userId: string,
+    title: string,
+    description: string,
+    content: any,
+    outline: any = null,
+    workspaceId?: string,
+    linkedLibrary?: string | null,
+  ) {
+    // Create project record in the database
+    const project = await (prisma.project as any).create({
+      data: {
+        user_id: userId,
+        title,
+        description,
+        content: content || {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+            },
+          ],
+        },
+        outline: outline,
+        workspace_id: workspaceId || null,
+        linked_library: linkedLibrary || null,
+      },
+      include: {
+        originality_scans: true,
+        citations: true,
+      },
+    });
+
+    // Log workspace activity and notify members if applicable
+    if (workspaceId) {
+      await WorkspaceActivityService.logActivity(
+        workspaceId,
+        userId,
+        "PROJECT_CREATED",
+        { title: project.title, projectId: project.id },
+      );
+
+      try {
+        const { createNotification } = require("./notificationService");
+        const workspaceMembers = await prisma.workspaceMember.findMany({
+          where: { workspace_id: workspaceId, user_id: { not: userId } },
+        });
+
+        for (const member of workspaceMembers) {
+          await createNotification(
+            member.user_id,
+            "document_shared",
+            "New Project Created",
+            `A new project "${title}" has been created in your workspace.`,
+            { workspaceId, documentId: project.id },
+          );
+        }
+      } catch (notifError) {
+        logger.error(
+          "Failed to send project creation notification:",
+          notifError,
+        );
+      }
+    }
+
+    return this.mapProjectWithProgress(project);
+  }
+
+  /**
+   * Wraps plain text in a Tiptap doc structure (fallback when mapping fails)
+   */
+  private static wrapPlainText(text: string): any {
+    return {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  /**
+   * Extracts text or HTML from various document formats
+   * Returns an object with content and format type
+   */
+  public static async extractTextFromDocument(
+    file: Express.Multer.File,
+  ): Promise<{ content: string; format: "text" | "html" }> {
+    if (!file) {
+      throw new Error("File is required for text extraction");
+    }
+
+    const filePath = file.path;
+    const fileExtension = file.originalname.split(".").pop()?.toLowerCase();
+
+    if (!fileExtension) {
+      throw new Error("File extension not found");
+    }
+
+    try {
+      switch (fileExtension) {
+        case "pdf":
+          if (process.env.MATHPIX_APP_ID && process.env.MATHPIX_APP_KEY) {
+            try {
+              const { MathpixService } = require("./mathpixService");
+              logger.info("[PDF-CONVERSION] Attempting Mathpix conversion", {
+                filePath,
+              });
+
+              const html = await MathpixService.convertPdfToHtml(filePath);
+              logger.info("[PDF-CONVERSION] Mathpix conversion successful");
+
+              return { content: html, format: "html" };
+            } catch (mathpixError: any) {
+              logger.warn(
+                "[PDF-CONVERSION] Mathpix conversion failed, falling back to local tools",
+                {
+                  error: mathpixError.message,
+                },
+              );
+            }
+          }
+
+          try {
+            logger.info("[PDF-CONVERSION] Attempting PDF to DOCX conversion", {
+              filePath,
+            });
+            const docxPath =
+              await PdfConversionService.convertPdfToDocx(filePath);
+            logger.info(
+              "[PDF-CONVERSION] PDF to DOCX conversion successful, extracting content",
+              { docxPath },
+            );
+            const html = await this.extractHtmlFromDOCX(docxPath);
+            try {
+              await fs.unlink(docxPath);
+              logger.info("[PDF-CONVERSION] Temporary DOCX file cleaned up", {
+                docxPath,
+              });
+            } catch (cleanupError: any) {
+              logger.warn(
+                "[PDF-CONVERSION] Failed to clean up temporary DOCX file",
+                {
+                  docxPath,
+                  error: cleanupError.message,
+                },
+              );
+            }
+            return { content: html, format: "html" };
+          } catch (conversionError: any) {
+            logger.warn(
+              "[PDF-CONVERSION] PDF to DOCX conversion failed, falling back to text extraction",
+              {
+                error: conversionError.message,
+                filePath,
+              },
+            );
+            const pdfText = await this.extractTextFromPDF(filePath);
+            const cleanedText = pdfText
+              .replace(/([^\n.!?])\n([^\n])/g, "$1 $2")
+              .replace(/\n{3,}/g, "\n\n");
+            return { content: cleanedText, format: "text" };
+          }
+
+        case "docx":
+          const html = await this.extractHtmlFromDOCX(filePath);
+          return { content: html, format: "html" };
+
+        case "txt":
+        case "rtf":
+        case "odt":
+          const content = await fs.readFile(filePath, "utf8");
+          return { content, format: "text" };
+
+        default:
+          return {
+            content: `Content from ${file.originalname}`,
+            format: "text",
+          };
+      }
+    } catch (error: any) {
+      logger.error("Error extracting text from document", {
+        error: error.message,
+        stack: error.stack,
+        fileName: file?.originalname,
+        fileExtension,
+        filePath: file?.path,
+      });
+      return {
+        content: `Error extracting text: ${error.message} (File: ${file?.originalname})`,
+        format: "text",
+      };
+    }
+  }
+
+  /**
+   * Extracts text from PDF files directly
+   */
+  private static async extractTextFromPDF(filePath: string): Promise<string> {
+    const startTime = Date.now();
+    try {
+      logger.info(`[PDF] Starting PDF parsing`, { filePath });
+      const buffer = await fs.readFile(filePath);
+      const data = await pdfParse(buffer);
+      const duration = Date.now() - startTime;
+      logger.info(`[PERF] PDF Parsing Complete`, {
+        duration,
+        filePath,
+        textLength: data.text.length,
+        numPages: data.numpages,
+      });
+      if (!data.text || data.text.trim().length === 0) {
+        throw new Error("PDF contains no extractable text content");
+      }
+      return data.text;
+    } catch (error: any) {
+      throw new Error(`Failed to parse PDF: ${error.message}`);
+    }
+  }
+
+  /**
+   * Extracts HTML from DOCX files using mammoth
+   */
+  private static async extractHtmlFromDOCX(filePath: string): Promise<string> {
+    try {
+      const result = await mammoth.convertToHtml({ path: filePath });
+      return result.value;
+    } catch (error) {
+      logger.error("Error parsing DOCX to HTML", { error, filePath });
+      throw error;
+    }
+  }
+
+  /**
+   * Counts words in a text string (strips HTML tags if present)
+   */
+  private static countWords(text: string): number {
+    if (!text) return 0;
+    const plainText = text.replace(/<[^>]*>/g, " ");
+    return plainText.trim() === "" ? 0 : plainText.trim().split(/\s+/).length;
+  }
+
+  /**
+   * Calculates progress percentage based on project status
+   */
+  private static calculateProjectProgress(status: string): number {
+    switch (status) {
+      case "completed":
+        return 100;
+      case "in-progress":
+        return 40;
+      case "planning":
+        return 20;
+      case "draft":
+        return 10;
+      case "active":
+        return 30;
+      case "archived":
+        return 0;
+      default:
+        return 0;
+    }
+  }
+
+  /**
+   * Maps a project object to include the progress field
+   */
+  private static mapProjectWithProgress(project: any) {
+    if (!project) return null;
+    return {
+      ...project,
+      progress: this.calculateProjectProgress(project.status || "active"),
+    };
+  }
+}

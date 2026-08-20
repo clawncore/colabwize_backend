@@ -1,1 +1,27 @@
 node_modules
+
+# Environment Variables
+.env
+.env.*
+
+# Local binaries and archives
+bin/
+**/bin/
+*.tar.gz
+*.zip
+*.tgz
+
+# Logs
+logs/
+**/logs/
+*.log
+
+# Build Outputs
+dist/
+build/
+
+# Secrets — never commit service-account / private keys
+*.json
+!package.json
+!.swcrc
+!tsconfig.json
