@@ -33,18 +33,25 @@ export interface PandocExportOptions {
 
 export class PandocExportService {
   /**
-   * Export project using Pandoc (HTML source only)
+   * Export project from HTML source. PDF is routed through Puppeteer because
+   * pandoc's PDF output requires an external LaTeX/wkhtmltopdf engine that is
+   * not part of the deployment image; Chromium print-to-PDF needs nothing extra.
    */
   static async exportProject(
     project: any,
     options: PandocExportOptions
   ): Promise<{ buffer: Buffer; fileSize: number }> {
+    if (options.format === "pdf") {
+      logger.info("[Export] Rendering PDF via Puppeteer print engine");
+      const { buffer } = await this.renderPdfViaPuppeteer(options.htmlContent || "");
+      return { buffer, fileSize: buffer.length };
+    }
+
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "colabwize-export-"));
     const htmlContent = options.htmlContent || "";
 
     try {
-      const extension = options.format === 'pdf' ? 'pdf' : options.format;
-      const outputPath = path.join(tempDir, `output.${extension}`);
+      const outputPath = path.join(tempDir, `output.${options.format}`);
 
       logger.info(`[Pandoc] Exporting via HTML direct path to ${options.format}`);
 
@@ -52,36 +59,30 @@ export class PandocExportService {
       await fs.writeFile(htmlPath, htmlContent);
 
       const pandocPath = await getPandocPath();
-
-      // For PDF, we might need to specify a pdf-engine.
-      // We'll let Pandoc try its default first, but we can't use Puppeteer anymore.
-      const pandocCmd = options.format === "pdf"
-        ? `"${pandocPath}" "${htmlPath}" -f html -s -o "${outputPath}"`
-        : `"${pandocPath}" "${htmlPath}" -f html -s -o "${outputPath}"`;
+      const pandocCmd = `"${pandocPath}" "${htmlPath}" -f html -s -o "${outputPath}"`;
 
       logger.info(`[Pandoc] Running command: ${pandocCmd}`);
-      
+
       await execAsync(pandocCmd);
       const buffer = await fs.readFile(outputPath);
       return { buffer, fileSize: buffer.length };
     } catch (error: any) {
       logger.error("Pandoc export failed", { error: error.message, stack: error.stack });
-      throw new Error(`Failed to export using Pandoc: ${error.message}. (Ensure a PDF engine like wkhtmltopdf or lualatex is installed for PDF export)`);
+      throw new Error(`Failed to export using Pandoc: ${error.message}`);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   }
 
   /**
-   * High-fidelity PDF rendering using Puppeteer (Deprecated in favor of Pandoc)
-   * Keeping as private method for now in case of quick rollback needs
+   * High-fidelity PDF rendering using headless Chromium (print-to-PDF).
    */
   private static async renderPdfViaPuppeteer(htmlContent: string): Promise<{ buffer: Buffer }> {
     const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${htmlContent}</body></html>`;
     const puppeteer = await import("puppeteer");
     const { ExportService } = await import("./exportService.js");
-    const browser = await (ExportService as any).launchBrowser(puppeteer.default);
-    
+    const browser = await ExportService.launchBrowser(puppeteer.default);
+
     try {
       const page = await browser.newPage();
       await page.emulateMediaType("print");

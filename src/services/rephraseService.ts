@@ -4,6 +4,7 @@ import { compareTwoStrings } from "string-similarity";
 import { AbuseGuard, RephraseMode } from "./AbuseGuard";
 
 import { UsageService } from "./usageService";
+import { chatComplete } from "./llm/llmClient";
 
 export interface RephraseResult {
   id: string;
@@ -166,13 +167,73 @@ export class RephraseService {
   }
 
   /**
-   * Generate rephrase suggestions using local linguistic transformations only.
+   * Generate rephrase suggestions using OpenAI. Falls back to local heuristic
+   * if no API key is configured or the call fails — keeps the tool usable on
+   * free / dev deployments.
    */
   private static async generateAIRephrases(
     originalText: string,
-    _mode: RephraseMode
+    mode: RephraseMode
   ): Promise<string[]> {
-    return this.generateLocalRephrases(originalText);
+    const systemPrompt = this.buildRephraseSystemPrompt(mode);
+    const userPrompt = `Rewrite the following passage as ${this.countVariations(mode)} distinct variations, each separated by a line containing only "---VARIATION---". Preserve all citations, references, numerical values, and technical terminology exactly as they appear. Return only the rewritten text.\n\n---\n${originalText}\n---`;
+
+    const raw = await chatComplete(systemPrompt, userPrompt, {
+      temperature: mode === RephraseMode.DEEP ? 0.6 : 0.4,
+      maxTokens: mode === RephraseMode.DEEP ? 2500 : 1500,
+    });
+
+    if (!raw) {
+      logger.warn("AI rephrase unavailable, returning local heuristic variants");
+      return this.generateLocalRephrases(originalText);
+    }
+
+    const variants = raw
+      .split(/---\s*VARIATION\s*---/i)
+      .map((v) => v.trim())
+      .filter((v) => v.length > 20);
+
+    // Always provide at least the local fallback so the UI never sees an empty list.
+    if (variants.length === 0) {
+      return this.generateLocalRephrases(originalText);
+    }
+
+    return variants.slice(0, this.countVariations(mode));
+  }
+
+  private static countVariations(mode: RephraseMode): number {
+    switch (mode) {
+      case RephraseMode.QUICK: return 2;
+      case RephraseMode.DEEP: return 5;
+      case RephraseMode.ACADEMIC:
+      default: return 3;
+    }
+  }
+
+  private static buildRephraseSystemPrompt(mode: RephraseMode): string {
+    const tone =
+      mode === RephraseMode.QUICK
+        ? "Make only minimal, surgical edits — fix awkward phrasing, repetition, and grammar. Keep sentence structure intact where possible."
+        : mode === RephraseMode.DEEP
+          ? "Restructure sentences and paragraphs freely. Vary vocabulary and syntax. Maintain a natural academic voice. Eliminate generic AI-style filler such as \"It is important to note\" or \"Furthermore\" when overused."
+          : "Improve clarity, flow, and lexical variety while preserving the author's voice. Vary sentence openings and structure, but do not invent claims.";
+
+    return `You are an expert academic editor. Rewrite the user's passage in formal academic English.
+
+Hard rules — never violate:
+1. Preserve every citation, reference, author name, year, and DOI exactly as written.
+2. Preserve every numerical value, percentage, p-value, unit, and statistical symbol.
+3. Do not invent new references, facts, or claims.
+4. Preserve technical terminology; do not synonymize terms of art.
+5. Do not add unicode homoglyphs, invisible characters, or fake sophistication.
+
+Editing goal:
+${tone}
+
+Output format:
+Return the ${this.countVariations(mode)} rewritten versions, separated by a single line containing exactly:
+---VARIATION---
+Do not include commentary, headings, or numbering.`;
   }
 
   /**

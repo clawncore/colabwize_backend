@@ -31,6 +31,8 @@ import { scheduleInboxWorkerTask } from "../scheduledTasks/inboxWorker";
 import { scheduleActivityCleanupTask } from "../scheduledTasks/activityCleanupTask";
 import grammarRouter from "../api/grammar/index";
 import demoRouter from "../api/demo/index";
+import freeRouter from "../api/free/index";
+import naturalizerRouter from "../api/naturalizer/index";
 // Import collaboration server
 import { HocuspocusCollaborationServer } from "./websockets/hocuspocus-server";
 
@@ -375,6 +377,12 @@ app.use("/api/auth", authLimiter, authRouter);
 
 // Public Demo API (No authentication required)
 app.use("/api/demo", demoRouter);
+
+// Public Free-Tool API (No authentication required)
+app.use("/api/free", freeRouter);
+
+// Academic Writing Naturalizer (public, hard rate limit — LLM cost per request)
+app.use("/api/naturalizer", naturalizerRouter);
 
 // AI Grammar Checker API
 app.use("/api/grammar", authMiddleware, grammarRouter);

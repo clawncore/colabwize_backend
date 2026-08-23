@@ -3,6 +3,7 @@ import { CopyscapeService, PlagiarismMatch } from "./copyscapeService";
 import { SecretsService } from "./secrets-service";
 import logger from "../monitoring/logger";
 import * as crypto from "crypto";
+import { EnhancedOriginalityDetectionService } from "./enhancedOriginalityDetectionService";
 
 export class OriginalityMapService {
 
@@ -106,6 +107,30 @@ export class OriginalityMapService {
     } catch (e: any) {
       logger.error("Copyscape Scan Failed", { error: e.message });
 
+      // Fallback path: when Copyscape is out of credits or in maintenance,
+      // route the same content through the enhanced detection service so
+      // users still get a meaningful scan result instead of an empty error.
+      const isCreditsError = e.message && (
+        e.message.includes("Insufficient credit") ||
+        e.message.includes("credits") ||
+        e.message.includes("SYSTEM_CREDITS")
+      );
+
+      if (isCreditsError) {
+        try {
+          logger.info("Falling back to EnhancedOriginalityDetectionService", {
+            scanId: scan.id, projectId, userId,
+          });
+          // The enhanced service creates its own scan record; remove the
+          // orphan Copyscape row before delegating so we don't leave dust.
+          await prisma.originalityScan.delete({ where: { id: scan.id } }).catch(() => {});
+          return await EnhancedOriginalityDetectionService.scanDocument(projectId, userId, content);
+        } catch (fallbackErr: any) {
+          logger.error("Enhanced fallback also failed", { error: fallbackErr.message });
+          // Fall through to the standard failed-scan handling below.
+        }
+      }
+
       // Mark as failed regardless of reason so UI shows "Error" state (Dashes)
       await prisma.originalityScan.update({
         where: { id: scan.id },
@@ -121,7 +146,7 @@ export class OriginalityMapService {
       const result = await this.getScanResults(scan.id, userId);
 
       // Check if it was a System Credit/Maintenance error
-      if (e.message && (e.message.includes("Insufficient credit") || e.message.includes("credits"))) {
+      if (isCreditsError) {
         return { ...result, failureCode: "SYSTEM_CREDITS", failureMessage: e.message };
       }
 

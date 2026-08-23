@@ -104,6 +104,10 @@ async function processDocumentImport(fileData: any, userId: string) {
 
 // Unified export implementation
 async function handleDirectExport(fileData: any, userId: string, format: "pdf" | "docx") {
+  // Ledger reference for this attempt's credit hold. Unique per request so
+  // repeated exports each get charged (a static reference would hit the
+  // idempotency check and charge free users only once, ever).
+  let creditReservationRef: string | null = null;
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -116,15 +120,15 @@ async function handleDirectExport(fileData: any, userId: string, format: "pdf" |
       const isPaid = user.subscription?.status === "active" && user.subscription?.plan !== "free";
       if (!isPaid) {
         // Flat 1 credit charge for free users, unlimited if paid. Uses the
-        // ledger-based reserve path so the spend is idempotent and rolls back
-        // via refundCredits if the export fails.
+        // ledger-based reserve path; refunded below if the export fails.
         const { CreditService } = await import("../../services/CreditService.js");
         const COST = 1;
 
         if (!(await CreditService.hasEnoughCredits(userId, COST))) {
           throw new Error("INSUFFICIENT_CREDITS");
         }
-        await CreditService.reserveCredits(userId, COST, `export_pdf_${userId}`);
+        creditReservationRef = `export_pdf_${userId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        await CreditService.reserveCredits(userId, COST, creditReservationRef);
       }
     }
 
@@ -155,6 +159,24 @@ async function handleDirectExport(fileData: any, userId: string, format: "pdf" |
       },
     });
   } catch (error: any) {
+    // Roll back the credit hold so a failed export doesn't eat the user's credit.
+    if (creditReservationRef) {
+      try {
+        const { CreditService } = await import("../../services/CreditService.js");
+        await CreditService.refundCredits(
+          userId,
+          1,
+          creditReservationRef,
+          "Refund for failed PDF export",
+        );
+      } catch (refundError: any) {
+        logger.error("Failed to refund PDF export credit", {
+          userId,
+          creditReservationRef,
+          error: refundError.message,
+        });
+      }
+    }
     logger.error(`Error generating ${format} export`, { error });
     throw error;
   }
