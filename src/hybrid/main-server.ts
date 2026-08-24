@@ -79,6 +79,8 @@ import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
 import adminRouter from "../api/admin/index";
 import observabilityRouter from "../api/admin/observability";
 import adminAuthRouter from "../api/admin/adminAuth";
+import assignmentRouter from "../routes/assignments";
+import ltiRouter from "../routes/lti";
 import adminMonitoringRouter from "../api/admin/monitoring";
 import adminOperationsRouter from "../api/admin/operations";
 import adminSystemHealthRouter from "../api/admin/system-health";
@@ -407,6 +409,12 @@ app.use("/api/audit", authMiddleware, auditRouter);
 
 // Apply auth middleware to notification routes
 app.use("/api/notifications", authMiddleware);
+
+// Assignment Integrity API
+app.use("/api/assignments", authMiddleware, apiLimiter, assignmentRouter);
+
+// LTI 1.3 Launch API (LMS Integration MVP)
+app.use("/api/lti", ltiRouter);
 
 // Mount the notifications router
 app.use("/api/notifications", notificationsRouter);
