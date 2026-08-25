@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express";
-import { AdminAuthService } from "../services/admin/adminAuthService";
-import { prisma } from "../lib/prisma";
-import { getSupabaseAdminClient } from "../lib/supabase/client";
-import logger from "../monitoring/logger";
+import { AdminAuthService } from "../services/adminAuthService";
+import { prisma } from "../../lib/prisma";
+import { getSupabaseAdminClient } from "../../lib/supabase/client";
+import logger from "../../monitoring/logger";
 
 export type AdminRole =
   | "super_admin"

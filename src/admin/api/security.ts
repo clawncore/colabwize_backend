@@ -1,12 +1,12 @@
 import express, { Router } from "express";
 import crypto from "crypto";
 import { z } from "zod";
-import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { isPlatformAdmin } from "../middleware/platformAdmin";
 import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { prisma as prismaClient } from "../../lib/prisma";
 import type { PrismaClient } from "@prisma/client";
 import logger from "../../monitoring/logger";
-import { createAuditLog, extractAuditContext, getAdminEmail } from "../../services/admin/auditLogService";
+import { createAuditLog, extractAuditContext, getAdminEmail } from "../services/auditLogService";
 
 const router: Router = express.Router();
 

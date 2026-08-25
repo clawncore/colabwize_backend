@@ -1,8 +1,8 @@
 import { prisma } from "../../lib/prisma";
-import { sendEmail } from "../email/baseMailer";
-import { EmailSender } from "../email/emailConfig";
-import { buildEmailSignature, buildEmailHeader } from "../email/emailSignatures";
-import { wrapInPremiumLayout } from "../email/emailLayout";
+import { sendEmail } from "../../services/email/baseMailer";
+import { EmailSender } from "../../services/email/emailConfig";
+import { buildEmailSignature, buildEmailHeader } from "../../services/email/emailSignatures";
+import { wrapInPremiumLayout } from "../../services/email/emailLayout";
 import logger from "../../monitoring/logger";
 
 interface BroadcastOptions {

@@ -1,12 +1,12 @@
 import express, { Router } from "express";
 import os from "os";
-import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { isPlatformAdmin } from "../middleware/platformAdmin";
 import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { metrics } from "../../monitoring/metrics";
-import { renderService, RenderMetricSeries } from "../../services/admin/integrations/renderService";
-import { syncService } from "../../services/admin/integrations/syncService";
+import { renderService, RenderMetricSeries } from "../services/integrations/renderService";
+import { syncService } from "../services/integrations/syncService";
 
 const router: Router = express.Router();
 

@@ -1,4 +1,4 @@
-import { gaService } from "../services/admin/integrations/googleAnalyticsService";
+import { gaService } from "../admin/services/integrations/googleAnalyticsService";
 import { prisma } from "../lib/prisma";
 
 async function main() {

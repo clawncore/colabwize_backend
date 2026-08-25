@@ -1,5 +1,5 @@
 import express, { Router } from "express";
-import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { isPlatformAdmin } from "../middleware/platformAdmin";
 import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { sendEmail } from "../../services/email/baseMailer";
 import { SENDER_IDENTITIES, EmailSender } from "../../services/email/emailConfig";
@@ -7,8 +7,8 @@ import { wrapInPremiumLayout } from "../../services/email/emailLayout";
 import { buildEmailAssistantPrompt } from "../../knowledge";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
-import { processBroadcast } from "../../services/admin/broadcastService";
-import { createAuditLog, extractAuditContext, getAdminEmail } from "../../services/admin/auditLogService";
+import { processBroadcast } from "../services/broadcastService";
+import { createAuditLog, extractAuditContext, getAdminEmail } from "../services/auditLogService";
 import { OpenAIService } from "../../services/openaiService";
 import { TeamChatService } from "../../services/teamChatService";
 import integrationsRouter from "./integrations";

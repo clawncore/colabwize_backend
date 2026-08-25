@@ -3,12 +3,12 @@ import fs from "fs";
 import path from "path";
 // Webhook delivery uses native https module to avoid extra deps
 import { z } from "zod";
-import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { isPlatformAdmin } from "../middleware/platformAdmin";
 import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
 import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
-import { createAuditLog, extractAuditContext, getAdminEmail } from "../../services/admin/auditLogService";
-import { executeBackup } from "../../services/admin/backupService";
+import { createAuditLog, extractAuditContext, getAdminEmail } from "../services/auditLogService";
+import { executeBackup } from "../services/backupService";
 import { invalidateMaintenanceCache } from "../../middleware/maintenance";
 
 const router: Router = express.Router();

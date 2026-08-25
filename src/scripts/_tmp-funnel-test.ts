@@ -1,4 +1,4 @@
-import router from "../api/admin/analytics";
+import router from "../admin/api/analytics";
 
 async function main() {
   const stack: any[] = (router as any).stack || [];

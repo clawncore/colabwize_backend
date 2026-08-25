@@ -1,4 +1,4 @@
-import integrationsRouter from "../api/admin/integrations";
+import integrationsRouter from "../admin/api/integrations";
 
 async function hit(path: string) {
   const stack: any[] = (integrationsRouter as any).stack || [];

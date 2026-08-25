@@ -1,9 +1,9 @@
 import express, { Router } from "express";
-import { isPlatformAdmin } from "../../middleware/platformAdmin";
+import { isPlatformAdmin } from "../middleware/platformAdmin";
 import { adminOperationRateLimiter } from "../../middleware/rateLimiter";
-import { gaService } from "../../services/admin/integrations/googleAnalyticsService";
-import { lemonSqueezyService } from "../../services/admin/integrations/lemonSqueezyService";
-import { syncService } from "../../services/admin/integrations/syncService";
+import { gaService } from "../services/integrations/googleAnalyticsService";
+import { lemonSqueezyService } from "../services/integrations/lemonSqueezyService";
+import { syncService } from "../services/integrations/syncService";
 import logger from "../../monitoring/logger";
 
 const router: Router = express.Router();

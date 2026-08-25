@@ -73,9 +73,9 @@ import researchRouter from "../api/research/index";
 import auditRouter from "../audit/index";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
-import adminRouter from "../api/admin/index";
-import observabilityRouter from "../api/admin/observability";
-import adminAuthRouter from "../api/admin/adminAuth";
+import adminRouter from "../admin/api/index";
+import observabilityRouter from "../admin/api/observability";
+import adminAuthRouter from "../admin/api/adminAuth";
 import publicBlogsRouter from "../api/blogs/index";
 // Publishing Platform (Phase 3): export job system + router
 import {
@@ -647,7 +647,7 @@ const startServer = async () => {
 
 // startServer(); // disabled for probe
 
-import { gaService } from "../services/admin/integrations/googleAnalyticsService";
+import { gaService } from "../admin/services/integrations/googleAnalyticsService";
 
 async function probe() {
   console.log("FRESH PID", process.pid);

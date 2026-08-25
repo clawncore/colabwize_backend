@@ -1,9 +1,9 @@
 import express, { Router } from 'express';
 import bcrypt from 'bcrypt';
 import { prisma } from '../../lib/prisma';
-import { AdminAuthService } from '../../services/admin/adminAuthService';
-import { resolveAdminRole } from '../../middleware/platformAdmin';
-import { createAuditLog, extractAuditContext } from '../../services/admin/auditLogService';
+import { AdminAuthService } from '../services/adminAuthService';
+import { resolveAdminRole } from '../middleware/platformAdmin';
+import { createAuditLog, extractAuditContext } from '../services/auditLogService';
 import { adminAuthRateLimiter } from '../../middleware/rateLimiter';
 import logger from '../../monitoring/logger';
 
