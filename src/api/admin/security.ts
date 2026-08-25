@@ -41,8 +41,8 @@ router.get("/events", async (req, res) => {
       const d = new Date(String(val));
       return isNaN(d.getTime()) ? undefined : d;
     };
-    const from = parseDate(dateFrom);
-    const to = parseDate(dateTo);
+    const from = parseDate(typeof dateFrom === "string" ? dateFrom : undefined);
+    const to = parseDate(typeof dateTo === "string" ? dateTo : undefined);
     if (from || to) {
       where.createdAt = {};
       if (from) where.createdAt.gte = from;
@@ -135,8 +135,8 @@ router.get("/login-audit", async (req, res) => {
       const d = new Date(String(val));
       return isNaN(d.getTime()) ? undefined : d;
     };
-    const from = parseDate(dateFrom);
-    const to = parseDate(dateTo);
+    const from = parseDate(typeof dateFrom === "string" ? dateFrom : undefined);
+    const to = parseDate(typeof dateTo === "string" ? dateTo : undefined);
     if (from || to) {
       where.createdAt = {};
       if (from) where.createdAt.gte = from;
@@ -731,10 +731,11 @@ router.put("/config", async (req, res) => {
 
     for (const key of keys) {
       if (key in body) {
+        const value = (body as Record<string, unknown>)[key];
         await db.systemConfig.upsert({
           where: { key },
-          create: { key, value: body[key] as any, description: `Security configuration: ${key}`, updatedBy: getAdminEmail(req) },
-          update: { value: body[key] as any, updatedBy: getAdminEmail(req) },
+          create: { key, value: value as any, description: `Security configuration: ${key}`, updatedBy: getAdminEmail(req) },
+          update: { value: value as any, updatedBy: getAdminEmail(req) },
         });
       }
     }
@@ -1031,8 +1032,8 @@ router.get("/audit-log-explorer", async (req, res) => {
       const d = new Date(String(val));
       return isNaN(d.getTime()) ? undefined : d;
     };
-    const from = parseDate(dateFrom);
-    const to = parseDate(dateTo);
+    const from = parseDate(typeof dateFrom === "string" ? dateFrom : undefined);
+    const to = parseDate(typeof dateTo === "string" ? dateTo : undefined);
 
     const where: any = {};
     if (action) where.action = { contains: String(action), mode: "insensitive" };
