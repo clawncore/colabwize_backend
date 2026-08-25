@@ -1,5 +1,4 @@
 import { Router, Request, Response } from "express";
-import { z } from "zod";
 import { authenticateExpressRequest } from "../../middleware/auth";
 import { DocumentUploadService } from "../../services/documentUploadService";
 import logger from "../../monitoring/logger";
@@ -67,51 +66,56 @@ router.get(
 );
 
 // Export a project (Common GET for direct download)
-const exportQuerySchema = z.object({
-  projectId: z.string().min(1, "Project ID is required"),
-  format: z.enum(["docx", "word", "pdf"]),
-  includeCitations: z.enum(["true", "false"]).default("false"),
-  includeComments: z.enum(["true", "false"]).default("false"),
-  citationStyle: z.string().optional(),
-  template: z.string().optional(),
-});
-
 router.get(
   "/export",
   authenticateExpressRequest,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const parsed = exportQuerySchema.safeParse(req.query);
-      if (!parsed.success) {
-        return res.status(400).json({
-          error: "Invalid export parameters",
-          details: parsed.error.issues.map((i) => i.message).join(", "),
-        });
-      }
-      const { projectId, format, includeCitations, includeComments, citationStyle, template } =
-        parsed.data;
+      const {
+        projectId,
+        format,
+        includeCitations,
+        includeComments,
+        citationStyle,
+        template,
+      } = req.query;
       const userId = req.user!.id;
+
+      if (!projectId) {
+        return res.status(400).json({ error: "Project ID is required" });
+      }
 
       const { ExportService } = await import("../../services/exportService.js");
 
-      // Generate the buffer BEFORE setting download headers so a failure
-      // returns a clean JSON error instead of a corrupt attachment.
-      const exportResult = await ExportService.exportProject(projectId, userId, {
-        format: format === "word" ? "docx" : format,
-        includeCitations: includeCitations === "true",
-        includeComments: includeComments === "true",
-        citationStyle,
-        journalTemplate: template,
-      });
+      if (format === "docx" || format === "word") {
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="export-${projectId}.docx"`,
+        );
+      } else if (format === "pdf") {
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="export-${projectId}.pdf"`,
+        );
+      } else {
+        return res.status(400).json({ error: "Invalid format specified" });
+      }
 
-      const contentType =
-        format === "pdf"
-          ? "application/pdf"
-          : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-      res.setHeader("Content-Type", contentType);
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="export-${projectId}.${format === "pdf" ? "pdf" : "docx"}"`,
+      const exportResult = await ExportService.exportProject(
+        projectId as string,
+        userId,
+        {
+          format: format as "docx" | "pdf",
+          includeCitations: includeCitations === "true",
+          includeComments: includeComments === "true",
+          citationStyle: citationStyle as string,
+          journalTemplate: template as string,
+        },
       );
 
       return res.send(exportResult.buffer);

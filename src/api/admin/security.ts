@@ -36,7 +36,7 @@ router.get("/events", async (req, res) => {
     if (adminId) where.adminId = String(adminId);
     if (ipAddress) where.ipAddress = { contains: String(ipAddress), mode: "insensitive" };
 
-    const parseDate = (val: unknown): Date | undefined => {
+    const parseDate = (val: string | undefined): Date | undefined => {
       if (!val) return undefined;
       const d = new Date(String(val));
       return isNaN(d.getTime()) ? undefined : d;
@@ -130,7 +130,7 @@ router.get("/login-audit", async (req, res) => {
     if (success !== undefined) where.success = success === "true";
     if (ipAddress) where.ipAddress = { contains: String(ipAddress), mode: "insensitive" };
 
-    const parseDate = (val: unknown): Date | undefined => {
+    const parseDate = (val: string | undefined): Date | undefined => {
       if (!val) return undefined;
       const d = new Date(String(val));
       return isNaN(d.getTime()) ? undefined : d;
@@ -729,13 +729,12 @@ router.put("/config", async (req, res) => {
     const body = securityConfigSchema.parse(req.body);
     const keys = Object.keys(SECURITY_CONFIG_DEFAULTS);
 
-    const bodyObj = body as Record<string, any>;
     for (const key of keys) {
-      if (key in bodyObj) {
+      if (key in body) {
         await db.systemConfig.upsert({
           where: { key },
-          create: { key, value: bodyObj[key] as any, description: `Security configuration: ${key}`, updatedBy: getAdminEmail(req) },
-          update: { value: bodyObj[key] as any, updatedBy: getAdminEmail(req) },
+          create: { key, value: body[key] as any, description: `Security configuration: ${key}`, updatedBy: getAdminEmail(req) },
+          update: { value: body[key] as any, updatedBy: getAdminEmail(req) },
         });
       }
     }
@@ -1027,7 +1026,7 @@ router.get("/audit-log-explorer", async (req, res) => {
     const sortDirection = String(sortDir).toLowerCase() === "asc" ? "asc" : "desc";
 
     // Validate date formats
-    const parseDate = (val: unknown): Date | undefined => {
+    const parseDate = (val: string | undefined): Date | undefined => {
       if (!val) return undefined;
       const d = new Date(String(val));
       return isNaN(d.getTime()) ? undefined : d;

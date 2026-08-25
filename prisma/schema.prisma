@@ -40,6 +40,7 @@ model User {
   editor_tour_completed  Boolean              @default(false)
   editor_tour_skipped    Boolean              @default(false)
   ai_usage              AIUsage[]
+  ai_usage_audits       AIUsageAudit[]
   analytics_events      AnalyticsEvent[]
   authorship_activities AuthorshipActivity[]
   authorship_collaboration_sessions AuthorshipCollaborationSession[]
@@ -104,6 +105,9 @@ model User {
   push_notification_tokens   PushNotificationToken[]
   blog_posts               BlogPost[]
   case_studies             CaseStudy[]
+  assignmentsInstructor     Assignment[]           @relation("AssignmentInstructor")
+  assignmentMembers         AssignmentMember[]
+  assignmentAttestations    AssignmentAttestation[]
   
   // Referral System
   referral_code            String?              @unique
@@ -160,6 +164,7 @@ model Workspace {
   templates     DocumentTemplate[]
   template_id   String?
   template      WorkspaceTemplate?    @relation(fields: [template_id], references: [id])
+  assignments   Assignment[]
 
   @@index([owner_id])
   @@index([template_id])
@@ -492,9 +497,13 @@ model Project {
   ydoc                  Bytes?               // Hocuspocus Y.Doc binary state
   audit_jobs          AuditJob[]
   reference_collections ReferenceCollection[]
+  ai_usage_audits     AIUsageAudit[]
+  assignmentId         String?              @map("assignment_id")
+  assignment           Assignment?          @relation("AssignmentProjects", fields: [assignmentId], references: [id])
 
   @@index([user_id])
   @@index([created_at])
+  @@index([assignmentId])
   @@map("projects")
 }
 
@@ -760,6 +769,7 @@ model File {
   project     Project? @relation(fields: [project_id], references: [id])
   user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
   annotations Annotation[]
+  ai_usage_audits AIUsageAudit[]
 
   @@index([user_id])
   @@index([project_id])
@@ -801,6 +811,30 @@ model ChatSession {
   @@index([file_id])
   @@index([external_paper_id])
   @@map("chat_sessions")
+}
+
+model AIUsageAudit {
+  id              String   @id @default(uuid())
+  project_id      String?
+  user_id         String
+  session_id      String?
+  prompt_content  String?  @db.Text
+  response_content String? @db.Text
+  ai_model_used   String?
+  tokens_used     Int?
+  timestamp       DateTime @default(now())
+  context_type    String?  // 'chat', 'research', 'rewrite', 'summarize', etc.
+  file_id         String?
+  
+  project         Project? @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  file            File?    @relation(fields: [file_id], references: [id], onDelete: Cascade)
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([session_id])
+  @@index([timestamp])
+  @@map("ai_usage_audits")
 }
 
 model ChatMessage {
@@ -2391,4 +2425,93 @@ model ExportAuditLog {
   @@index([exportType])
   @@index([createdAt])
   @@map("export_audit_logs")
+}
+
+model Assignment {
+  id                String   @id @default(uuid())
+  workspaceId       String   @map("workspace_id")
+  title             String
+  description       String?
+  instructorId      String   @map("instructor_id")
+  dueAt             DateTime? @map("due_at")
+  status            String   @default("draft")
+  integrityRules    Json     @map("integrity_rules")
+  attestationRequired Boolean @default(true) @map("attestation_required")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  instructor  User      @relation("AssignmentInstructor", fields: [instructorId], references: [id])
+  members     AssignmentMember[]
+  projects    Project[] @relation("AssignmentProjects")
+  attestations AssignmentAttestation[]
+
+  @@index([workspaceId])
+  @@index([instructorId])
+  @@map("assignments")
+}
+
+model AssignmentMember {
+  id           String   @id @default(uuid())
+  assignmentId String   @map("assignment_id")
+  userId       String   @map("user_id")
+  role         String   @default("student")
+  joinedAt     DateTime @default(now()) @map("joined_at")
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, userId])
+  @@index([assignmentId])
+  @@map("assignment_members")
+}
+
+model AssignmentAttestation {
+  id           String   @id @default(uuid())
+  assignmentId String   @map("assignment_id")
+  projectId    String?  @map("project_id")
+  userId       String   @map("user_id")
+  signedAt     DateTime @default(now()) @map("signed_at")
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  rulesSnapshot Json    @map("rules_snapshot")
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId])
+  @@index([userId])
+  @@map("assignment_attestations")
+}
+
+model LtiInstallation {
+  id                String   @id @default(uuid())
+  issuer            String   @unique
+  clientId          String   @unique @map("client_id")
+  authEndpoint      String   @map("auth_endpoint")
+  tokenEndpoint     String   @map("token_endpoint")
+  keySetUrl         String   @map("key_set_url")
+  deploymentId      String?  @map("deployment_id")
+  name              String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  rosters           LtiRoster[]
+
+  @@map("lti_installations")
+}
+
+model LtiRoster {
+  id            String   @id @default(uuid())
+  installationId String  @map("installation_id")
+  courseId      String   @map("course_id")
+  userId        String   @map("user_id")
+  ltiUserId     String   @map("lti_user_id")
+  role          String
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  installation LtiInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+
+  @@unique([installationId, courseId, ltiUserId])
+  @@index([installationId])
+  @@map("lti_rosters")
 }

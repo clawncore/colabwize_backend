@@ -1,10 +1,9 @@
 const { compareTwoStrings } = require("string-similarity");
 import logger from "../monitoring/logger";
-import { chatComplete } from "./llm/llmClient";
 
 interface HumanizationResult {
     variations: string[];
-    provider: "openai" | "local";
+    provider: "local";
 }
 
 const SYNONYMS: Record<string, string[]> = {
@@ -40,46 +39,6 @@ const PHRASES: Record<string, string> = {
 
 export class HumanizerService {
     static async humanizeText(text: string): Promise<HumanizationResult> {
-        // Try OpenAI first. If the call returns nothing (no key, network error,
-        // bad model), fall back to the local heuristic so the inline rewriter
-        // remains usable on every deployment.
-        const systemPrompt = `You are an expert academic editor. Rewrite the user's passage into 2 distinct variations that preserve the original meaning. Hard rules:
-1. Preserve every citation, reference, author name, year, DOI, and URL exactly.
-2. Preserve every numerical value, unit, p-value, and statistical symbol.
-3. Do not invent facts or references.
-4. Preserve technical terminology; do not synonymize terms of art.
-5. Do not introduce unicode homoglyphs or invisible characters.
-Output only the 2 versions separated by a line containing exactly: ---VARIATION---`;
-        const userPrompt = `Rewrite the following passage:\n\n---\n${text}\n---`;
-
-        const raw = await chatComplete(systemPrompt, userPrompt, {
-            temperature: 0.5,
-            maxTokens: 1500,
-        });
-
-        if (raw) {
-            const variants = raw
-                .split(/---\s*VARIATION\s*---/i)
-                .map((v) => v.trim())
-                .filter((v) => v.length > 20 && v !== text);
-
-            if (variants.length > 0) {
-                return {
-                    variations: variants.slice(0, 3),
-                    provider: "openai",
-                };
-            }
-        }
-
-        return this.localHumanize(text);
-    }
-
-    /**
-     * Deterministic synonym/phrase rewrite. Used as graceful degradation when
-     * OpenAI is unavailable. Always returns provider: "local" so callers can
-     * surface a banner if needed.
-     */
-    private static localHumanize(text: string): HumanizationResult {
         const variations: string[] = [];
 
         const v1 = this.replaceSynonyms(text);
