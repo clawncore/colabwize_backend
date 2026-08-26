@@ -27,28 +27,28 @@ router.post('/', asyncHandler(async (req, res) => {
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {
-  const assignment = await AssignmentService.getById(req.params.id);
+  const assignment = await AssignmentService.getById(req.params.id as string);
   if (!assignment) return res.status(404).json({ success: false, error: 'Not found' });
   res.json({ success: true, data: assignment });
 }));
 
 router.put('/:id/rules', asyncHandler(async (req, res) => {
-  const assignment = await AssignmentService.updateRules(req.params.id, req.body);
+  const assignment = await AssignmentService.updateRules(req.params.id as string, req.body);
   res.json({ success: true, data: assignment });
 }));
 
 router.post('/:id/members', asyncHandler(async (req, res) => {
   const { userId, role } = req.body;
-  const member = await AssignmentService.addMember(req.params.id, userId, role || 'student');
+  const member = await AssignmentService.addMember(req.params.id as string, userId, role || 'student');
   res.json({ success: true, data: member });
 }));
 
 router.post('/:id/attest', asyncHandler(async (req, res) => {
   const { projectId } = req.body;
-  const assignment = await AssignmentService.getById(req.params.id);
+  const assignment = await AssignmentService.getById(req.params.id as string);
   if (!assignment) return res.status(404).json({ success: false, error: 'Assignment not found' });
   const attestation = await AssignmentService.attest(
-    req.params.id,
+    req.params.id as string,
     projectId,
     (req as any).user?.id,
     req.ip,

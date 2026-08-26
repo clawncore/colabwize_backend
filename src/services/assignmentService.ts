@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 const prisma = new PrismaClient();
@@ -71,7 +71,7 @@ export class AssignmentService {
         userId,
         ipAddress: ip,
         userAgent: ua,
-        rulesSnapshot: assignment.integrityRules
+        rulesSnapshot: assignment.integrityRules as unknown as Prisma.InputJsonValue
       }
     });
   }
@@ -79,7 +79,7 @@ export class AssignmentService {
   static async getReportData(assignmentId: string, projectId: string) {
     // Reuse existing authorship confidence report
     const report = await prisma.authorshipConfidenceReport.findFirst({
-      where: { projectId }
+      where: { project_id: projectId }
     });
     const assignment = await prisma.assignment.findUnique({ where: { id: assignmentId } });
     return { assignment, report };
