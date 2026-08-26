@@ -1,4 +1,0 @@
-﻿--- Testing imap.titan.email:993 (Secure: true) ---
-Γ¥î FAILED: imap.titan.email - Command failed
---- Testing imap.secureserver.net:993 (Secure: true) ---
-Γ£à SUCCESS: Connected to imap.secureserver.net
