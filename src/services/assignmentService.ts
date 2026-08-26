@@ -1,7 +1,6 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import prisma from '../lib/prisma';
 import { z } from 'zod';
-
-const prisma = new PrismaClient();
 
 export const IntegrityRulesSchema = z.object({
   aiAllowed: z.enum(['none','outline','research','full']).default('outline'),

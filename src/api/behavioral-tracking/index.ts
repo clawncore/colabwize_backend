@@ -1,5 +1,5 @@
 import express from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import logger from "../../monitoring/logger";
 import { initializePrisma } from "../../lib/prisma-async";
 import { RealTimeAuthorshipTrackingService } from "../../services/realTimeAuthorshipTrackingService";
@@ -12,7 +12,7 @@ const router = express.Router();
 const trackingLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
-  keyGenerator: (req: any) => req.user?.id ?? req.ip,
+  keyGenerator: (req: any) => req.user?.id ?? ipKeyGenerator(req),
   message: { success: false, message: "Too many tracking requests. Please slow down." },
 });
 
