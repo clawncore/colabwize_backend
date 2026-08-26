@@ -1,9 +1,7 @@
 import express, { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 
 // Local asyncHandler helper (same pattern as assignments.ts)
 function asyncHandler(fn: (req: Request, res: Response) => Promise<any>) {
