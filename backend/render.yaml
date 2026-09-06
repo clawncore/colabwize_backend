@@ -2,7 +2,7 @@ services:
   - type: web
     name: colabwize-backend
     runtime: node
-    repo: https://github.com/clawncore/colabwize.git
+    repo: https://github.com/clawncore/colabwize_backend.git
     branch: main
     rootDir: backend
     buildCommand: npm install && apt-get update && apt-get install -y libreoffice pandoc
