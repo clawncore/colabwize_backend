@@ -80,6 +80,7 @@ import {
 import zoteroRouter from "../api/zotero/index";
 import mendeleyRouter from "../api/mendeley/index";
 import referencesRouter from "../api/references/index";
+import freeParaphraseRouter from "../api/free/paraphrase";
 import collectionsRouter from "../api/references/collections";
 import googleDriveApiRouter from "../api/google-drive/index";
 import onedriveApiRouter from "../api/onedrive/index";
@@ -395,6 +396,9 @@ app.use("/api/admin", authMiddleware, adminRouter);
 
 // Subscription API
 app.use("/api/subscription", subscriptionRouter);
+
+// Free Tools API (no auth required)
+app.use("/api/free", freeParaphraseRouter);
 
 // Document Upload API (MVP Core Feature)
 app.use("/api/documents", authMiddleware, uploadLimiter, documentUploadRouter);
