@@ -529,8 +529,8 @@ router.post(
       logger.info("Starting text humanization", { userId, length: content.length });
 
       // Import the rewrite engine (non-streaming for the authenticated endpoint)
-      const { rewriteTextSync } = await import("../../services/humanizer/rewrite");
-      const { analyzeText } = await import("../../services/humanizer/analysis");
+      const { rewriteTextSync } = await import("../../services/humanizer/rewrite.js");
+      const { analyzeText } = await import("../../services/humanizer/analysis.js");
 
       // Run through the billing pipeline (hold → execute → confirm/release).
       try {

@@ -150,7 +150,7 @@ export async function rewriteTextSync(
     const userPrompt = buildRewriteUserPrompt(originalText, analysisJson, options);
 
     // Use LangChain chatComplete for non-streaming
-    const { chatComplete } = await import("../llm/llmClient");
+    const { chatComplete } = await import("../llm/llmClient.js");
     const rawResponse = await chatComplete(systemPrompt, userPrompt, {
       temperature: 0.4,
       maxTokens: 4000,
@@ -242,7 +242,7 @@ export async function rewriteTextStream(
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
     temperature: 0.4,
-    maxTokens: 4000,
+    maxOutputTokens: 4000,
     onFinish: async ({ text }) => {
       fullText = text;
     },
@@ -274,7 +274,7 @@ export async function rewriteTextStream(
     // Poll for completion (the AI SDK's onFinish sets fullText)
     const checkComplete = () => {
       // Wait for the AI SDK to finish
-      result.consumeStream().then(() => {
+      Promise.resolve(result.consumeStream()).then(() => {
         const rewriteMs = Date.now() - startTime;
         const parsed = fullText ? parseRewriteResponse(fullText) : null;
 
@@ -309,7 +309,7 @@ export async function rewriteTextStream(
             buildFallbackResult(originalText, fullText, rewriteMs, options, analysis)
           );
         }
-      }).catch(reject);
+      }).catch((err: unknown) => reject(err));
     };
 
     // Give the stream a moment to finish, then check
