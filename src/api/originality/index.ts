@@ -500,11 +500,10 @@ const humanizeLimiter = rateLimit({
 
 /**
  * POST /api/originality/humanize
- * Adversarial Humanization (Auto-Humanizer)
- */
-/**
- * POST /api/originality/humanize
- * Adversarial Humanization (Auto-Humanizer)
+ * Writing Transformation Pipeline (authenticated, billed).
+ *
+ * Uses the same LLM-powered pipeline as the free endpoint but
+ * wrapped in BillingGateway for credit enforcement.
  */
 router.post(
   "/humanize",
@@ -516,30 +515,50 @@ router.post(
         return res.status(401).json({ success: false, message: "Authentication required" });
       }
 
-      const { content } = req.body;
+      const { content, mode, style, seoOptimize } = req.body;
 
       if (!content || typeof content !== 'string' || content.length < 10) {
         return res.status(400).json({ success: false, message: "Valid content is required (min 10 chars)" });
       }
 
-      if (content.length > 5000) {
-        return res.status(400).json({ success: false, message: "Content too long (max 5000 chars)" });
+      if (content.length > 7000) {
+        return res.status(400).json({ success: false, message: "Content too long (max 7000 chars)" });
       }
 
       const wordCount = content.split(/\s+/).length;
       logger.info("Starting text humanization", { userId, length: content.length });
 
-      // Import dynamically to avoid circular issues
-      const { HumanizerService } = await import("../../services/humanizerService.js");
+      // Import the rewrite engine (non-streaming for the authenticated endpoint)
+      const { rewriteTextSync } = await import("../../services/humanizer/rewrite");
+      const { analyzeText } = await import("../../services/humanizer/analysis");
 
-      // Run through the single billing pipeline (hold → execute →
-      // confirm/release).
+      // Run through the billing pipeline (hold → execute → confirm/release).
       try {
         const result = await BillingGateway.withFeature(
           userId,
           "rephrase",
           { inputWords: wordCount },
-          () => HumanizerService.humanizeText(content),
+          async () => {
+            const startTime = Date.now();
+
+            // Stage 1: Analysis
+            const { analysis, analysisJson } = await analyzeText(content);
+
+            // Stage 2: Rewrite
+            const rewriteResult = await rewriteTextSync(content, analysis, analysisJson, {
+              mode: mode || "humanize",
+              style: style || "natural",
+              seoOptimize: seoOptimize || "off",
+              preserveStructure: true,
+              preserveKeywords: true,
+              preserveTerminology: true,
+            });
+
+            rewriteResult.metadata.analysisMs = Date.now() - startTime;
+            rewriteResult.metadata.totalMs = Date.now() - startTime;
+
+            return rewriteResult;
+          },
         );
 
         return res.status(200).json({ success: true, data: result });
