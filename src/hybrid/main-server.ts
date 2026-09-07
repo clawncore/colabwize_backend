@@ -73,6 +73,8 @@ import sourcesRouter from "../api/sources/index";
 import unsplashRouter from "../api/integrations/unsplash";
 import searchAlertsRouter from "../api/search-alerts/index";
 import researchRouter from "../api/research/index";
+import freeRouter from "../api/free/index";
+import maintenanceStatusRouter from "../api/public/maintenance-status";
 import auditRouter from "../audit/index";
 import { initializeSubscriptionJobs } from "../jobs/subscriptionJobs";
 import { initializeSearchAlertJobs } from "../jobs/searchAlertJobs";
@@ -377,6 +379,12 @@ app.use("/api/auth", authLimiter, authRouter);
 
 // Public Demo API (No authentication required)
 app.use("/api/demo", demoRouter);
+
+// Public maintenance status (no auth — polled by MaintenanceOverlay for all users)
+app.use("/api/maintenance-status", maintenanceStatusRouter);
+
+// Free tools API (no auth — rate-limited)
+app.use("/api/free", freeRouter);
 
 // AI Grammar Checker API
 app.use("/api/grammar", authMiddleware, grammarRouter);
