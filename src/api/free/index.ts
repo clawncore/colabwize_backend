@@ -5,8 +5,8 @@ import aiDetectRouter from "./ai-detect";
 
 const router = express.Router();
 
-router.use("/paraphrase", paraphraseRouter);
-router.use("/humanize", humanizeRouter);
-router.use("/ai-detect", aiDetectRouter);
+router.use("/", paraphraseRouter);
+router.use("/", humanizeRouter);
+router.use("/", aiDetectRouter);
 
 export default router;
