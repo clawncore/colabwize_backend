@@ -169,11 +169,11 @@ const corsOptions = {
     origin: string | undefined,
     callback: (err: Error | null, allow?: boolean) => void,
   ) => {
-    // Deny requests with no Origin when credentials are enabled to prevent
-    // non-browser clients from bypassing CORS with credentials
+    // Allow requests with no Origin header (e.g. health checks, server-to-server,
+    // CLI tools, monitoring). CORS only applies to browser requests; non-browser
+    // clients are not constrained by the same-origin policy.
     if (!origin) {
-      console.log(`[CORS] Blocked request with no Origin header`);
-      return callback(new Error("Not allowed by CORS"));
+      return callback(null, true);
     }
 
     if (allowedOrigins.includes(origin)) {
