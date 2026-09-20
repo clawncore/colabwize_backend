@@ -230,8 +230,8 @@ describe("COLAB60 + Referral Integration", () => {
   /**
    * C2: signUp with affiliate_ref does not look at promo code at all.
    *     The promo code (COLAB60) only enters the flow via the frontend
-   *     checkout endpoint, which appends `?discount=COLAB60` to the
-   *     LemonSqueezy hosted URL.
+   *     checkout endpoint, which passes COLAB60 via checkout_data.discount_code
+   *     during LemonSqueezy checkout creation (never appended to the signed URL).
    *
    * This test exercises the full signUp → processReferralReward path,
    * mocking the nested tx calls that processReferralReward makes via

@@ -122,6 +122,7 @@ export class TwoFactorService {
 
     /**
      * Validate a login 2FA attempt
+     * @returns true if valid, false if invalid token, throws ErrorConfigurationError if 2FA is misconfigured
      */
     static async validateLogin(userId: string, token: string): Promise<boolean> {
         const user = await prisma.user.findUnique({
@@ -131,6 +132,14 @@ export class TwoFactorService {
 
         if (!user || !user.two_factor_enabled || !user.two_factor_secret) {
             return false;
+        }
+
+        // Check if encryption key is configured before attempting decryption
+        if (!process.env.TWO_FACTOR_ENCRYPTION_KEY) {
+            throw new Error(
+                "2FA service is not configured: TWO_FACTOR_ENCRYPTION_KEY is not set. " +
+                "Contact support to complete 2FA verification."
+            );
         }
 
         // 1. Try TOTP

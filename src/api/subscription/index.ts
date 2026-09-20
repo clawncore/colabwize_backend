@@ -480,10 +480,10 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
     }
 
     // Optional promo code — validated against a strict allowlist pattern.
-    // The code NEVER selects or overrides a plan/variant. It is only:
-    //   (a) reflected into LemonSqueezy custom checkout data for attribution, and
-    //   (b) appended as the LS `?discount=` query param on the hosted checkout URL.
-    // SECURITY: We never use promoCode to modify pricing or variant selection.
+    // The code determines which discount is applied at LemonSqueezy via
+    // checkout_data.discount_code during checkout creation. It NEVER selects or
+    // overrides a plan/variant, and it must NEVER be appended to the signed
+    // checkout URL as a query parameter — doing so invalidates the signature.
     let validatedPromo: string | undefined;
     if (promoCode !== undefined) {
       if (typeof promoCode !== "string" || !/^[A-Z0-9]{3,20}$/.test(promoCode)) {
@@ -496,33 +496,21 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
       validatedPromo = promoCode;
     }
 
-    // Create checkout URL
+    // Create checkout URL — pass the discount code to LemonSqueezy via the
+    // checkout creation request so it is included in the signed URL.
     const checkoutUrl = await LemonSqueezyService.createCheckout({
       variantId,
       userEmail: user.email,
       userId: user.id,
+      discountCode: validatedPromo,
       customData: { plan, billingPeriod, ...(validatedPromo ? { promoCode: validatedPromo } : {}) },
     });
 
-    // Append the discount as a URL query param so LemonSqueezy pre-applies it
-    // on the hosted checkout page. Use URL parsing to be safe regardless of
-    // whether the base URL already carries query parameters.
-    let finalCheckoutUrl = checkoutUrl;
-    if (validatedPromo) {
-      try {
-        const parsed = new URL(checkoutUrl);
-        parsed.searchParams.set("discount", validatedPromo);
-        finalCheckoutUrl = parsed.toString();
-      } catch {
-        // If URL parsing fails, fall back to the raw URL (discount may already
-        // be applied if the store default handles it).
-        finalCheckoutUrl = checkoutUrl;
-      }
-    }
-
+    // Return the signed checkout URL exactly as LemonSqueezy returned it.
+    // DO NOT modify it — appending query params invalidates the signature.
     return res.status(200).json({
       success: true,
-      checkoutUrl: finalCheckoutUrl,
+      checkoutUrl,
     });
   } catch (error) {
     console.error("Create checkout error:", error);

@@ -196,9 +196,16 @@ router.post("/verify-2fa", async (req, res) => {
     } else {
       return res.status(401).json({ success: false, message: "Invalid authentication code" });
     }
-  } catch (error) {
+  } catch (error: any) {
+    // Distinguish configuration errors (503) from other 2FA failures
+    const isConfigError = error.message?.includes("TWO_FACTOR_ENCRYPTION_KEY");
     console.error("2FA verify error:", error);
-    return res.status(500).json({ success: false, message: "Verification failed" });
+    return res.status(isConfigError ? 503 : 500).json({
+      success: false,
+      message: isConfigError
+        ? "Two-factor authentication service is temporarily unavailable. Please contact support."
+        : "Verification failed",
+    });
   }
 });
 

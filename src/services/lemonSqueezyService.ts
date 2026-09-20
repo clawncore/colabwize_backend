@@ -83,6 +83,7 @@ export class LemonSqueezyService {
     userEmail: string;
     userId: string;
     customData?: Record<string, any>;
+    discountCode?: string;
   }) {
     await this.initialize();
 
@@ -96,6 +97,7 @@ export class LemonSqueezyService {
         attributes: {
           checkout_data: {
             email: params.userEmail,
+            discount_code: params.discountCode,
             custom: {
               user_id: params.userId,
               ...params.customData,
@@ -120,7 +122,40 @@ export class LemonSqueezyService {
     };
 
     const response = await this.makeRequest("checkouts", "POST", checkoutData);
-    return response.data.attributes.url;
+
+    // Validate the response before returning — the checkout URL is a signed
+    // LemonSqeezy value and must be returned exactly as-is to the frontend.
+    if (
+      !response?.data?.attributes?.url ||
+      typeof response.data.attributes.url !== "string"
+    ) {
+      logger.error("LemonSqueezy checkout response missing valid URL", {
+        responseKeys: response?.data?.attributes
+          ? Object.keys(response.data.attributes)
+          : null,
+        variantId: params.variantId,
+        discountCode: params.discountCode,
+      });
+      throw new Error(
+        "LemonSqueezy API returned a response without a valid checkout URL",
+      );
+    }
+
+    const checkoutUrl = response.data.attributes.url;
+
+    // Defensive: ensure the URL looks like a real LS checkout URL. Never
+    // silently fabricate or fallback — throw so the caller can surface an
+    // application error to the user.
+    if (!checkoutUrl.startsWith("https://")) {
+      logger.error("LemonSqueezy checkout URL is not valid HTTPS", {
+        checkoutUrl,
+      });
+      throw new Error(
+        "LemonSqueezy returned an invalid checkout URL (not HTTPS)",
+      );
+    }
+
+    return checkoutUrl;
   }
 
   /**
