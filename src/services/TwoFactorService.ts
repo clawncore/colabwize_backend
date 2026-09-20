@@ -10,18 +10,24 @@ authenticator.options = { ...authenticator.options, window: 1 };
 
 // AES-256-GCM Encryption Configuration
 const ALGORITHM = "aes-256-gcm";
-// Require encryption key to be set via environment variable - no fallback in production
-const ENCRYPTION_KEY = process.env.TWO_FACTOR_ENCRYPTION_KEY;
 
-if (!ENCRYPTION_KEY) {
-    throw new Error("TWO_FACTOR_ENCRYPTION_KEY must be set in environment variables");
-}
+// Deferred encryption key resolution — throws only when 2FA functions are
+// actually used, not at module import time. This prevents the server from
+// crashing on startup if the env var is missing (it's optional unless 2FA is enabled).
+const getEncryptionKey = (): string => {
+    const key = process.env.TWO_FACTOR_ENCRYPTION_KEY;
+    if (!key) {
+        throw new Error("TWO_FACTOR_ENCRYPTION_KEY must be set in environment variables");
+    }
+    return key;
+};
 
 // Accept either a 32-byte raw secret or a 64-character hexadecimal secret.
 const getKey = () => {
-    const key = /^[0-9a-fA-F]{64}$/.test(ENCRYPTION_KEY)
-        ? Buffer.from(ENCRYPTION_KEY, "hex")
-        : Buffer.from(ENCRYPTION_KEY);
+    const raw = getEncryptionKey();
+    const key = /^[0-9a-fA-F]{64}$/.test(raw)
+        ? Buffer.from(raw, "hex")
+        : Buffer.from(raw);
     if (key.length !== 32) {
         throw new Error(`TWO_FACTOR_ENCRYPTION_KEY must be exactly 32 bytes, got ${key.length}`);
     }
