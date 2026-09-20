@@ -64,6 +64,7 @@ export class LemonSqueezyService {
         status: response.status,
         endpoint,
         method,
+        requestBody: body,
         errors: data.errors,
       });
       const error = new Error(`LemonSqueezy API error: ${response.status}`);
@@ -91,13 +92,31 @@ export class LemonSqueezyService {
       throw new Error("LemonSqueezy store ID not configured");
     }
 
-    const checkoutData = {
+    // Build checkout_data — only include discount_code when present.
+    // LemonSqueezy rejects `discount_code: undefined` or `null` with a 422
+    // Unprocessable Entity error. The field must be omitted entirely when
+    // there is no discount.
+    const checkoutData: {
+      data: {
+        type: string;
+        attributes: {
+          checkout_data: {
+            email: string;
+            custom: Record<string, any>;
+            discount_code?: string;
+          };
+        };
+        relationships: {
+          store: { data: { type: string; id: string } };
+          variant: { data: { type: string; id: string } };
+        };
+      };
+    } = {
       data: {
         type: "checkouts",
         attributes: {
           checkout_data: {
             email: params.userEmail,
-            discount_code: params.discountCode,
             custom: {
               user_id: params.userId,
               ...params.customData,
@@ -120,6 +139,13 @@ export class LemonSqueezyService {
         },
       },
     };
+
+    // Only attach the discount code if one was provided — including it as
+    // undefined/null causes LemonSqueezy to return 422.
+    if (params.discountCode) {
+      checkoutData.data.attributes.checkout_data.discount_code =
+        params.discountCode;
+    }
 
     const response = await this.makeRequest("checkouts", "POST", checkoutData);
 

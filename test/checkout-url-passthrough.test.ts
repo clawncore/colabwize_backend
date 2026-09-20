@@ -105,7 +105,7 @@ describe("LemonSqueezy checkout URL pass-through", () => {
     );
   });
 
-  it("omits discount_code when no promo is provided", async () => {
+  it("omits discount_code from request body when no promo is provided", async () => {
     const lsSignedUrl = "https://store.colabwize.com/checkout/custom/nodisc";
 
     const mockFetch = jest.fn();
@@ -128,8 +128,10 @@ describe("LemonSqueezy checkout URL pass-through", () => {
     const fetchCall = mockFetch.mock.calls[0];
     const requestBody = JSON.parse(fetchCall[1].body);
 
-    expect(requestBody.data.attributes.checkout_data.discount_code).toBe(
-      undefined,
+    // LemonSqueezy rejects `discount_code: undefined` with 422 — the field
+    // must be entirely absent from the request when there is no promo.
+    expect(requestBody.data.attributes.checkout_data).not.toHaveProperty(
+      "discount_code",
     );
   });
 

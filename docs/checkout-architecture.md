@@ -63,6 +63,11 @@ Frontend                    Backend              LemonSqueezy API
 Discount codes must be supplied during checkout **creation** via the
 `checkout_data.discount_code` field in the LemonSqueezy API request body.
 
+**Important:** When no discount is needed, the `discount_code` field must be
+**omitted entirely** — not set to `null` or `undefined`. LemonSqueezy returns
+HTTP 422 (Unprocessable Entity) if `discount_code: null` or
+`discount_code: undefined` is sent in the request body.
+
 ```json
 {
   "data": {

@@ -512,9 +512,13 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
       success: true,
       checkoutUrl,
     });
-  } catch (error) {
-    console.error("Create checkout error:", error);
-    return res.status(200).json({
+  } catch (error: any) {
+    console.error("Create checkout error:", {
+      message: error?.message,
+      status: error?.status,
+      lsErrors: error?.data?.errors,
+    });
+    return res.status(500).json({
       success: false,
       message: "Service temporarily unavailable. Please try again later.",
     });
