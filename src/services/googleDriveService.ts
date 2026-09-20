@@ -121,7 +121,7 @@ export class GoogleDriveService {
     const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
     const REDIRECT_URI = `${BACKEND_URL}/api/auth/google/callback`;
 
-    return new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
+    return new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI) as unknown as OAuth2Client;
   }
 
   /**

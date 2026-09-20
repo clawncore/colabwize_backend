@@ -48,7 +48,7 @@ export class VectorStoreService {
   /**
    * Searches for similar documents based on a query.
    * @param query The search query.
-   * @param filter Optional metadata filter.
+   * @param filter Optional metadata filter. MUST include userId for tenant isolation.
    * @returns Array of matching documents with scores.
    */
   static async search(
@@ -61,6 +61,11 @@ export class VectorStoreService {
       throw new Error("OPENAI_API_KEY not configured");
     }
 
+    // Enforce tenant isolation: filter must include userId
+    if (!filter || !filter.userId) {
+      throw new Error("VectorStoreService.search requires filter.userId for tenant isolation");
+    }
+
     const embeddings = new OpenAIEmbeddings({
       openAIApiKey: apiKey,
       modelName: "text-embedding-3-small", // Ensure consistent model
@@ -70,30 +75,24 @@ export class VectorStoreService {
     const queryEmbedding = await embeddings.embedQuery(query);
     const vectorString = `[${queryEmbedding.join(",")}]`;
 
-    // Construct metadata filter query if filter is provided
-    let results: any[];
+    // Construct metadata filter query with mandatory userId scoping
+    const combinedFilter = {
+      ...filter,
+      userId: filter.userId, // Ensure userId is always present
+    };
 
-    if (filter) {
-      results = await prisma.$queryRaw`
-        SELECT id, content, metadata, 1 - (embedding <=> ${vectorString}::vector) as similarity
-        FROM documents
-        WHERE 1 - (embedding <=> ${vectorString}::vector) > 0.5
-        AND metadata @> ${JSON.stringify(filter)}::jsonb
-        ORDER BY similarity DESC
-        LIMIT ${k}
-      `;
-    } else {
-      results = await prisma.$queryRaw`
-        SELECT id, content, metadata, 1 - (embedding <=> ${vectorString}::vector) as similarity
-        FROM documents
-        WHERE 1 - (embedding <=> ${vectorString}::vector) > 0.5
-        ORDER BY similarity DESC
-        LIMIT ${k}
-      `;
-    }
+    const results = await prisma.$queryRaw`
+      SELECT id, content, metadata, 1 - (embedding <=> ${vectorString}::vector) as similarity
+      FROM documents
+      WHERE 1 - (embedding <=> ${vectorString}::vector) > 0.5
+      AND metadata @> ${JSON.stringify(combinedFilter)}::jsonb
+      ORDER BY similarity DESC
+      LIMIT ${k}
+    `;
 
     // Convert results to Document format
-    return results.map(
+    // F-22/F-31: Row type from $queryRaw — content and metadata are text/jsonb columns.
+    return (results as Array<{ content: string; metadata: Record<string, unknown> }>).map(
       (row) =>
         new Document({
           pageContent: row.content,
@@ -207,12 +206,14 @@ export class VectorStoreService {
    */
   static async searchProjectContext(
     projectId: string,
+    userId: string,
     query: string,
     k: number = 5,
   ): Promise<Document[]> {
     const filter = {
       type: "project",
       projectId,
+      userId,
     };
 
     return this.search(query, filter, k);

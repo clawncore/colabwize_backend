@@ -105,42 +105,22 @@ router.post("/link", authenticateHybridRequest, async (req, res) => {
 });
 
 /**
- * GET /api/auth/mendeley/debug
- * Diagnostic endpoint for Mendeley integration
+ * GET /api/auth/mendeley/status
+ * Non-sensitive connection status for Mendeley integration.
+ * F-39: Replaced /debug — removed clientId, CALLBACK_URL, nodeEnv, userId leakage.
  */
-router.get("/debug", authenticateHybridRequest, async (req, res) => {
+router.get("/status", authenticateHybridRequest, async (req, res) => {
     try {
-        const userId = (req as any).user.id;
         const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { 
-                id: true, 
-                mendeley_access_token: true,
-                mendeley_token_expires_at: true 
-            }
+            where: { id: (req as any).user.id },
+            select: { mendeley_access_token: true, mendeley_token_expires_at: true }
         });
 
         return res.json({
-            status: "success",
-            timestamp: new Date().toISOString(),
-            diagnostics: {
-                flowType: "Elsevier Unified IDP (Modern)",
-                hasClientId: !!MENDELEY_CLIENT_ID,
-                hasClientSecret: !!MENDELEY_CLIENT_SECRET,
-                clientId: MENDELEY_CLIENT_ID.substring(0, 5) + "****",
-                callbackUrl: CALLBACK_URL,
-                nodeEnv: process.env.NODE_ENV,
-                isProduction: process.env.NODE_ENV === "production"
-            },
-            userStatus: {
-                userId: user?.id,
-                hasToken: !!user?.mendeley_access_token,
-                tokenExpiresAt: user?.mendeley_token_expires_at,
-                isExpired: user?.mendeley_token_expires_at ? new Date() > user.mendeley_token_expires_at : null
-            }
+            connected: !!(user?.mendeley_access_token),
         });
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Failed to check Mendeley status" });
     }
 });
 

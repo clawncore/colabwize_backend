@@ -175,8 +175,22 @@ export async function CHAT_PDF(req: Request, res: Response) {
       return sendErrorResponse(res, 400, "Missing documentId or message");
     }
 
-    // 1. Retrieve relevant chunks from the vector store
-    const docs = await VectorStoreService.search(message, { documentId });
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return sendErrorResponse(res, 401, "Unauthorized");
+    }
+
+    // 1. Verify ownership of the PDF document
+    const pdf = await prisma.pdfDocument.findFirst({
+      where: { id: documentId, user_id: userId },
+    });
+
+    if (!pdf) {
+      return sendErrorResponse(res, 404, "Document not found or access denied");
+    }
+
+    // 2. Retrieve relevant chunks from the vector store with userId filter for tenant isolation
+    const docs = await VectorStoreService.search(message, { documentId, userId });
 
     // Strict RAG: return early if no relevant context found in the document
     if (docs.length === 0) {
@@ -254,13 +268,18 @@ export async function GET_PDFS(req: Request, res: Response) {
 export async function GET_PDF(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const userId = (req as any).user?.id;
 
-    const pdf = await prisma.pdfDocument.findUnique({
-      where: { id },
+    if (!userId) {
+      return sendErrorResponse(res, 401, "Unauthorized");
+    }
+
+    const pdf = await prisma.pdfDocument.findFirst({
+      where: { id, user_id: userId },
     });
 
     if (!pdf) {
-      return sendErrorResponse(res, 404, "Document not found");
+      return sendErrorResponse(res, 404, "Document not found or access denied");
     }
 
     sendJsonResponse(res, 200, pdf);
@@ -329,13 +348,13 @@ export async function GET_PDF_RELATED(req: Request, res: Response) {
       return sendErrorResponse(res, 401, "Unauthorized");
     }
 
-    // 1. Get PDF Metadata
-    const pdf = await prisma.pdfDocument.findUnique({
-      where: { id },
+    // 1. Get PDF Metadata with ownership check
+    const pdf = await prisma.pdfDocument.findFirst({
+      where: { id, user_id: userId },
     });
 
     if (!pdf) {
-      return sendErrorResponse(res, 404, "Document not found");
+      return sendErrorResponse(res, 404, "Document not found or access denied");
     }
 
     // 2. Generate search query from filename (remove .pdf, special chars)

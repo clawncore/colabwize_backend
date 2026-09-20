@@ -30,7 +30,12 @@ router.post("/signup", async (req, res) => {
       });
     }
 
-    const result = await HybridAuthService.signUp(email, password, userData);
+    const ipAddress = req.headers["x-forwarded-for"] as string | undefined || req.ip || "";
+    const userAgent = req.headers["user-agent"] || "";
+    const result = await HybridAuthService.signUp(email, password, userData, {
+      ipAddress,
+      userAgent,
+    });
 
     if (result.success) {
       return res.status(201).json(result);

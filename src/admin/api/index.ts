@@ -474,7 +474,10 @@ router.get("/inbox/sent", async (req, res) => {
  */
 router.get("/inbox", async (req, res) => {
   try {
-    const status = (req.query.status as string) || "open";
+    // F-32: Validate status against allowed enum to prevent injection into raw SQL
+    const VALID_STATUSES = ["open", "resolved", "pending", "closed"];
+    let status = (req.query.status as string) || "open";
+    if (!VALID_STATUSES.includes(status)) status = "open";
     const folder = (req.query.folder as string);
 
     let messages;
@@ -490,7 +493,9 @@ router.get("/inbox", async (req, res) => {
         take: 100
       });
     } else {
-      // Original grouped thread logic for the main "All" view
+      // F-32: Raw SQL is parameterized by Prisma's $queryRaw tagged template.
+      // The `status` value is validated against VALID_STATUSES enum above.
+      // Do NOT use $queryRawUnsafe here.
       messages = await prisma.$queryRaw`
         SELECT t1.*
         FROM support_messages t1

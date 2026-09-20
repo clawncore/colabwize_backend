@@ -19,23 +19,25 @@ export async function verifyRecaptcha(
   minScore: number = 0.5
 ): Promise<RecaptchaResponse> {
   try {
-    // Bypass in development
-    if (process.env.NODE_ENV === "development" || process.env.SKIP_RECAPTCHA === "true") {
-      console.log("[reCAPTCHA] Bypassing verification in development mode.");
-      return { success: true, message: "Bypassed (development)" };
-    }
-
+    // Fail-closed in production even without keys or on network errors
     const v3Secret = process.env.RC_SECRET;
     const v2Secret = process.env.RC_V2_SECRET;
-    
+
     if (!v3Secret && !v2Secret) {
-      console.warn("[reCAPTCHA] No secret keys set. Bypassing verification.");
-      return { success: true, message: "Bypassed (no keys)" };
+      console.error("[reCAPTCHA] No secret keys configured. Fail-closed mode.");
+      return { success: false, message: "Security verification unavailable - please try again later" };
     }
 
     // Try verifying with the primary v3 secret first
     let verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${v3Secret || v2Secret}&response=${token}`;
     let response = await fetch(verifyUrl, { method: "POST" });
+
+    if (!response.ok) {
+      console.error("[reCAPTCHA] Verification request failed:", response.status);
+      // Fail-closed on network errors
+      return { success: false, message: "Security verification service unavailable" };
+    }
+
     let data = (await response.json()) as RecaptchaResponse;
 
     // If it failed and we have a second key, try that too (one might be v2, one v3)
@@ -43,6 +45,12 @@ export async function verifyRecaptcha(
       console.log("[reCAPTCHA] Primary key failed, trying secondary key...");
       verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${v2Secret}&response=${token}`;
       response = await fetch(verifyUrl, { method: "POST" });
+
+      if (!response.ok) {
+        console.error("[reCAPTCHA] Secondary verification request failed:", response.status);
+        return { success: false, message: "Security verification service unavailable" };
+      }
+
       data = (await response.json()) as RecaptchaResponse;
     }
 
@@ -57,6 +65,7 @@ export async function verifyRecaptcha(
       return {
         success: false,
         message: "Security verification could not be completed. Please use a standard, up-to-date browser to avoid security risks.",
+        "error-codes": data["error-codes"] || [],
       };
     }
 
@@ -70,11 +79,9 @@ export async function verifyRecaptcha(
     }
 
     return { success: true, score: data.score };
-
-    return { success: true, score: data.score };
   } catch (error) {
     console.error("[reCAPTCHA] Verification error:", error);
-    // Fail open by default to avoid blocking all users on network error
-    return { success: true, message: "Bypassed (error)" };
+    // Fail-closed on any error to prevent bypass
+    return { success: false, message: "Security verification service unavailable" };
   }
 }

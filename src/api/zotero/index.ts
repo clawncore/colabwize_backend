@@ -49,36 +49,26 @@ router.get("/library", providerApiLimiter, authenticateHybridRequest, async (req
 });
 
 /**
- * GET /api/zotero/debug
- * Diagnostic endpoint for Zotero integration
+ * GET /api/zotero/status
+ * Non-sensitive connection status for Zotero integration.
+ * F-36: Replaced /debug — removed apiKeyPreview, zoteroId, nodeEnv, userId.
  */
-router.get("/debug", authenticateHybridRequest, async (req: Request, res: Response) => {
+router.get("/status", authenticateHybridRequest, async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const user = await prisma.user.findUnique({
             where: { id: userId },
-            select: { 
-                id: true, 
+            select: {
                 zotero_user_id: true,
-                zotero_api_key: true 
+                zotero_api_key: true
             }
         });
 
         return res.json({
-            status: "success",
-            diagnostics: {
-                hasZoteroUserId: !!user?.zotero_user_id,
-                hasZoteroApiKey: !!user?.zotero_api_key,
-                zoteroId: user?.zotero_user_id,
-                apiKeyPreview: user?.zotero_api_key ? user.zotero_api_key.substring(0, 4) + "..." : null,
-                nodeEnv: process.env.NODE_ENV,
-            },
-            userObject: {
-                id: user?.id,
-            }
+            connected: !!(user?.zotero_user_id && user?.zotero_api_key),
         });
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Failed to check Zotero status" });
     }
 });
 
@@ -109,9 +99,9 @@ router.post("/import", providerApiLimiter, authenticateHybridRequest, async (req
 
         return res.status(200).json({ success: true, importedCount: results.length, data: results });
     } catch (error: any) {
-        console.error("Zotero Import Route Critical Error:", error.stack || error.message);
-        console.error("Incoming Body:", JSON.stringify(req.body).substring(0, 500) + "...");
-        return res.status(500).json({ error: error.message, stack: error.stack });
+        // F-37/F-38: Never return server stack traces or log raw request bodies.
+        console.error("Zotero Import Route Critical Error:", error?.message);
+        return res.status(500).json({ error: "Zotero import failed" });
     }
 });
 
@@ -252,8 +242,14 @@ router.get("/file/:itemKey", authenticateHybridRequest, async (req: Request, res
         });
 
         // Forward headers
-        res.setHeader('Content-Type', response.headers['content-type']);
-        res.setHeader('Content-Disposition', response.headers['content-disposition']);
+        const contentType = response.headers['content-type'];
+        const contentDisposition = response.headers['content-disposition'];
+        if (contentType) {
+          res.setHeader('Content-Type', typeof contentType === 'string' ? contentType : Array.isArray(contentType) ? contentType[0] : String(contentType));
+        }
+        if (contentDisposition) {
+          res.setHeader('Content-Disposition', typeof contentDisposition === 'string' ? contentDisposition : Array.isArray(contentDisposition) ? contentDisposition[0] : String(contentDisposition));
+        }
 
         response.data.pipe(res);
     } catch (error: any) {

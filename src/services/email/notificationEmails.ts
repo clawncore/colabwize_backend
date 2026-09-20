@@ -674,13 +674,17 @@ export async function sendReferralRewardEmail(
   to: string,
   fullName: string,
   days: number,
+  expiresAt?: Date,
 ): Promise<boolean> {
   const frontendUrl = await SecretsService.getFrontendUrl();
-  
+
+  const validUntil = expiresAt ?? new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  const validUntilLabel = validUntil.toLocaleDateString();
+
   const content = `
     <p>Hello ${fullName || "there"},</p>
     <p>Great news! Someone just signed up using your referral code. As a thank you, you've been upgraded to <strong>Plus plan</strong> for <strong>${days} days</strong> - absolutely free!</p>
-    
+
     <div style="background-color: #d1fae5; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #10b981;">
       <h2 style="color: #065f46; margin-top: 0; font-size: 18px;">Your Plus Plan Benefits</h2>
       <ul style="margin: 10px 0; padding-left: 20px; color: #047857;">
@@ -691,7 +695,7 @@ export async function sendReferralRewardEmail(
         <li><strong>Priority email support</strong></li>
       </ul>
       <p style="margin: 15px 0 0 0; font-size: 14px; color: #065f46;">
-        <strong>Valid until:</strong> ${new Date(Date.now() + days * 24 * 60 * 60 * 1000).toLocaleDateString()}
+        <strong>Valid until:</strong> ${validUntilLabel}
       </p>
     </div>
     
@@ -717,6 +721,125 @@ export async function sendReferralRewardEmail(
 
   return success;
 }
+
+/**
+ * Sends a referee reward notification email — the referee is upgraded to
+ * Plus because a friend referred them via the Refer & Earn program.
+ *
+ * Mirrors sendReferralRewardEmail for the referrer; both users receive
+ * the same REWARD_DAYS entitlement.
+ */
+export async function sendRefereeRewardEmail(
+  to: string,
+  fullName: string,
+  referrerFullName: string,
+  days: number,
+  expiresAt?: Date,
+): Promise<boolean> {
+  const frontendUrl = await SecretsService.getFrontendUrl();
+
+  const validUntil = expiresAt ?? new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  const validUntilLabel = validUntil.toLocaleDateString();
+
+  const content = `
+    <p>Hello ${fullName || "there"},</p>
+    <p>Welcome to ColabWize! Your colleague <strong>${referrerFullName || "a friend"}</strong> referred you, and as a thank-you you've been upgraded to the <strong>Plus plan</strong> for <strong>${days} days</strong> — absolutely free!</p>
+
+    <div style="background-color: #d1fae5; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #10b981;">
+      <h2 style="color: #065f46; margin-top: 0; font-size: 18px;">Your Plus Plan Benefits</h2>
+      <ul style="margin: 10px 0; padding-left: 20px; color: #047857;">
+        <li><strong>25 document scans</strong> per month</li>
+        <li><strong>10 Originality Scans</strong> included</li>
+        <li><strong>50 AI Chat</strong> messages</li>
+        <li><strong>Professional certificates</strong> without watermarks</li>
+        <li><strong>Priority email support</strong></li>
+      </ul>
+      <p style="margin: 15px 0 0 0; font-size: 14px; color: #065f46;">
+        <strong>Valid until:</strong> ${validUntilLabel}
+      </p>
+    </div>
+
+    <p style="font-size: 14px;">Thank you for joining ColabWize. Start exploring Plus features right away — your free period begins now.</p>
+  `;
+
+  const html = buildEmailHtml({
+    title: "Welcome! You Earned Free Plus",
+    titleColor: "#059669",
+    content,
+    ctaText: "Open Dashboard",
+    ctaUrl: `${frontendUrl}/dashboard`,
+  });
+
+  const { success } = await sendEmail({
+    from: "NOTIFICATIONS",
+    to,
+    subject: `Welcome to ColabWize — ${days} days of Plus free!`,
+    html,
+    text: `Hello ${fullName || "there"},\n\nYour friend ${referrerFullName || "referred you"} and you both earned ${days} days of Plus plan on ColabWize. Your free Plus access starts now.\n\nOpen your dashboard: ${frontendUrl}/dashboard\n\nColabWize Team`,
+  });
+
+  return success;
+}
+
+/**
+ * Sends an expiration reminder email when a referee's referral-granted
+ * Plus entitlement is about to expire (typically 24 h before expiry).
+ *
+ * Triggered by the daily referralExpirationTask cron job.
+ */
+export async function sendReferralExpirationReminder(
+  to: string,
+  fullName: string,
+  referralId: string,
+  expiresAt: Date,
+): Promise<boolean> {
+  const frontendUrl = await SecretsService.getFrontendUrl();
+  const expireDate = expiresAt.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const content = `
+    <p>Hello ${fullName || "there"},</p>
+    <p>This is a friendly reminder that your <strong>Plus plan trial</strong> (granted via a Refer &amp; Earn reward) expires on <strong>${expireDate}</strong>.</p>
+
+    <div style="background-color: #fffbeb; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #f59e0b;">
+      <h2 style="color: #92400e; margin-top: 0; font-size: 18px;">Your Plus Benefits Will Expire Soon</h2>
+      <p style="color: #78350f; margin: 10px 0;">
+        After expiry you'll lose access to:
+      </p>
+      <ul style="margin: 10px 0; padding-left: 20px; color: #78350f;">
+        <li>Unlimited document scans</li>
+        <li>Originality and plagiarism checks</li>
+        <li>50 AI Chat messages per month</li>
+        <li>Priority support</li>
+      </ul>
+    </div>
+
+    <p style="font-size: 14px;">Upgrade to Plus before it expires to keep your workflow uninterrupted. Your documents and history are always saved.</p>
+  `;
+
+  const html = buildEmailHtml({
+    title: "Your Plus Trial Expires Soon",
+    titleColor: "#d97706",
+    content,
+    ctaText: "Upgrade to Plus",
+    ctaUrl: `${frontendUrl}/dashboard/billing?referral=${referralId}`,
+  });
+
+  const { success } = await sendEmail({
+    from: "NOTIFICATIONS",
+    to,
+    subject: "Your ColabWize Plus trial ends soon",
+    html,
+    text: `Hello ${fullName || "there"},\n\nYour Plus plan trial granted via a referral reward expires on ${expireDate}. Upgrade now to keep your benefits.\n\n${frontendUrl}/dashboard/billing\n\nColabWize Team`,
+  });
+
+  return success;
+}
+
 /**
  * Sends a security alert email for unusual login attempts.
  */

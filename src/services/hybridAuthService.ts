@@ -4,9 +4,23 @@ import { EmailService } from "./emailService";
 import logger from "../monitoring/logger";
 import { SecretsService } from "./secrets-service";
 import { EntitlementService } from "./EntitlementService";
+import { SecurityLogService } from "./securityLogService";
 import { SecurityService } from "./securityService";
-import { detectBrowser, detectDeviceType, formatIpAddress } from "../utils/browserDetection";
+import {
+  detectBrowser,
+  detectDeviceType,
+  formatIpAddress,
+} from "../utils/browserDetection";
 import { getLocationFromIp, getPublicIp } from "../utils/ipGeolocation";
+
+/**
+ * Optional request context used only for abuse-signal correlation.
+ * NEVER used to block, downgrade, or penalize legitimate referrals.
+ */
+export interface ReferralRequestContext {
+  ipAddress?: string;
+  userAgent?: string;
+}
 
 /**
  * Service for Hybrid Authentication (Supabase + Custom Backend)
@@ -77,7 +91,8 @@ export class HybridAuthService {
       });
 
       // Check for admin promotion
-      await this.promoteAdminIfEligible(data.email, data.id);
+      // Admin promotion is now controlled exclusively through the admin_users table.
+        // Legacy hardcoded email whitelisting removed as privilege escalation fix.
 
       // Create default free subscription
       await prisma.subscription.create({
@@ -214,8 +229,8 @@ export class HybridAuthService {
           },
         });
 
-        // Check for admin promotion during sync
-        await this.promoteAdminIfEligible(email, supabaseUser.id);
+        // Admin promotion is now controlled exclusively through the admin_users table.
+        // Legacy hardcoded email whitelisting removed as privilege escalation fix.
 
         return { success: true, user: newUser };
       } else {
@@ -276,97 +291,394 @@ export class HybridAuthService {
   }
 
   /**
-   * Process referral reward when a new user signs up with a referral code
+   * Reward duration in days granted to both referrer and referee.
    */
-  private static async processReferralReward(refereeId: string, referralCode: string): Promise<void> {
+  private static readonly REWARD_DAYS = 5;
+
+  /**
+   * Maximum successful referrals rewarded per referrer per UTC calendar month.
+   * Auto-resets at 00:00 UTC on the 1st of each month — no cron needed; the
+   * COUNT query naturally moves its boundary.
+   */
+  private static readonly REWARD_LIMIT_PER_MONTH = 1;
+
+  /**
+   * Compute the UTC calendar-month start for "now".
+   * Mirrors the pattern in EntitlementService.rebuildEntitlements so the
+   * monthly boundary is identical across the codebase.
+   */
+  private static monthStartUtc(now: Date): Date {
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  }
+
+  /**
+   * Process referral reward when a new user signs up with a referral code.
+   *
+   * Grants +REWARD_DAYS of Plus (`subscription.plan="plus"` +
+   * `entitlement_expires_at`) to BOTH referee and referrer when either is on
+   * the free tier (paid-tier users are left untouched — they already qualify).
+   *
+   * Enforces a 1-successful-referral-per-referrer-per-UTC-month limit using a
+   * transactional COUNT — race-safe, no extra User columns required.
+   *
+   * Returns the reward outcome so the caller (signUp) can decide whether to
+   * create a fallback free subscription for the referee.
+   */
+  private static async processReferralReward(
+    refereeId: string,
+    referralCode: string,
+    requestContext?: ReferralRequestContext,
+  ): Promise<{ rewardGranted: boolean; refereeRewardGranted: boolean }> {
+    type ReferralResult = {
+      rewardGranted: boolean;
+      refereeRewardGranted: boolean;
+      referrerEmail?: string;
+      refereeEmail?: string;
+      referrerId?: string;
+      referrerFullName?: string;
+      refereeFullName?: string;
+      referralCode: string;
+    };
+
+    const noReward: ReferralResult = {
+      rewardGranted: false,
+      refereeRewardGranted: false,
+      referralCode,
+    };
+    const now = new Date();
+
+    let txResult: ReferralResult;
+
     try {
-      // 1. Find referrer by code
-      const referrer = await prisma.user.findUnique({
-        where: { referral_code: referralCode },
-      });
-      
-      if (!referrer) {
-        logger.warn("Referral code not found", { referralCode });
-        return;
-      }
-      
-      // 2. Prevent self-referral
-      if (referrer.id === refereeId) {
-        logger.warn("Self-referral attempt blocked", { userId: refereeId });
-        return;
-      }
-      
-      // 3. Check if referee already used a referral code
-      const existingReferral = await prisma.referral.findUnique({
-        where: { referee_id: refereeId },
-      });
-      
-      if (existingReferral) {
-        logger.warn("Referee already used a referral code", { refereeId });
-        return;
-      }
-      
-      // 4. Create referral record
-      const rewardExpiresAt = new Date();
-      rewardExpiresAt.setDate(rewardExpiresAt.getDate() + 5); // 5 days of Plus
-      
-      await prisma.referral.create({
-        data: {
-          referrer_id: referrer.id,
-          referee_id: refereeId,
-          reward_status: "granted",
-          reward_expires_at: rewardExpiresAt,
-        },
-      });
-      
-      // 5. Upgrade referrer to Plus for 5 days (if on free plan)
-      const referrerSub = await prisma.subscription.findUnique({
-        where: { user_id: referrer.id },
-      });
-      
-      if (referrerSub?.plan === "free" || !referrerSub) {
-        // If no subscription exists, create one
-        if (!referrerSub) {
-          await prisma.subscription.create({
-            data: {
-              user_id: referrer.id,
-              plan: "plus",
-              status: "active",
-              entitlement_expires_at: rewardExpiresAt,
-            },
+      txResult = await prisma.$transaction(async (tx: any) => {
+        // 1. Find referrer by code
+        const referrer = await tx.user.findUnique({
+          where: { referral_code: referralCode },
+        });
+
+        if (!referrer) {
+          logger.warn("Referral code not found", { referralCode });
+          return noReward;
+        }
+
+        // 2. Prevent self-referral
+        if (referrer.id === refereeId) {
+          logger.warn("Self-referral attempt blocked", { userId: refereeId });
+          return noReward;
+        }
+
+        // 3. Check if referee already used a referral code (unique constraint + guard)
+        const existingReferral = await tx.referral.findUnique({
+          where: { referee_id: refereeId },
+        });
+
+        if (existingReferral) {
+          logger.warn("Referee already used a referral code", { refereeId });
+          return noReward;
+        }
+
+        // 4. Monthly limit: count *successful* referrals granted this UTC month.
+        //    This is the single source of truth for the 1-referral/month cap.
+        const monthStart = HybridAuthService.monthStartUtc(now);
+        const rewardedThisMonth = await tx.referral.count({
+          where: {
+            referrer_id: referrer.id,
+            reward_status: "granted",
+            referred_at: { gte: monthStart },
+          },
+        });
+
+        const expiresAt = new Date(
+          now.getTime() + HybridAuthService.REWARD_DAYS * 24 * 60 * 60 * 1000,
+        );
+
+        if (rewardedThisMonth >= HybridAuthService.REWARD_LIMIT_PER_MONTH) {
+          // Limit reached this month — log the attempt but don't create a
+          // referral row. Creating a monthly_limit_reached row would hit the
+          // referee_id unique constraint and prevent a legitimate referral
+          // in the next UTC month after the auto-reset.
+          logger.info("Monthly referral limit reached for referrer", {
+            referrerId: referrer.id,
+            refereeId,
+            monthStart,
           });
-        } else {
-          // Update existing free subscription to plus with expiry
-          await prisma.subscription.update({
-            where: { user_id: referrer.id },
+          return noReward;
+        }
+
+        // 5. Create the referral record (pending until rewards are applied)
+        await tx.referral.create({
+          data: {
+            referrer_id: referrer.id,
+            referee_id: refereeId,
+            reward_status: "granted",
+            reward_expires_at: expiresAt,
+            referee_reward_granted: false, // set true below if referee was upgraded
+            referee_entitlement_expires: null,
+          },
+        });
+
+        let refereeRewardGranted = false;
+
+        // 6. Grant referee reward (if on free tier — mirrors referrer logic)
+        const refereeSub = await tx.subscription.findUnique({
+          where: { user_id: refereeId },
+        });
+
+        if (!refereeSub || refereeSub.plan === "free") {
+          if (!refereeSub) {
+            await tx.subscription.create({
+              data: {
+                user_id: refereeId,
+                plan: "plus",
+                status: "active",
+                entitlement_expires_at: expiresAt,
+              },
+            });
+          } else {
+            await tx.subscription.update({
+              where: { user_id: refereeId },
+              data: {
+                plan: "plus",
+                status: "active",
+                entitlement_expires_at: expiresAt,
+              },
+            });
+          }
+          refereeRewardGranted = true;
+          await tx.referral.update({
+            where: { referee_id: refereeId },
             data: {
-              plan: "plus",
-              status: "active",
-              entitlement_expires_at: rewardExpiresAt,
+              referee_reward_granted: true,
+              referee_entitlement_expires: expiresAt,
             },
           });
         }
-        
-        // Rebuild entitlements so user gets plus features immediately
-        await EntitlementService.rebuildEntitlements(referrer.id);
-        
-        // Send reward email
-        await EmailService.sendReferralRewardEmail(referrer.email, referrer.full_name || "", 5);
-        
-        logger.info("Referral reward granted", {
-          referrerId: referrer.id,
-          refereeId,
-          expiresAt: rewardExpiresAt,
+
+        // 7. Grant referrer reward (if on free tier)
+        const referrerSub = await tx.subscription.findUnique({
+          where: { user_id: referrer.id },
         });
-      } else {
-        logger.info("Referrer already on paid plan, referral logged without upgrade", {
+
+        if (!referrerSub || referrerSub.plan === "free") {
+          if (!referrerSub) {
+            await tx.subscription.create({
+              data: {
+                user_id: referrer.id,
+                plan: "plus",
+                status: "active",
+                entitlement_expires_at: expiresAt,
+              },
+            });
+          } else {
+            await tx.subscription.update({
+              where: { user_id: referrer.id },
+              data: {
+                plan: "plus",
+                status: "active",
+                entitlement_expires_at: expiresAt,
+              },
+            });
+          }
+          logger.info("Referral reward granted", {
+            referrerId: referrer.id,
+            refereeId,
+            refereeRewardGranted,
+            expiresAt,
+          });
+        } else {
+          logger.info("Referrer already on paid plan, referral logged without upgrade", {
+            referrerId: referrer.id,
+            currentPlan: referrerSub.plan,
+          });
+        }
+
+        // Resolve the referee's email/name for the reward email. This is a
+        // read-only lookup inside the transaction and does not lock the
+        // referral row.
+        const referee = await tx.user.findUnique({
+          where: { id: refereeId },
+          select: {
+            email: true,
+            full_name: true,
+          },
+        });
+
+        // Return the domain + referee contact info so the caller can emit
+        // best-effort audit signals OUTSIDE the transaction (a SecurityLog
+        // write failure must never roll back a valid reward).
+        return {
+          rewardGranted: true,
+          refereeRewardGranted,
+          referrerEmail: referrer.email,
+          refereeEmail: referee?.email,
           referrerId: referrer.id,
-          currentPlan: referrerSub.plan,
+          referrerFullName: referrer.full_name,
+          refereeFullName: referee?.full_name,
+          referralCode,
+        };
+      });
+
+    // ── Non-transactional side effects ──────────────────────────────
+    // Emails and entitlement rebuilds run OUTSIDE $transaction so a
+    // transient email-service or entitlement failure cannot roll back
+    // the already-committed reward in the DB. These are best-effort —
+    // failures are logged but never propagated to the signup flow.
+    if (txResult.rewardGranted) {
+      const rewardExpiresAt = new Date(
+        now.getTime() + HybridAuthService.REWARD_DAYS * 24 * 60 * 60 * 1000,
+      );
+
+      try {
+        await EmailService.sendReferralRewardEmail(
+          txResult.referrerEmail ?? "",
+          txResult.referrerFullName ?? "",
+          HybridAuthService.REWARD_DAYS,
+          rewardExpiresAt,
+        );
+      } catch (emailError: any) {
+        logger.warn("Failed to send referral reward email (non-blocking)", {
+          referrerId: txResult.referrerId,
+          error: emailError.message,
         });
       }
-    } catch (error: any) {
-      logger.error("Failed to process referral reward", { error: error.message, refereeId, referralCode });
-      // Don't throw - referral failure shouldn't block signup
+
+      if (txResult.refereeRewardGranted) {
+        try {
+          await EmailService.sendRefereeRewardEmail(
+            txResult.refereeEmail ?? "",
+            txResult.refereeFullName ?? "",
+            txResult.referrerFullName ?? "",
+            HybridAuthService.REWARD_DAYS,
+            rewardExpiresAt,
+          );
+        } catch (emailError: any) {
+          logger.warn("Failed to send referee reward email (non-blocking)", {
+            refereeId,
+            error: emailError.message,
+          });
+        }
+      }
+
+      // Rebuild entitlements for both users so plan + expiry are
+      // immediately consistent in their Supabase JWT. Referrer ID may be
+      // undefined if the transaction returned a noReward sentinel, so guard
+      // against that here.
+      if (txResult.referrerId) {
+        try {
+          await EntitlementService.rebuildEntitlements(txResult.referrerId);
+        } catch (entErr: any) {
+          logger.warn("Entitlement rebuild failed for referrer (non-blocking)", {
+            referrerId: txResult.referrerId,
+            error: entErr.message,
+          });
+        }
+      }
+
+      try {
+        await EntitlementService.rebuildEntitlements(refereeId);
+      } catch (entErr: any) {
+        logger.warn("Entitlement rebuild failed for referee (non-blocking)", {
+          refereeId,
+          error: entErr.message,
+        });
+      }
+    }
+
+    // ── Abuse signal: same email domain ──────────────────────────────────
+    // Log a WARN when the referrer and referee share an email domain.
+    // This is a SIGNAL for manual review — never an automated block.
+    // Legitimate cases (family, roommates, university cohort, company)
+    // share domains all the time; the flag helps ops investigate patterns
+    // of systematic abuse without penalizing real referrals.
+    //
+    // This runs OUTSIDE prisma.$transaction so audit-log write failures
+    // cannot roll back the already-committed reward. We use
+    // SecurityLogService.logEvent which catches its own errors.
+    await HybridAuthService.logReferralRelationship(
+      txResult.referrerId ?? "",
+      refereeId,
+      txResult.referralCode,
+      txResult.referrerEmail,
+      txResult.refereeEmail,
+      requestContext,
+    );
+
+    return txResult;
+  } catch (error: any) {
+    logger.error("Failed to process referral reward", {
+      error: error.message,
+      refereeId,
+      referralCode,
+    });
+    // Don't throw — referral failure must not block signup
+    return noReward;
+  }
+}
+
+  /**
+   * Resolve the canonical email domain for an email address.
+   */
+  private static getEmailDomain(email?: string): string | undefined {
+    if (!email) return undefined;
+    const domain = email.split("@")[1]?.toLowerCase();
+    return domain || undefined;
+  }
+
+  /**
+   * Log a referral relationship for manual review without blocking signup.
+   */
+  private static async logReferralRelationship(
+    referrerId: string,
+    refereeId: string,
+    referralCode: string,
+    referrerEmail?: string,
+    refereeEmail?: string,
+    requestContext?: ReferralRequestContext,
+  ): Promise<void> {
+    const referrerDomain = HybridAuthService.getEmailDomain(referrerEmail);
+    const refereeDomain = HybridAuthService.getEmailDomain(refereeEmail);
+    const sameDomain =
+      !!referrerDomain &&
+      !!refereeDomain &&
+      referrerDomain === refereeDomain;
+
+    const logPayload = {
+      referrerId,
+      refereeId,
+      referralCode,
+      referrerEmail,
+      refereeEmail,
+      referrerDomain,
+      refereeDomain,
+      ipAddress: requestContext?.ipAddress,
+      userAgent: requestContext?.userAgent,
+      sameDomain,
+    };
+
+    logger.info("Referral relationship recorded", logPayload);
+
+    if (sameDomain) {
+      logger.warn("Referral domain match — flag for manual review", logPayload);
+    }
+
+    try {
+      await SecurityLogService.logEvent({
+        user_id: refereeId,
+        event_type: "referral_relationship",
+        description:
+          sameDomain
+            ? `Referral relationship flagged for manual review: referee used a referral from the same email domain. No automated action was taken.`
+            : "Referral relationship recorded for attribution.",
+        ip_address: requestContext?.ipAddress,
+        user_agent: requestContext?.userAgent,
+        status: sameDomain ? "warning" : "success",
+        metadata: logPayload,
+      });
+    } catch (auditError: any) {
+      logger.warn("Referral relationship audit log failed (non-blocking)", {
+        refereeId,
+        error: auditError.message,
+      });
     }
   }
 
@@ -406,6 +718,7 @@ export class HybridAuthService {
       selected_plan?: string;
       affiliate_ref?: string;
     },
+    requestContext?: ReferralRequestContext,
   ): Promise<{
     success: boolean;
     user?: any;
@@ -491,28 +804,42 @@ export class HybridAuthService {
         },
       });
       
-      // 5.5 Process referral if affiliate_ref was provided
+      // 5.5 Process referral if affiliate_ref was provided.
+      //     processReferralReward upgrades BOTH the referee and referrer to
+      //     Plus (when on free tier), so it must run BEFORE any fallback
+      //     free-subscription creation — otherwise the free row would clobber
+      //     the referral reward (bug B2). It returns the outcome so we can
+      //     skip creating a free subscription when the referee was upgraded.
+      let referralResult = { rewardGranted: false, refereeRewardGranted: false };
       if (userData.affiliate_ref) {
-        await this.processReferralReward(userId, userData.affiliate_ref);
+        referralResult = await this.processReferralReward(
+          userId,
+          userData.affiliate_ref,
+          requestContext,
+        );
       }
 
-      // 6. Create default free subscription for the user (unless they were upgraded via referral)
-      const existingSub = await prisma.subscription.findUnique({
-        where: { user_id: userId },
-      });
-      
-      if (!existingSub) {
-        await prisma.subscription.create({
-          data: {
-            user_id: userId,
-            plan: "free",
-            status: "active",
-          },
+      // 6. Create default free subscription for the user — but ONLY if they
+      //    were NOT upgraded to Plus via a successful referral reward. If
+      //    refereeRewardGranted is true, a plus subscription already exists.
+      if (!referralResult.rewardGranted) {
+        const existingSub = await prisma.subscription.findUnique({
+          where: { user_id: userId },
         });
+
+        if (!existingSub) {
+          await prisma.subscription.create({
+            data: {
+              user_id: userId,
+              plan: "free",
+              status: "active",
+            },
+          });
+        }
       }
 
-      // 6.5 Check for admin promotion
-      await this.promoteAdminIfEligible(email, userId);
+      // Admin promotion is now controlled exclusively through the admin_users table.
+      // Legacy hardcoded email whitelisting removed as privilege escalation fix.
 
       // 7. Generate and Send OTP
       const otpCode = this.generateOTP();
@@ -695,30 +1022,14 @@ export class HybridAuthService {
 
   /**
    * Promote user to admin if they are in the whitelist
+   * NOTE: This method is intentionally removed - admin promotion should only
+   * happen through explicit admin records in the admin_users table.
+   * Legacy hardcoded email whitelisting was a privilege escalation vulnerability.
    */
   private static async promoteAdminIfEligible(email: string, userId: string): Promise<void> {
-    const ADMIN_EMAILS = ["simbisai@colabwize.com", "craig@gmail.com"];
-    
-    if (ADMIN_EMAILS.includes(email.toLowerCase())) {
-      try {
-        const supabaseAdmin = await getSupabaseAdminClient();
-        if (!supabaseAdmin) return;
-
-        logger.info(`Promoting ${email} to admin role`, { userId });
-        
-        const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-          app_metadata: { role: "admin" }
-        });
-
-        if (error) {
-          logger.error(`Failed to promote ${email} to admin`, { error: error.message });
-        } else {
-          logger.info(`Successfully promoted ${email} to admin`);
-        }
-      } catch (error) {
-        logger.error(`Error during admin promotion for ${email}`, { error });
-      }
-    }
+    // Admin access is now controlled exclusively through the admin_users table.
+    // No email-based fallback or hardcoded whitelisting.
+    logger.warn(`Admin promotion attempt for ${email} - privilege escalation prevention enabled`);
   }
 
   static async recordLogin(userId: string, ipAddress: string, userAgent: string) {

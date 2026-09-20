@@ -32,7 +32,7 @@ const defaultRenderer: PdfRenderer = {
     });
     try {
       const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle0" });
+      await page.setContent(html, { waitUntil: "networkidle0" } as any);
 
       const pdfOptions: Parameters<typeof page.pdf>[0] = {
         format: "A4",

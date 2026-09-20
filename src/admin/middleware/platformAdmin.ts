@@ -26,10 +26,7 @@ export interface AdminUser {
  * where colabwize.com staff aliases landed in the admin area. Any email in
  * this list is treated as a `super_admin`.
  */
-export const ADMIN_EMAIL_WHITELIST = [
-  "simbisai@colabwize.com",
-  "craig@colabwize.com",
-  "clawncore@colabwize.com",
+export const ADMIN_EMAIL_WHITELIST: string[] = [
 ];
 
 /**
@@ -107,7 +104,7 @@ export async function resolveAdminRole(req: Request): Promise<AdminRole | null> 
   // 2a. Explicit whitelist of platform-staff accounts. These emails always get
   // super-admin access, so a missing/unmigrated `admin_users` table cannot
   // lock the platform owners out of the admin area.
-  if (ADMIN_EMAIL_WHITELIST.includes(email)) {
+  if (ADMIN_EMAIL_WHITELIST.length > 0 && ADMIN_EMAIL_WHITELIST.includes(email)) {
     (req as any).adminUser = {
       role: "super_admin" as AdminRole,
       email,
@@ -137,19 +134,9 @@ export async function resolveAdminRole(req: Request): Promise<AdminRole | null> 
     );
   }
 
-  // 2c. Legacy platform-staff fallback: any `@colabwize.com` account is a
-  // platform administrator. This preserves the pre-existing routing behavior
-  // where colabwize.com aliases landed in the admin area.
-  if (email.endsWith("@colabwize.com")) {
-    (req as any).adminUser = {
-      role: "admin" as AdminRole,
-      email,
-      userId: `colabwize-domain:${email}`,
-      permissions: ["*"],
-    };
-    return "admin" as AdminRole;
-  }
-
+  // F-23 remediation: Legacy @colabwize.com domain fallback REMOVED.
+  // Platform admin access now requires an explicit admin_users row.
+  // No implicit grant based on email domain.
   return null;
 }
 

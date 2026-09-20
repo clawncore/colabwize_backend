@@ -180,6 +180,7 @@ router.post("/chat-project", async (req: Request, res: Response) => {
     try {
       relevantDocs = await VectorStoreService.searchProjectContext(
         projectId,
+        userId,
         message,
         5, // Top 5 most relevant chunks
       );

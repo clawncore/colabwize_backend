@@ -10,17 +10,20 @@ authenticator.options = { ...authenticator.options, window: 1 };
 
 // AES-256-GCM Encryption Configuration
 const ALGORITHM = "aes-256-gcm";
-// Use a fallback secret for development if env var is missing (DO NOT USE IN PROD)
-const ENCRYPTION_KEY = process.env.TWO_FACTOR_ENCRYPTION_KEY || "dev-secret-key-must-be-32-bytes!!";
+// Require encryption key to be set via environment variable - no fallback in production
+const ENCRYPTION_KEY = process.env.TWO_FACTOR_ENCRYPTION_KEY;
 
-// Ensure key is 32 bytes
+if (!ENCRYPTION_KEY) {
+    throw new Error("TWO_FACTOR_ENCRYPTION_KEY must be set in environment variables");
+}
+
+// Accept either a 32-byte raw secret or a 64-character hexadecimal secret.
 const getKey = () => {
-    const key = Buffer.from(ENCRYPTION_KEY);
+    const key = /^[0-9a-fA-F]{64}$/.test(ENCRYPTION_KEY)
+        ? Buffer.from(ENCRYPTION_KEY, "hex")
+        : Buffer.from(ENCRYPTION_KEY);
     if (key.length !== 32) {
-        // Pad or truncate to 32 bytes for dev safety, or throw error in prod
-        const newKey = Buffer.alloc(32);
-        key.copy(newKey);
-        return newKey;
+        throw new Error(`TWO_FACTOR_ENCRYPTION_KEY must be exactly 32 bytes, got ${key.length}`);
     }
     return key;
 };
@@ -133,29 +136,12 @@ export class TwoFactorService {
             logger.error("Error decrypting 2FA secret during login", { userId, error });
         }
 
-        // 2. Try Backup Codes (if token is 8-10 chars, assuming backup codes are longer)
-        // Backup codes are usually 8-10 hex/alphanumeric chars. TOTP is 6 digits.
+        // 2. Try Backup Codes using constant-time comparison
+        // Backup codes are hashed with SHA-256 for speed (unique random codes make per-code salt optional)
         if (token.length > 6) {
-            // Check against hashed backup codes requires hashing input and comparing
-            // But we stored them as string[]? Ideally we should hash them.
-            // For this implementation, we will assume we verify against the raw input if checking equality,
-            // BUT standard security says hash them.
-            // Let's iterate and check bcrypt? Or simple comparison if we stored plain (bad).
-            // My plan said "Hashed array".
-
-            // Implementation Detail: We need to compare hash(input) with stored_hashes.
-            // Since we haven't implemented the "hashBackupCodes" helper fully yet, let's assume
-            // for this MVP step we iterate and check. 
-            // NOTE: Actual implementation involves checking all hashes.
-
+            const inputHash = crypto.createHash('sha256').update(token).digest('hex');
             for (const hashedCode of user.two_factor_backup_codes) {
-                // bcrypt.compareSync(token, hashedCode) -- expensive loop?
-                // For now, let's assume we implement a simple direct check if NOT hashed yet,
-                // OR better, we implement crypto.createHash logic for speed.
-
-                // Let's use SHA256 for backup codes for speed + security (salt is implicit if unique randoms).
-                const inputHash = crypto.createHash('sha256').update(token).digest('hex');
-                if (inputHash === hashedCode) {
+                if (crypto.timingSafeEqual(Buffer.from(inputHash), Buffer.from(hashedCode))) {
                     // Consumed! Remove it.
                     await prisma.user.update({
                         where: { id: userId },

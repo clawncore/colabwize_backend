@@ -9,34 +9,35 @@ export class SecretsService {
       // 1. Try environment variables (highest priority for local overrides)
       const envValue = process.env[name];
       if (envValue) {
-        // logger.debug(`Retrieved secret ${name} from environment variables`);
         return envValue;
       }
 
       // 2. Try Supabase Vault via Database
       // Note: This requires DATABASE_URL to be set in environment
+      // F-31: Explicitly parameterized via Prisma $queryRaw template literal.
+      // Prisma binds `${name}` as a bound parameter (NOT string interpolation),
+      // making this safe from SQL injection. Do not convert to $queryRawUnsafe.
       try {
-        // Run raw query to fetch from vault.decrypted_secrets view
         const prismaClient = await initializePrisma();
         const result = (await prismaClient.$queryRaw`
           SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = ${name} LIMIT 1
         `) as any[];
 
         if (result && result.length > 0 && result[0].decrypted_secret) {
-          logger.debug(`Retrieved secret ${name} from Supabase Vault`);
+          logger.debug("Retrieved secret from Supabase Vault", { secretCategory: name.replace(/_KEY$/, "_KEY_[REDACTED]") });
           return result[0].decrypted_secret;
         }
       } catch (dbError: any) {
-        // Suppress DB errors but log debug info
-        logger.debug(`Failed to fetch ${name} from Vault:`, dbError);
+        logger.debug("Failed to fetch secret from Vault", { secretCategory: name.replace(/_KEY$/, "_KEY_[REDACTED]") });
       }
 
-      // If not found in environment, log warning
-      logger.warn(`Secret ${name} not found in environment or Supabase Vault`);
+      if (!envValue) {
+        logger.warn("Secret not found in environment or Supabase Vault", { secretCategory: name.replace(/_KEY$/, "_KEY_[REDACTED]") });
+      }
 
       return null;
     } catch (error) {
-      logger.error(`Error retrieving secret ${name}:`, error);
+      logger.error("Error retrieving secret", { secretCategory: name.replace(/_KEY$/, "_KEY_[REDACTED]") });
       return null;
     }
   }
@@ -45,7 +46,7 @@ export class SecretsService {
   static async getOpenAiApiKey(): Promise<string | null> {
     const apiKey = await this.getSecret("OPENAI_API_KEY");
     if (!apiKey) {
-      logger.error("OPENAI_API_KEY not configured - AI features will not work");
+      logger.error("API key not configured - AI features will not work", { keyCategory: "OPENAI_API_KEY_[REDACTED]" });
     }
     return apiKey;
   }
@@ -55,7 +56,8 @@ export class SecretsService {
     const apiKey = await this.getSecret("RESEND_API_KEY");
     if (!apiKey) {
       logger.error(
-        "RESEND_API_KEY not configured - email sending will not work",
+        "API key not configured - email sending will not work",
+        { keyCategory: "RESEND_API_KEY_[REDACTED]" },
       );
     }
     return apiKey;
@@ -74,6 +76,7 @@ export class SecretsService {
     if (!url || !anonKey) {
       logger.error(
         "Supabase configuration not fully set - database operations will fail",
+        { missing: ["url", "anonKey"].filter((k) => !(k === "url" ? url : anonKey)) },
       );
     }
 
@@ -266,12 +269,17 @@ export class SecretsService {
   }
 
   static async getSupabaseServiceRoleKey(): Promise<string | null> {
-    // STRICT ENV ONLY - Bypass DB Vault to avoid circular dependency
-    return (
-      process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ||
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      null
-    );
+    // STRICT ENV ONLY - Bypass DB Vault to avoid circular dependency.
+    // CRITICAL: NEVER read a service-role key from a NEXT_PUBLIC_* variable.
+    // Publicly-prefixed env vars are inlined into the browser bundle at build
+    // time and must never hold a privileged key. If one is present, fail loudly
+    // at startup so it cannot silently leak into client code.
+    if (process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error(
+        "FATAL: NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY is set. A service-role key must never be prefixed with NEXT_PUBLIC — it would be shipped to browsers. Remove it from the public env and use SUPABASE_SERVICE_ROLE_KEY only.",
+      );
+    }
+    return process.env.SUPABASE_SERVICE_ROLE_KEY || null;
   }
 
   // Get database configuration values

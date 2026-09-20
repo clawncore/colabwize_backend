@@ -60,7 +60,8 @@ function generateOAuthSignature(method: string, url: string, params: Record<stri
 
 /**
  * GET /api/auth/zotero/connect
- * Start OAuth 1.0a flow
+ * Start OAuth 1.0a flow — returns redirect URL as JSON.
+ * F-03: Token is passed via Authorization/x-auth-* headers, NOT query string.
  */
 router.get("/connect", oauthInitLimiter, authenticateHybridRequest, async (req, res) => {
     try {
@@ -105,11 +106,11 @@ router.get("/connect", oauthInitLimiter, authenticateHybridRequest, async (req, 
 
         logger.info(`[Zotero Connect] OAuth request token obtained for user: ${userId}`);
 
-        // Redirect user to Zotero for authorization
-        return res.redirect(`https://www.zotero.org/oauth/authorize?oauth_token=${oauthToken}`);
+        // Return redirect URL as JSON — frontend will navigate
+        return res.json({ redirectUrl: `https://www.zotero.org/oauth/authorize?oauth_token=${oauthToken}` });
     } catch (error: any) {
         console.error("[Zotero Connect] Error:", error.message);
-        return res.redirect(`${process.env.FRONTEND_URL || "https://app.colabwize.com"}/dashboard/settings/profile?error=zotero_connect_failed`);
+        return res.status(500).json({ error: "Zotero connect failed" });
     }
 });
 

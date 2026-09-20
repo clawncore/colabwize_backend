@@ -684,7 +684,7 @@ export class AuthorshipCertificateGenerator {
       browser = await this.launchBrowser();
 
       const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle0" });
+      await page.setContent(html, { waitUntil: "networkidle0" } as any);
 
       const pdfBuffer = await page.pdf({
         format: "Letter",
@@ -747,7 +747,7 @@ export class AuthorshipCertificateGenerator {
         height: 816, // 8.5 inches at 96 DPI
       });
 
-      await page.setContent(html, { waitUntil: "networkidle0" });
+      await page.setContent(html, { waitUntil: "networkidle0" } as any);
 
       const screenshot = await page.screenshot({
         type: "png",

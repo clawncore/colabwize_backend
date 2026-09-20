@@ -27,10 +27,8 @@ export async function authenticateHybridRequest(
       }
     }
 
-    // Also check for token in query parameters as fallback (for OAuth popup flows)
-    if (!token && req.query && typeof req.query.token === "string") {
-      token = req.query.token;
-    }
+    // F-03: Never accept tokens from query parameters — tokens in URLs leak
+    // via browser history, server logs, referrer headers, and proxy caches.
 
     if (!token) {
       res.status(401).json({

@@ -86,8 +86,8 @@ router.get("/events", async (req, res) => {
         : [],
     ]);
 
-    const userMap = new Map(users.map((u) => [u.id, u]));
-    const adminMap = new Map(admins.map((a) => [a.id, a]));
+    const userMap = new Map(users.map((u: any) => [u.id, u]));
+    const adminMap = new Map(admins.map((a: any) => [a.id, a]));
 
     const enriched = events.map((e) => ({
       id: e.id,
@@ -364,12 +364,12 @@ router.get("/account-locks", async (req, res) => {
           select: { id: true, email: true, full_name: true },
         })
       : [];
-    const userMap = new Map(users.map((u) => [u.id, u]));
+    const userMap = new Map(users.map((u: any) => [u.id, u]));
 
     res.json({
       success: true,
       data: {
-        locks: locks.map((l) => ({
+        locks: locks.map((l: any) => ({
           id: l.id,
           userId: l.userId,
           lockedAt: l.lockedAt,

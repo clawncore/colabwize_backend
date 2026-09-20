@@ -2036,16 +2036,22 @@ model Referral {
   id                String   @id @default(uuid())
   referrer_id       String
   referee_id        String   @unique
-  reward_status     String   @default("pending") // pending, granted, expired
+  reward_status     String   @default("pending") // pending, granted, expired, monthly_limit_reached
   reward_expires_at DateTime?
   referred_at       DateTime @default(now())
-  
+
+  // Refer-a-friend enhancements
+  referee_reward_granted      Boolean   @default(false)
+  referee_entitlement_expires DateTime?
+  expiration_reminder_sent    Boolean   @default(false)
+
   referrer          User     @relation("ReferrerRelation", fields: [referrer_id], references: [id], onDelete: Cascade)
   referee           User     @relation("RefereeRelation", fields: [referee_id], references: [id], onDelete: Cascade)
-  
+
   @@index([referrer_id])
   @@index([reward_status])
   @@index([referred_at])
+  @@index([referrer_id, reward_status, referred_at(sort: Desc)])
   @@map("referrals")
 }
 

@@ -57,8 +57,6 @@ export async function authenticateExpressRequest(
 
     if (authHeader && authHeader.startsWith("Bearer ")) {
       token = authHeader.substring(7);
-    } else if (req.query.token) {
-      token = req.query.token as string;
     }
 
     if (!token) {

@@ -1400,18 +1400,37 @@ export async function getReferralData(request: Request) {
     // Calculate stats
     const totalReferrals = userData.referrals_made.length;
     const activeRewards = userData.referrals_made.filter(
-      (r: { reward_status: string; reward_expires_at: Date | null }) => 
+      (r: { reward_status: string; reward_expires_at: Date | null }) =>
         r.reward_status === "granted" && (!r.reward_expires_at || r.reward_expires_at > new Date())
     ).length;
-    const totalDaysEarned = totalReferrals * 5;
+    const totalDaysEarned = activeRewards * 5; // active reward days, not totalReferrals * 5
+
+    // Monthly limit (UTC calendar month) — mirrors HybridAuthService.monthStartUtc
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+
+    const rewardedThisMonth = userData.referrals_made.filter(
+      (r: { reward_status: string; referred_at: Date }) =>
+        r.reward_status === "granted" && new Date(r.referred_at) >= monthStart
+    ).length;
+
+    const REWARD_LIMIT = 1;
+    const monthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 
     return new Response(
       JSON.stringify({
         success: true,
         referralCode: userData.referral_code,
         totalReferrals,
+        totalReferralsThisMonth: rewardedThisMonth,
+        referralLimit: REWARD_LIMIT,
+        canRefer: rewardedThisMonth < REWARD_LIMIT,
+        nextResetDate: nextMonthStart.toISOString(),
+        monthKey,
         activeRewards,
         totalDaysEarned,
+        totalDaysEverEarned: totalReferrals * 5, // historical total across all months
         referrals: userData.referrals_made.map((r: { id: string; referred_at: Date; reward_status: string; reward_expires_at: Date | null; referee: { full_name: string | null; email: string } }) => ({
           id: r.id,
           referredAt: r.referred_at,

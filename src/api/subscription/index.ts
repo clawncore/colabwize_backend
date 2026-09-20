@@ -56,36 +56,12 @@ export function clearSubscriptionCache(userId: string): void {
 
 /**
  * GET /api/subscription/debug
- * Debug endpoint to check raw subscription data
+ * DEBUG ROUTE REMOVED — F-06 remediation.
+ * Previously exposed raw subscription rows and referral data (including
+ * other users' emails) to any authenticated user. Replaced by the
+ * scoped `/api/subscription/current` endpoint which only returns the
+ * caller's own normalized plan/usage data.
  */
-router.get("/debug", authenticateHybridRequest, async (req, res) => {
-  try {
-    const user = (req as any).user;
-    if (!user) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    const subscription = await prisma.subscription.findUnique({
-      where: { user_id: user.id },
-    });
-
-    const referrals = await prisma.referral.findMany({
-      where: { referrer_id: user.id },
-      include: { referee: { select: { email: true, full_name: true } } }
-    });
-
-    return res.json({
-      userId: user.id,
-      email: user.email,
-      subscription: subscription,
-      referrals: referrals,
-      serverTime: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Debug error:", error);
-    return res.status(500).json({ error: "Debug failed" });
-  }
-});
 
 /**
  * POST /api/subscription/extend-plus
@@ -388,7 +364,7 @@ router.get("/current", authenticateHybridRequest, async (req, res) => {
 router.post("/checkout", authenticateHybridRequest, async (req, res) => {
   try {
     const user = (req as any).user;
-    const { plan, billingPeriod = "monthly", policyAccepted } = req.body;
+    const { plan, billingPeriod = "monthly", policyAccepted, promoCode } = req.body;
 
     if (!user) {
       return res.status(401).json({
@@ -503,17 +479,50 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
       });
     }
 
+    // Optional promo code — validated against a strict allowlist pattern.
+    // The code NEVER selects or overrides a plan/variant. It is only:
+    //   (a) reflected into LemonSqueezy custom checkout data for attribution, and
+    //   (b) appended as the LS `?discount=` query param on the hosted checkout URL.
+    // SECURITY: We never use promoCode to modify pricing or variant selection.
+    let validatedPromo: string | undefined;
+    if (promoCode !== undefined) {
+      if (typeof promoCode !== "string" || !/^[A-Z0-9]{3,20}$/.test(promoCode)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid promo code format.",
+          error_code: "INVALID_PROMO_CODE",
+        });
+      }
+      validatedPromo = promoCode;
+    }
+
     // Create checkout URL
     const checkoutUrl = await LemonSqueezyService.createCheckout({
       variantId,
       userEmail: user.email,
       userId: user.id,
-      customData: { plan, billingPeriod },
+      customData: { plan, billingPeriod, ...(validatedPromo ? { promoCode: validatedPromo } : {}) },
     });
+
+    // Append the discount as a URL query param so LemonSqueezy pre-applies it
+    // on the hosted checkout page. Use URL parsing to be safe regardless of
+    // whether the base URL already carries query parameters.
+    let finalCheckoutUrl = checkoutUrl;
+    if (validatedPromo) {
+      try {
+        const parsed = new URL(checkoutUrl);
+        parsed.searchParams.set("discount", validatedPromo);
+        finalCheckoutUrl = parsed.toString();
+      } catch {
+        // If URL parsing fails, fall back to the raw URL (discount may already
+        // be applied if the store default handles it).
+        finalCheckoutUrl = checkoutUrl;
+      }
+    }
 
     return res.status(200).json({
       success: true,
-      checkoutUrl,
+      checkoutUrl: finalCheckoutUrl,
     });
   } catch (error) {
     console.error("Create checkout error:", error);

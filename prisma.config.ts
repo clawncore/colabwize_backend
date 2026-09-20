@@ -7,12 +7,16 @@ import path from "path";
 dotenv.config({ path: path.join(__dirname, ".env") });
 
 // Use DIRECT_URL for migrations (avoids pgbouncer prepared statement issues)
+// NOTE: migrations.path is NOT used in production; schema changes are manual SQL.
+// Prisma is only used for query client generation (prisma generate).
 const migrationUrl = process.env.DIRECT_URL || process.env.DATABASE_URL!;
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
+    // This path is kept for historical reference only.
+    // All schema changes must be made via manual SQL in backend/sql/migrations/
   },
   datasource: {
     url: migrationUrl,

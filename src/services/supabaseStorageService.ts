@@ -57,7 +57,7 @@ export class SupabaseStorageService {
         const { error: createError } = await client.storage.createBucket(
           "uploads",
           {
-            public: true,
+            public: false, // F-30 remediation: private bucket, use signed URLs
             fileSizeLimit: 52428800, // 50MB
           }
         );
@@ -130,11 +130,58 @@ export class SupabaseStorageService {
       } = client.storage.from("uploads").getPublicUrl(uniqueFileName);
 
       // Store file metadata in the database if provided
-      if (metadata) {
+      // F-26: Validate projectId ownership before storing file metadata
+      if (metadata?.projectId) {
+        // Verify the user owns the project before linking the file to it
+        const project = await prisma.project.findFirst({
+          where: { id: metadata.projectId, user_id: userId },
+          select: { id: true },
+        });
+
+        if (!project) {
+          logger.warn("Project ownership validation failed", {
+            userId,
+            projectId: metadata.projectId,
+            fileName,
+          });
+          // If projectId validation fails, we still upload the file but
+          // we don't link it to any project (stores as personal upload)
+          await prisma.file.create({
+            data: {
+              user_id: userId,
+              project_id: null, // No project linkage on validation failure
+              file_name: fileName,
+              file_path: uniqueFileName,
+              file_type: metadata.fileType,
+              file_size: metadata.fileSize,
+              uploaded_at: metadata.createdAt,
+              metadata: {
+                ...metadata,
+                validationNote: "projectId ownership validation failed",
+              },
+            },
+          });
+        } else {
+          // Valid project ownership - proceed with normal file record
+          await prisma.file.create({
+            data: {
+              user_id: userId,
+              project_id: metadata.projectId,
+              file_name: fileName,
+              file_path: uniqueFileName,
+              file_type: metadata.fileType,
+              file_size: metadata.fileSize,
+              uploaded_at: metadata.createdAt,
+              metadata: metadata,
+            },
+          });
+        }
+      } else if (metadata) {
+        // Metadata provided but no projectId - store as personal upload
         await prisma.file.create({
           data: {
             user_id: userId,
-            project_id: metadata.projectId,
+            project_id: null,
             file_name: fileName,
             file_path: uniqueFileName,
             file_type: metadata.fileType,
@@ -225,11 +272,53 @@ export class SupabaseStorageService {
         data: { publicUrl },
       } = client.storage.from("uploads").getPublicUrl(uniqueFileName);
 
-      if (metadata) {
+      // F-26: Validate projectId ownership before storing file metadata
+      if (metadata?.projectId) {
+        const project = await prisma.project.findFirst({
+          where: { id: metadata.projectId, user_id: userId },
+          select: { id: true },
+        });
+
+        if (!project) {
+          logger.warn("Project ownership validation failed (stream upload)", {
+            userId,
+            projectId: metadata.projectId,
+            fileName,
+          });
+          await prisma.file.create({
+            data: {
+              user_id: userId,
+              project_id: null,
+              file_name: fileName,
+              file_path: uniqueFileName,
+              file_type: metadata.fileType,
+              file_size: metadata.fileSize,
+              uploaded_at: metadata.createdAt,
+              metadata: {
+                ...metadata,
+                validationNote: "projectId ownership validation failed",
+              },
+            },
+          });
+        } else {
+          await prisma.file.create({
+            data: {
+              user_id: userId,
+              project_id: metadata.projectId,
+              file_name: fileName,
+              file_path: uniqueFileName,
+              file_type: metadata.fileType,
+              file_size: metadata.fileSize,
+              uploaded_at: metadata.createdAt,
+              metadata: metadata,
+            },
+          });
+        }
+      } else if (metadata) {
         await prisma.file.create({
           data: {
             user_id: userId,
-            project_id: metadata.projectId,
+            project_id: null,
             file_name: fileName,
             file_path: uniqueFileName,
             file_type: metadata.fileType,

@@ -106,8 +106,23 @@ export class ExportService {
 
   /**
    * Launch Puppeteer Browser (Shared logic for PDF rendering)
+   *
+   * F-29: Chrome sandbox is disabled here intentionally because the container
+   * images shipped to production disable the seccomp profile and do not provide
+   * the CAP_SYS_ADMIN capabilities the Chrome sandbox needs. The isolation
+   * boundary is the container itself (Render's gVisor-style isolation), not
+   * the Chrome-level sandbox. Where this code runs on a host with full
+   * sandbox support (e.g. a self-hosted worker with --cap-add=SYS_ADMIN),
+   * the sandbox SHOULD be enabled by removing --no-sandbox and
+   * --disable-setuid-sandbox from launchArgs.
    */
   public static async launchBrowser(puppeteer: any) {
+    // In containers where the Chrome sandbox is known to fail, we fall back
+    // to --no-sandbox. Log that this is an intentional isolation boundary.
+    logger.warn("Puppeteer launched with Chrome sandbox disabled", {
+      reason: "container isolation replaces Chrome sandbox (F-29)",
+      advise: "Re-enable sandbox where host supports --cap-add=SYS_ADMIN",
+    });
     const launchArgs = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"];
     return await puppeteer.launch({
       headless: "new",

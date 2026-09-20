@@ -266,6 +266,8 @@ async function handleSubscriptionCreated(event: any) {
     return;
   }
 
+  const promo = customData?.promoCode;
+
   await SubscriptionService.upsertSubscription(userId, {
     plan,
     status: data.attributes.status,
@@ -278,7 +280,7 @@ async function handleSubscriptionCreated(event: any) {
     entitlement_expires_at: new Date(data.attributes.renews_at),
   });
 
-  logger.info("Subscription created", { userId, plan });
+  logger.info("Subscription created", { userId, plan, promo });
 }
 
 /**

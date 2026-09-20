@@ -29,6 +29,7 @@ import { scheduleVersionSchedulingTask } from "../scheduledTasks/versionScheduli
 import { scheduleTaskReminderTask } from "../scheduledTasks/taskReminderTask";
 import { scheduleInboxWorkerTask } from "../scheduledTasks/inboxWorker";
 import { scheduleActivityCleanupTask } from "../scheduledTasks/activityCleanupTask";
+import { scheduleReferralExpirationTask } from "../scheduledTasks/referralExpirationTask";
 import grammarRouter from "../api/grammar/index";
 import demoRouter from "../api/demo/index";
 // Import collaboration server
@@ -137,12 +138,13 @@ scheduleVersionSchedulingTask();
 scheduleTaskReminderTask();
 scheduleInboxWorkerTask();
 scheduleActivityCleanupTask(); // 7-day retention: purges realTimeActivity + authorshipActivity older than 7 days
+scheduleReferralExpirationTask(); // Daily 09:00 UTC: sends expiration reminders for referral-granted Plus trials
 
 // Trust only the Render/Cloudflare proxy chain (not open to all)
 app.set("trust proxy", ["loopback", "linklocal", "uniquelocal"]);
 
 // Middleware
-// Robust CORS Configuration
+// Robust CORS Configuration - explicit allowlist only, no wildcards
 const allowedOrigins = [
   "https://colabwize.com",
   "https://colabwize.com/",
@@ -160,7 +162,6 @@ const allowedOrigins = [
   "http://localhost:3002/",
   "http://localhost:5173",
   "http://localhost:5173/",
-  /\.vercel\.app$/,
 ];
 
 const corsOptions = {
@@ -168,14 +169,14 @@ const corsOptions = {
     origin: string | undefined,
     callback: (err: Error | null, allow?: boolean) => void,
   ) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
+    // Deny requests with no Origin when credentials are enabled to prevent
+    // non-browser clients from bypassing CORS with credentials
+    if (!origin) {
+      console.log(`[CORS] Blocked request with no Origin header`);
+      return callback(new Error("Not allowed by CORS"));
+    }
 
-    if (
-      allowedOrigins.some((o) =>
-        typeof o === "string" ? o === origin : o.test(origin),
-      )
-    ) {
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
@@ -360,16 +361,9 @@ app.get("/", (req, res) => {
   });
 });
 
-// LibreOffice Debug Route
-app.get("/debug/libreoffice", (req, res) => {
-  const { exec } = require("child_process");
-  exec("libreoffice --version", (err: any, stdout: string, stderr: string) => {
-    if (err) {
-      return res.status(500).json({ err: err.message, stderr });
-    }
-    res.json({ stdout, stderr });
-  });
-});
+// LibreOffice Debug Route — DISABLED: exposes command execution to unauthenticated callers.
+// Re-enable behind isPlatformAdmin + apiOperationRateLimiter only if needed.
+// F-05 remediation: removed public /debug/libreoffice endpoint.
 
 // Mount routers with authentication
 const authMiddleware = authenticateExpressRequest;
