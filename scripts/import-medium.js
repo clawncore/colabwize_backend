@@ -109,14 +109,22 @@ function extractAllImages(html) {
 }
 
 function extractHeroImage(html) {
-  const bodyMatch = html.match(/<section[^>]*data-field="body"[^>]*class="e-content"[^>]*>([\s\S]*?)<\/section>/i);
+  // Greedy match: body section contains multiple nested <section> blocks,
+  // so non-greedy would stop at the first inner </section>, losing everything after it.
+  // The body section closes with </section>\n</section> before <footer>.
+  const bodyMatch = html.match(/<section[^>]*data-field="body"[^>]*class="e-content"[^>]*>([\s\S]*)>\s*<\/section>\s*<\/section>\s*<footer>/i);
   const searchHtml = bodyMatch ? bodyMatch[1] : html;
   const m = searchHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
   return m ? m[1] : null;
 }
 
 function cleanContentHtml(html) {
-  const bodyMatch = html.match(/<section[^>]*data-field="body"[^>]*class="e-content"[^>]*>([\s\S]*?)<\/section>/i);
+  // Greedy match to capture ALL content inside <section data-field="body" class="e-content">
+  // The body section wraps multiple nested <section class="section"> blocks.
+  // Non-greedy ([\s\S]*?) would stop at the first inner </section>, truncating the article.
+  // We match up to </section>\n</section>\n<footer> which is the actual closing pattern
+  // of the outer e-content body section in Medium's HTML export format.
+  const bodyMatch = html.match(/<section[^>]*data-field="body"[^>]*class="e-content"[^>]*>([\s\S]*)>\s*<\/section>\s*<\/section>\s*<footer>/i);
   let content = bodyMatch ? bodyMatch[1] : html;
 
   content = content.replace(/<section[^>]*class="section[^"]*"[^>]*>([\s\S]*?)<\/section>/gi, (match, inner) => {
