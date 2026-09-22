@@ -176,7 +176,7 @@ router.post(
 
             return res.status(500).json({
                 success: false,
-                message: error.message || "Failed to upload image",
+                message: "Failed to upload image",
             });
         }
     }
@@ -217,7 +217,7 @@ router.delete("/:imagePath", async (req: AuthenticatedRequest, res: Response) =>
 
         return res.status(500).json({
             success: false,
-            message: error.message || "Failed to delete image",
+            message: "Failed to delete image",
         });
     }
 });

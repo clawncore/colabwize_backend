@@ -58,7 +58,7 @@ router.get("/", async (req, res) => {
     return res.status(response.status).json(data);
   } catch (error: any) {
     logger.error("Notification GET failed", { error: error.message });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -94,7 +94,7 @@ router.post("/read", async (req, res) => {
     return res.status(response.status).json(data);
   } catch (error: any) {
     logger.error("Notification read POST failed", { error: error.message });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -139,7 +139,7 @@ router.post("/", async (req, res) => {
     return res.status(response.status).json(data);
   } catch (error: any) {
     logger.error("Notification POST failed", { error: error.message });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -173,7 +173,7 @@ router.get("/settings", async (req, res) => {
     return res.status(response.status).json(data);
   } catch (error: any) {
     logger.error("Notification settings GET failed", { error: error.message });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -209,7 +209,7 @@ router.put("/settings", async (req, res) => {
     return res.status(response.status).json(data);
   } catch (error: any) {
     logger.error("Notification settings PUT failed", { error: error.message });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -245,7 +245,7 @@ router.post("/settings/reset", async (req, res) => {
     logger.error("Notification settings reset POST failed", {
       error: error.message,
     });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -281,7 +281,7 @@ router.post("/actions", async (req, res) => {
     return res.status(response.status).json(data);
   } catch (error: any) {
     logger.error("Notification actions POST failed", { error: error.message });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -319,7 +319,7 @@ router.post("/push/register", async (req, res) => {
     logger.error("Push notification register POST failed", {
       error: error.message,
     });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -357,7 +357,7 @@ router.post("/push/unregister", async (req, res) => {
     logger.error("Push notification unregister POST failed", {
       error: error.message,
     });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -401,7 +401,7 @@ router.post("/push/test", async (req, res) => {
     logger.error("Push notification test POST failed", {
       error: error.message,
     });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -439,7 +439,7 @@ router.post("/bulk/read", async (req, res) => {
     logger.error("Bulk read notifications POST failed", {
       error: error.message,
     });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -476,7 +476,7 @@ router.post("/bulk/delete", async (req, res) => {
     logger.error("Bulk delete notifications POST failed", {
       error: error.message,
     });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -513,7 +513,7 @@ router.post("/bulk/dismiss", async (req, res) => {
     logger.error("Bulk dismiss notifications POST failed", {
       error: error.message,
     });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -550,7 +550,7 @@ router.post("/bulk/snooze", async (req, res) => {
     logger.error("Bulk snooze notifications POST failed", {
       error: error.message,
     });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -592,7 +592,7 @@ router.post("/test", async (req, res) => {
     return res.status(response.status).json(data);
   } catch (error: any) {
     logger.error("Test notification POST failed", { error: error.message });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -634,7 +634,7 @@ router.post("/test/send", async (req, res) => {
     logger.error("Send test notification POST failed", {
       error: error.message,
     });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 

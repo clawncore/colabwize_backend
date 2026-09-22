@@ -76,7 +76,7 @@ router.post(
       logger.error("Free plagiarism check failed", { error: error.message });
       return res.status(500).json({
         success: false,
-        message: error.message || "Plagiarism check failed. Please try again.",
+        message: "Plagiarism check failed. Please try again.",
       });
     }
   }

@@ -184,7 +184,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        message: error.message || "Internal server error",
+        message: "Internal server error",
       });
     }
   }
@@ -327,7 +327,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        message: error.message || "Internal server error",
+        message: "Internal server error",
       });
     }
   }
@@ -393,7 +393,7 @@ router.get(
 
       return res.status(500).json({
         success: false,
-        message: error.message || "Internal server error",
+        message: "Internal server error",
       });
     }
   }
@@ -478,7 +478,7 @@ router.delete(
 
       return res.status(500).json({
         success: false,
-        message: error.message || "Internal server error",
+        message: "Internal server error",
       });
     }
   }
@@ -546,7 +546,7 @@ router.get(
 
       return res.status(500).json({
         success: false,
-        message: error.message || "Internal server error",
+        message: "Internal server error",
       });
     }
   }

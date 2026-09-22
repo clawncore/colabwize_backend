@@ -23,7 +23,7 @@ router.get("/:fileId", async (req: AuthenticatedRequest, res: Response) => {
         const annotations = await AnnotationService.getFileAnnotations(fileId, userId);
         res.json({ success: true, data: annotations });
     } catch (error: any) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
 });
 
@@ -51,7 +51,7 @@ router.post("/", async (req: AuthenticatedRequest, res: Response) => {
 
         res.status(201).json({ success: true, data: annotation });
     } catch (error: any) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
 });
 
@@ -68,7 +68,7 @@ router.put("/:id", async (req: AuthenticatedRequest, res: Response) => {
         const annotation = await AnnotationService.updateAnnotation(id, userId, content);
         res.json({ success: true, data: annotation });
     } catch (error: any) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
 });
 
@@ -84,7 +84,7 @@ router.delete("/:id", async (req: AuthenticatedRequest, res: Response) => {
         await AnnotationService.deleteAnnotation(id, userId);
         res.json({ success: true, message: "Annotation deleted" });
     } catch (error: any) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
 });
 

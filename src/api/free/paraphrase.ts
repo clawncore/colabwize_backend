@@ -123,7 +123,7 @@ Output: Return ONLY the rewritten passage. No preamble, no explanation, no numbe
       logger.error("Free paraphrase failed", { error: error.message });
       return res.status(500).json({
         success: false,
-        message: error.message || "Paraphrase failed",
+        message: "Paraphrase failed. Please try again.",
       });
     }
   },

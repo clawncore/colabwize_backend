@@ -82,20 +82,20 @@ router.post(
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
           success: false,
-          message: e.message || "Plan limit reached",
+          message: "Plan limit reached",
           code: e.code,
         
         ...e.data,
     });
       }
       logger.error("Error scanning content for citations", {
-        error: e.message,
+        error: "Failed to scan content",
         stack: e.stack,
       });
 
       return res.status(500).json({
         success: false,
-        error: e.message || "Failed to scan content",
+        error: "Failed to scan content",
       });
     }
   }

@@ -5,6 +5,7 @@ import { prisma } from "../../lib/prisma";
 import { AuthorshipConfidenceService } from "../../services/authorshipConfidenceService";
 import { AuthorshipEvidenceService } from "../../services/authorshipEvidenceService";
 import { AuthorshipContributionDetail } from "../../types/authorshipEvidence";
+import logger from "../../monitoring/logger";
 
 const router = express.Router();
 
@@ -176,9 +177,10 @@ router.post(
         data: result,
       });
     } catch (error) {
+      logger.error("Authorhip evidence batch error", { error: error instanceof Error ? error.message : String(error) });
       return res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : "Failed to record authorship evidence batch",
+        error: "Failed to record authorship evidence batch",
       });
     }
   }
@@ -247,9 +249,10 @@ router.post(
         data: result,
       });
     } catch (error) {
+      logger.error("Writing session snapshot error", { error: error instanceof Error ? error.message : String(error) });
       return res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : "Failed to save writing session snapshot",
+        error: "Failed to save writing session snapshot",
       });
     }
   }
@@ -294,9 +297,10 @@ router.get(
         data: report,
       });
     } catch (error) {
+      logger.error("Confidence report generation error", { error: error instanceof Error ? error.message : String(error) });
       return res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : "Failed to generate authorship confidence report",
+        error: "Failed to generate authorship confidence report",
       });
     }
   }
@@ -339,9 +343,10 @@ router.get(
         data: contributions,
       });
     } catch (error) {
+      logger.error("Authorship contributions error", { error: error instanceof Error ? error.message : String(error) });
       return res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : "Failed to load authorship contributions",
+        error: "Failed to load authorship contributions",
       });
     }
   }
@@ -386,9 +391,10 @@ router.post(
         data: report,
       });
     } catch (error) {
+      logger.error("Anomaly record error", { error: error instanceof Error ? error.message : String(error) });
       return res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : "Failed to generate authorship confidence report",
+        error: "Failed to record authorship anomaly",
       });
     }
   }
@@ -454,7 +460,7 @@ router.post(
     } catch (error) {
       return res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : "Failed to record authorship anomaly",
+        error: "Failed to record authorship anomaly",
       });
     }
   }

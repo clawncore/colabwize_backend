@@ -71,7 +71,7 @@ export async function POST(request: Request) {
 
     return new Response(
       JSON.stringify({
-        error: error.message || "Failed to process contact form submission",
+        error: "Failed to process contact form submission",
       }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );

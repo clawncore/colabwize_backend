@@ -304,7 +304,7 @@ Please answer based on the provided context. If the context doesn't contain enou
     return res.json({ answer });
   } catch (error: any) {
     logger.error("Failed to process project chat", { error: error.message });
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: "Failed to process request" });
   }
 });
 

@@ -104,7 +104,7 @@ router.post("/plagiarism-check", demoLimiter, async (req, res) => {
     return res.json({ success: true, data: result });
   } catch (error: any) {
     logger.error("Demo plagiarism check failed", { error: error.message });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -121,7 +121,7 @@ router.post("/citation-audit", demoLimiter, async (req, res) => {
     return res.json({ success: true, data: result });
   } catch (error: any) {
     logger.error("Demo citation audit failed", { error: error.message });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -141,7 +141,7 @@ router.post("/draft-compare", demoLimiter, async (req, res) => {
     return res.json({ success: true, data: result });
   } catch (error: any) {
     logger.error("Demo draft comparison failed", { error: error.message });
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 

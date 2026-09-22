@@ -881,7 +881,7 @@ router.get(
       });
       res.json(invitations);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Operation failed. Please try again." });
     }
   },
 );
@@ -901,7 +901,7 @@ router.delete(
       });
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: "Operation failed. Please try again." });
     }
   },
 );

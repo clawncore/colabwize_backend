@@ -20,7 +20,7 @@ router.get("/", checkWorkspaceRole("viewer"), async (req: any, res) => {
     return res.json({ success: true, fields });
   } catch (error: any) {
     logger.error("Error fetching custom field definitions:", error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -49,7 +49,7 @@ router.post("/", checkWorkspaceRole("admin"), async (req: any, res) => {
     return res.status(201).json({ success: true, field });
   } catch (error: any) {
     logger.error("Error creating custom field definition:", error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -67,7 +67,7 @@ router.delete("/definitions/:fieldId", checkWorkspaceRole("admin"), async (req: 
     return res.json({ success: true });
   } catch (error: any) {
     logger.error("Error deleting custom field definition:", error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 

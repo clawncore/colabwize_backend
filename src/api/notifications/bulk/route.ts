@@ -61,7 +61,7 @@ export async function POST_READ(request: Request) {
         results.push({
           notificationId,
           success: false,
-          error: error.message || "Unknown error",
+          error: "Operation failed. Please try again.",
         });
       }
     }
@@ -136,7 +136,7 @@ export async function POST_DELETE(request: Request) {
         results.push({
           notificationId,
           success: false,
-          error: error.message || "Unknown error",
+          error: "Operation failed. Please try again.",
         });
       }
     }
@@ -211,7 +211,7 @@ export async function POST_DISMISS(request: Request) {
         results.push({
           notificationId,
           success: false,
-          error: error.message || "Unknown error",
+          error: "Operation failed. Please try again.",
         });
       }
     }
@@ -301,7 +301,7 @@ export async function POST_SNOOZE(request: Request) {
         results.push({
           notificationId,
           success: false,
-          error: error.message || "Unknown error",
+          error: "Operation failed. Please try again.",
         });
       }
     }

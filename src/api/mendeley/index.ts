@@ -25,7 +25,7 @@ router.get("/library", providerApiLimiter, authenticateHybridRequest, async (req
     } catch (error: any) {
         console.error("[Mendeley API] Library Error:", error.message);
         const statusCode = error.message.includes("reconnect") ? 401 : 500;
-        return res.status(statusCode).json({ error: error.message });
+        return res.status(statusCode).json({ error: "Mendeley API error occurred. Please try again." });
     }
 });
 
@@ -45,7 +45,7 @@ router.get("/query", providerApiLimiter, authenticateHybridRequest, async (req: 
     } catch (error: any) {
         console.error("[Mendeley API] Query Error:", error.message);
         const statusCode = error.message.includes("reconnect") ? 401 : 500;
-        return res.status(statusCode).json({ error: error.message });
+        return res.status(statusCode).json({ error: "Mendeley API error occurred. Please try again." });
     }
 });
 
@@ -77,7 +77,7 @@ router.post("/import", providerApiLimiter, authenticateHybridRequest, async (req
         return res.status(200).json({ success: true, importedCount: results.length, data: results });
     } catch (error: any) {
         console.error("Mendeley Import Error:", error.message);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Failed to process Mendeley request. Please try again." });
     }
 });
 
@@ -126,7 +126,7 @@ router.post("/export", providerApiLimiter, authenticateHybridRequest, async (req
         });
     } catch (error: any) {
         console.error("[Mendeley Export] Error:", error.message);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Failed to process Mendeley request. Please try again." });
     }
 });
 

@@ -23,7 +23,7 @@ router.post("/", async (req: any, res) => {
     logger.error("Error adding task dependency via API", error);
     res
       .status(400)
-      .json({ error: error.message || "Failed to add dependency" });
+      .json({ error: "Failed to add dependency" });
   }
 });
 

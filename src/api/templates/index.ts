@@ -1,4 +1,5 @@
 import express from "express";
+import logger from "../../monitoring/logger";
 import { GET, POST, PUT, DELETE } from "./route";
 
 const router: express.Router = express.Router();
@@ -20,7 +21,7 @@ router.get("/", async (req, res) => {
     const data = await response.json();
     return res.status(response.status || 200).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -41,7 +42,7 @@ router.get("/type/:type", async (req, res) => {
     const data = await response.json();
     return res.status(response.status || 200).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -58,7 +59,7 @@ router.post("/", async (req, res) => {
     const data = await response.json();
     return res.status(response.status || 200).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -75,7 +76,7 @@ router.put("/", async (req, res) => {
     const data = await response.json();
     return res.status(response.status || 200).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -95,7 +96,7 @@ router.delete("/", async (req, res) => {
     const data = await response.json();
     return res.status(response.status || 200).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 

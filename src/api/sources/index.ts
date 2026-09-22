@@ -39,7 +39,7 @@ router.post("/integration-track", async (req: AuthenticatedRequest, res: Respons
         res.json({ success: true, message: "Source interaction tracked" });
     } catch (error: any) {
         logger.error("Error in integration-track endpoint", { error: error.message });
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
 });
 
@@ -64,7 +64,7 @@ router.post("/mark-citation", async (req: AuthenticatedRequest, res: Response) =
         res.json({ success: true, message: "Citation marked" });
     } catch (error: any) {
         logger.error("Error in mark-citation endpoint", { error: error.message });
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
 });
 
@@ -89,7 +89,7 @@ router.get("/integration-verification/:projectId", async (req: AuthenticatedRequ
         res.json({ success: true, data: report });
     } catch (error: any) {
         logger.error("Error in integration-verification endpoint", { error: error.message });
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
 });
 
@@ -114,7 +114,7 @@ router.get("/analytics/:projectId", async (req: AuthenticatedRequest, res: Respo
         res.json({ success: true, data: analytics });
     } catch (error: any) {
         logger.error("Error in analytics endpoint", { error: error.message });
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
 });
 

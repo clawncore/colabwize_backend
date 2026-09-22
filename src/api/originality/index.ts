@@ -126,7 +126,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        message: error.message || "Failed to scan document",
+        message: "Failed to scan document. Please try again.",
       });
     }
   }
@@ -177,7 +177,7 @@ router.get("/scan/:scanId", async (req: Request, res: Response) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to get scan results",
+      message: "Failed to get scan results. Please try again.",
     });
   }
 });
@@ -208,7 +208,7 @@ router.get("/history", async (req: Request, res: Response) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to get scan history",
+      message: "Failed to get scan history. Please try again.",
     });
   }
 });
@@ -251,7 +251,7 @@ router.get("/project/:projectId", async (req: Request, res: Response) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to get project scans",
+      message: "Failed to get scans. Please try again.",
     });
   }
 });
@@ -320,7 +320,7 @@ router.post(
           const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
           return res.status(status).json({
             success: false,
-            message: e.message,
+            message: "Processing failed. Please try again.",
             code: e.code,
             ...e.data,
           });
@@ -329,7 +329,7 @@ router.post(
       }
     } catch (error: any) {
       logger.error("Error generating rephrase suggestions", {
-        error: error.message,
+        error: "Failed to process originality check",
       });
 
       if (
@@ -344,7 +344,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        message: error.message || "Failed to generate rephrase suggestions",
+        message: "Failed to generate suggestions. Please try again.",
       });
     }
   }
@@ -398,7 +398,7 @@ router.get("/scan/:scanId/suggestions", async (req: Request, res: Response) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to get scan suggestions",
+      message: "Failed to get scan suggestions. Please try again.",
     });
   }
 });
@@ -485,7 +485,7 @@ router.post("/check-self-plagiarism", async (req: Request, res: Response) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to check self-plagiarism",
+      message: "Failed to check self-plagiarism. Please try again.",
     });
   }
 });
@@ -567,7 +567,7 @@ router.post(
           const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
           return res.status(status).json({
             success: false,
-            message: e.message,
+            message: "Processing failed. Please try again.",
             code: e.code,
             ...e.data,
           });
@@ -621,9 +621,9 @@ router.post(
     } catch (e: any) {
       if (e instanceof BillingError) {
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
-        return res.status(status).json({ success: false, message: e.message, code: e.code, ...e.data });
+        return res.status(status).json({ success: false, message: "Processing failed. Please try again.", code: e.code });
       }
-      return res.status(500).json({ success: false, message: e.message });
+      return res.status(500).json({ success: false, message: "Processing failed. Please try again." });
     }
   }
 );
@@ -666,7 +666,7 @@ router.post(
           const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
           return res.status(status).json({
             success: false,
-            message: e.message,
+            message: "Processing failed. Please try again.",
             code: e.code,
             ...e.data,
           });
@@ -682,7 +682,7 @@ router.post(
           data: { upgrade_url: "/pricing" }
         });
       }
-      return res.status(500).json({ success: false, message: e.message, code: "GENERATION_FAILED" });
+      return res.status(500).json({ success: false, message: "Processing failed. Please try again.", code: "GENERATION_FAILED" });
     }
   }
 );
@@ -718,7 +718,7 @@ router.post(
     } catch (e: any) {
       if (e instanceof BillingError) {
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
-        return res.status(status).json({ success: false, message: e.message, code: e.code, ...e.data });
+        return res.status(status).json({ success: false, message: "Processing failed. Please try again.", code: e.code });
       }
       logger.error("Error explaining risk", { error: e.message });
       return res.status(500).json({ success: false, message: "Failed to generate explanation" });

@@ -130,7 +130,7 @@ router.put("/:projectId/:citationId", async (req: Request, res: Response) => {
 
     return res.status(500).json({
       success: false,
-      error: error.message || "Failed to update citation themes",
+      error: "Failed to update citation themes",
     });
   }
 });

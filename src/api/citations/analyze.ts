@@ -112,7 +112,7 @@ Rules:
 
             return res.status(500).json({
                 success: false,
-                error: error.message || "Failed to analyze citation",
+                error: "Failed to analyze citation",
             });
         }
     }

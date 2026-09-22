@@ -36,7 +36,7 @@ router.get("/:projectId/gaps", authenticate, async (req, res) => {
     } catch (error: any) {
         logger.error("Failed to analyze research gaps", {
             projectId: req.params.projectId,
-            error: error.message
+            error: "Failed to retrieve citation gaps"
         });
         res.status(500).json({
             success: false,

@@ -77,7 +77,7 @@ router.post("/", async (req, res) => {
     logger.error("Error in add to waitlist route:", error);
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to add to waitlist",
+      message: "Failed to add to waitlist. Please try again.",
     });
   }
 });

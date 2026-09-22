@@ -41,7 +41,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     res.status(500).json({
       success: false,
-      message: error.message || "Failed to process contact form submission",
+      message: "Failed to process contact form submission",
     });
   }
 });

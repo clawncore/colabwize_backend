@@ -30,7 +30,7 @@ router.get("/", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -48,7 +48,7 @@ router.put("/", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -66,7 +66,7 @@ router.get("/versions", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -84,7 +84,7 @@ router.post("/versions", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -102,7 +102,7 @@ router.post("/comments", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -120,7 +120,7 @@ router.get("/comments", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -138,7 +138,7 @@ router.post("/restore-version", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -156,7 +156,7 @@ router.delete("/versions/:versionId", async (req, res) => {
     const data = await response.json();
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -173,7 +173,7 @@ router.get("/settings", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -191,7 +191,7 @@ router.put("/settings", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -209,7 +209,7 @@ router.get("/analytics", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -227,7 +227,7 @@ router.post("/beacon-draft", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -245,7 +245,7 @@ router.post("/import", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 

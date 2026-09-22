@@ -86,7 +86,7 @@ router.post("/audit/pdf", upload.single("pdf"), async (req: Request, res: Respon
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
           success: false,
-          message: e.message || "Plan limit reached.",
+          message: "Plan limit reached",
           code: e.code,
           ...e.data,
         });

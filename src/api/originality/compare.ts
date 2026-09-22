@@ -36,7 +36,7 @@ router.post(
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
           success: false,
-          message: e.message || "Plan limit reached",
+          message: "Plan limit reached",
           code: e.code,
         
         ...e.data,
@@ -45,7 +45,7 @@ router.post(
       if (!res.headersSent) {
         return res.status(500).json({
           success: false,
-          message: e.message || "Failed to compare drafts",
+          message: "Failed to compare drafts",
         });
       }
     }

@@ -29,7 +29,7 @@ router.post("/setup", authenticateHybridRequest, async (req, res) => {
         console.error("❌ 2FA ERROR:", error);
         return res.status(500).json({
             error: "2FA_FAILED",
-            message: error.message,
+            message: "An error occurred during 2FA setup. Please try again.",
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
@@ -72,7 +72,7 @@ router.post("/verify", authenticateHybridRequest, async (req, res) => {
         console.error("❌ 2FA VERIFY ERROR:", error);
         return res.status(400).json({
             success: false,
-            message: error.message || "Invalid verification code"
+            message: "Invalid verification code. Please check your code and try again."
         });
     }
 });
@@ -97,7 +97,7 @@ router.post("/disable", authenticateHybridRequest, async (req, res) => {
         console.error("2FA Disable Error:", error);
         return res.status(400).json({
             success: false,
-            message: error.message || "Failed to disable 2FA"
+            message: "Failed to disable 2FA. Please try again."
         });
     }
 });

@@ -100,7 +100,7 @@ router.post("/link", authenticateHybridRequest, async (req, res) => {
         return res.json({ success: true, message: "Project linked to Mendeley" });
     } catch (error: any) {
         console.error("[Mendeley Link] Error:", error.message);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Failed to link Mendeley. Please try again." });
     }
 });
 
@@ -134,7 +134,7 @@ router.get("/folders", providerApiLimiter, authenticateHybridRequest, async (req
         const folders = await MendeleyService.fetchFolders(userId);
         return res.json(folders);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Failed to fetch Mendeley folders. Please try again." });
     }
 });
 
@@ -149,7 +149,7 @@ router.get("/folders/:folderId/items", providerApiLimiter, authenticateHybridReq
         const items = await MendeleyService.fetchFolderItems(userId, folderId);
         return res.json(items);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Failed to fetch Mendeley folder items. Please try again." });
     }
 });
 
@@ -247,12 +247,12 @@ router.get("/callback", oauthCallbackLimiter, async (req, res) => {
         
         console.error("[Mendeley Callback] Token Exchange Failed:", {
             status: statusCode,
-            message: error.message,
+            message: "Authentication failed",
             data: errorData
         });
         
-        const errorMessage = errorData?.error_description || errorData?.message || error.message;
-        return res.status(statusCode).send(`Mendeley Token Exchange Failed: ${errorMessage}`);
+        const safeError = errorData?.error_description || "Mendeley authentication failed. Please try again.";
+        return res.status(statusCode).send(`Mendeley Token Exchange Failed: ${safeError}`);
     }
 });
 

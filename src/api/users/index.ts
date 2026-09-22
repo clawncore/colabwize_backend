@@ -34,7 +34,7 @@ router.get("/", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -54,7 +54,7 @@ router.put("/", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -74,7 +74,7 @@ router.put("/profile", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -94,7 +94,7 @@ router.post("/change-password", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -115,7 +115,7 @@ router.post("/request-otp", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -150,7 +150,7 @@ router.post("/export-data", async (req, res) => {
       return res.status(response.status).send(Buffer.from(buffer));
     }
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -189,7 +189,7 @@ router.delete("/", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -212,7 +212,7 @@ router.get("/usage", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -232,7 +232,7 @@ router.put("/preferences", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -254,7 +254,7 @@ router.get("/features/:feature", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 
@@ -273,7 +273,7 @@ router.get("/referrals", async (req, res) => {
 
     return res.status(response.status).json(data);
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
   }
 });
 

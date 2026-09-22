@@ -7,6 +7,35 @@ import { prisma } from "../../lib/prisma";
 
 const router = express.Router();
 
+/**
+ * Maps internal error codes to safe, user-facing messages.
+ * Never expose internal provider details to the client.
+ */
+const SAFE_ERROR_MESSAGES: Record<string, string> = {
+  ACCOUNT_EXISTS: "An account with this email already exists. Please sign in instead.",
+  SIGNUP_FAILED: "Failed to create account. Please try again or contact support.",
+  INVALID_CREDENTIALS: "Invalid login credentials. Please check your email and password.",
+  EMAIL_NOT_CONFIRMED: "Please confirm your email address before logging in.",
+  RATE_LIMITED: "Too many attempts. Please try again in a few minutes.",
+  INVALID_TOKEN: "This link is no longer valid or has expired.",
+  EMAIL_SEND_FAILED: "We couldn't send the email right now. Please try again.",
+};
+
+function getSafeErrorMessage(rawMessage: string, code?: string): string {
+  if (code && SAFE_ERROR_MESSAGES[code]) {
+    return SAFE_ERROR_MESSAGES[code];
+  }
+  // Check for known patterns in the raw message and map to safe messages
+  const lower = rawMessage.toLowerCase();
+  if (lower.includes("already") || lower.includes("duplicate") || lower.includes("exists")) {
+    return SAFE_ERROR_MESSAGES.ACCOUNT_EXISTS;
+  }
+  if (lower.includes("invalid login") || lower.includes("invalid credentials")) {
+    return SAFE_ERROR_MESSAGES.INVALID_CREDENTIALS;
+  }
+  return "Something went wrong. Please try again.";
+}
+
 // Zod schemas for validation
 const resetPasswordSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -59,9 +88,12 @@ router.post("/signup", async (req, res) => {
     }
   } catch (error: any) {
     console.error("Hybrid signup error:", error);
-    return res.status(400).json({
+    const errCode = (error as any)?.code || "SIGNUP_FAILED";
+    const safeMessage = getSafeErrorMessage(error.message || "Signup failed", errCode);
+    return res.status(errCode === "ACCOUNT_EXISTS" ? 409 : 400).json({
       success: false,
-      message: error.message || "Signup failed",
+      code: errCode,
+      message: safeMessage,
     });
   }
 });
@@ -113,7 +145,7 @@ router.post("/oauth-signup", async (req, res) => {
     console.error("OAuth signup error:", error);
     return res.status(400).json({
       success: false,
-      message: error.message || "OAuth registration failed",
+      message: getSafeErrorMessage(error.message, "OAUTH_SIGNUP_FAILED"),
     });
   }
 });
@@ -464,7 +496,7 @@ router.post("/resend-verification", async (req, res) => {
   } catch (error: any) {
     return res
       .status(400)
-      .json({ success: false, message: error.message || "Resend failed" });
+      .json({ success: false, message: getSafeErrorMessage(error.message, "EMAIL_SEND_FAILED") });
   }
 });
 

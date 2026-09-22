@@ -44,7 +44,7 @@ router.get("/library", providerApiLimiter, authenticateHybridRequest, async (req
         return res.status(200).json(items);
     } catch (error: any) {
         console.error("[Zotero Library Error]:", error.message);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Operation failed. Please try again." });
     }
 });
 
@@ -128,7 +128,7 @@ router.get("/query", providerApiLimiter, authenticateHybridRequest, async (req: 
         const items = await ZoteroService.queryItems(user.zotero_user_id, user.zotero_api_key, String(q));
         return res.status(200).json(items);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Operation failed. Please try again." });
     }
 });
 
@@ -153,7 +153,7 @@ router.get("/attachments/:itemKey", authenticateHybridRequest, async (req: Reque
         const attachments = await ZoteroService.fetchAttachments(user.zotero_user_id, user.zotero_api_key, String(itemKey));
         return res.status(200).json(attachments);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Operation failed. Please try again." });
     }
 });
 
@@ -179,7 +179,7 @@ router.get("/format/:itemKey", authenticateHybridRequest, async (req: Request, r
         const formatted = await ZoteroService.fetchFormattedBib(user.zotero_user_id, user.zotero_api_key, String(itemKey), String(style));
         return res.status(200).json(formatted);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Operation failed. Please try again." });
     }
 });
 
@@ -205,7 +205,7 @@ router.patch("/items/:itemKey", authenticateHybridRequest, async (req: Request, 
         const updated = await ZoteroService.updateItem(user.zotero_user_id, user.zotero_api_key, String(itemKey), updateData);
         return res.status(200).json(updated);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Operation failed. Please try again." });
     }
 });
 
@@ -279,7 +279,7 @@ router.post("/items", providerApiLimiter, authenticateHybridRequest, async (req:
         const created = await ZoteroService.createItem(user.zotero_user_id, user.zotero_api_key, itemData);
         return res.status(201).json(created);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Operation failed. Please try again." });
     }
 });
 
@@ -305,7 +305,7 @@ router.post("/items/:itemKey/notes", authenticateHybridRequest, async (req: Requ
         const created = await ZoteroService.createNote(user.zotero_user_id, user.zotero_api_key, String(itemKey), note);
         return res.status(201).json(created);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Operation failed. Please try again." });
     }
 });
 
@@ -329,7 +329,7 @@ router.get("/collections", providerApiLimiter, authenticateHybridRequest, async 
         const collections = await ZoteroService.fetchCollections(user.zotero_user_id, user.zotero_api_key);
         return res.status(200).json(collections);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Operation failed. Please try again." });
     }
 });
 
@@ -355,7 +355,7 @@ router.get("/collections/:collectionKey/items", providerApiLimiter, authenticate
         const items = await ZoteroService.fetchCollectionItems(user.zotero_user_id, user.zotero_api_key, String(collectionKey), Number(limit), Number(start));
         return res.status(200).json(items);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Operation failed. Please try again." });
     }
 });
 

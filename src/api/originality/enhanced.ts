@@ -99,7 +99,7 @@ router.post(
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
           success: false,
-          message: e.message || "Plan limit reached",
+          message: "Plan limit reached",
           code: e.code,
         
         ...e.data,
@@ -109,7 +109,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        message: e.message || "Failed to scan document",
+        message: "Failed to scan document",
       });
     }
   }
@@ -150,7 +150,7 @@ router.get("/scan/:scanId", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error("Error getting enhanced scan results", {
-      error: error.message,
+      error: "Failed to generate rephrase suggestions",
     });
 
     if (
@@ -165,7 +165,7 @@ router.get("/scan/:scanId", async (req: Request, res: Response) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to get scan results",
+      message: "Failed to get scan results. Please try again.",
     });
   }
 });
@@ -205,12 +205,12 @@ router.get("/project/:projectId", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error("Error getting enhanced project scans", {
-      error: error.message,
+      error: "Failed to generate rephrase suggestions",
     });
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to get project scans",
+      message: "Failed to get scans. Please try again.",
     });
   }
 });
@@ -275,14 +275,14 @@ router.post(
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
           success: false,
-          message: e.message,
+          message: "Processing failed. Please try again.",
           code: e.code,
         
         ...e.data,
     });
       }
       logger.error("Error generating enhanced rephrase suggestions", {
-        error: e.message,
+        error: "Failed to generate rephrase suggestions",
       });
 
       if (
@@ -297,7 +297,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        message: e.message || "Failed to generate rephrase suggestions",
+        message: "Failed to generate rephrase suggestions",
       });
     }
   }

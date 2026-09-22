@@ -25,7 +25,7 @@ router.get("/registration-status", async (_req, res) => {
     const open = cfg ? (cfg.value as { enabled?: boolean })?.enabled !== false : true;
     res.json({ success: true, data: { open } });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Failed to check registration status." });
   }
 });
 

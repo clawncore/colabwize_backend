@@ -129,7 +129,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        error: error.message || "Failed to add citation",
+        error: "Failed to add citation",
       });
     }
   },

@@ -77,7 +77,7 @@ router.post("/:projectId/consensus", authenticate, async (req, res) => {
 
     } catch (error: any) {
         logger.error("Failed to analyze consensus", {
-            error: error.message
+            error: "Failed to retrieve consensus data"
         });
         res.status(500).json({
             success: false,
@@ -113,7 +113,7 @@ router.get("/:projectId/consensus-topics", authenticate, async (req, res) => {
 
     } catch (error: any) {
         logger.error("Failed to get consensus topics", {
-            error: error.message
+            error: "Failed to retrieve consensus data"
         });
         res.status(500).json({
             success: false,

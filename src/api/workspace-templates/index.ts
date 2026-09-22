@@ -1,4 +1,5 @@
 import { Router } from "express";
+import logger from "../../monitoring/logger";
 import { GET, POST } from "./route";
 
 const router = Router();
@@ -10,8 +11,9 @@ router.get("/", async (req, res) => {
         }));
         const data = await response.json();
         res.status(response.status).json(data);
-    } catch (error) {
-        res.status(500).json({ success: false, message: error instanceof Error ? error.message : String(error) });
+    } catch (error: any) {
+        logger.error("Workspace templates GET failed", { error: error.message });
+        res.status(500).json({ success: false, message: "Failed to load workspace templates." });
     }
 });
 
@@ -25,8 +27,9 @@ router.post("/", async (req, res) => {
         }));
         const data = await response.json();
         res.status(response.status).json(data);
-    } catch (error) {
-        res.status(500).json({ success: false, message: error instanceof Error ? error.message : String(error) });
+    } catch (error: any) {
+        logger.error("Workspace templates POST failed", { error: error.message });
+        res.status(500).json({ success: false, message: "Failed to load workspace templates." });
     }
 });
 

@@ -24,7 +24,7 @@ router.get("/logs", async (req, res) => {
     return res.json({ success: true, logs: result.logs, total: result.total });
   } catch (error: any) {
     console.error("Error fetching security logs:", error);
-    return res.status(500).json({ error: error.message || "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -40,7 +40,7 @@ router.get("/stats", async (req, res) => {
     return res.json({ success: true, stats });
   } catch (error: any) {
     console.error("Error fetching security log stats:", error);
-    return res.status(500).json({ error: error.message || "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

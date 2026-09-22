@@ -56,7 +56,7 @@ router.post("/:citationId/classify-intent", authenticate, async (req, res) => {
     } catch (error: any) {
         logger.error("Failed to classify citation intent", {
             citationId: req.params.citationId,
-            error: error.message
+            error: "Failed to retrieve citation intent"
         });
         res.status(500).json({
             success: false,
@@ -119,7 +119,7 @@ router.post("/batch-classify-intents", authenticate, async (req, res) => {
 
     } catch (error: any) {
         logger.error("Failed to batch classify citation intents", {
-            error: error.message
+            error: "Failed to retrieve citation intent"
         });
         res.status(500).json({
             success: false,

@@ -101,7 +101,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        message: error.message || "AI detection failed. Please try again.",
+        message: "AI detection failed. Please try again.",
       });
     }
   },

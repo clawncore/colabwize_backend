@@ -1399,16 +1399,22 @@ export async function getReferralData(request: Request) {
 
     // Calculate stats
     const totalReferrals = userData.referrals_made.length;
-    const activeRewards = userData.referrals_made.filter(
-      (r: { reward_status: string; reward_expires_at: Date | null }) =>
-        r.reward_status === "granted" && (!r.reward_expires_at || r.reward_expires_at > new Date())
-    ).length;
-    const totalDaysEarned = activeRewards * 5; // active reward days, not totalReferrals * 5
+    const now = new Date();
 
     // Monthly limit (UTC calendar month) — mirrors HybridAuthService.monthStartUtc
-    const now = new Date();
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+
+    // Active = granted AND not expired
+    const activeRewards = userData.referrals_made.filter(
+      (r: { reward_status: string; reward_expires_at: Date | null }) =>
+        r.reward_status === "granted" && (!r.reward_expires_at || r.reward_expires_at > now)
+    ).length;
+
+    // totalDaysEverEarned = actual granted reward days (not totalReferrals * 5)
+    const totalDaysEverEarned = userData.referrals_made.filter(
+      (r: { reward_status: string }) => r.reward_status === "granted"
+    ).length * 5;
 
     const rewardedThisMonth = userData.referrals_made.filter(
       (r: { reward_status: string; referred_at: Date }) =>
@@ -1429,8 +1435,8 @@ export async function getReferralData(request: Request) {
         nextResetDate: nextMonthStart.toISOString(),
         monthKey,
         activeRewards,
-        totalDaysEarned,
-        totalDaysEverEarned: totalReferrals * 5, // historical total across all months
+        totalDaysEarned: activeRewards * 5,
+        totalDaysEverEarned,
         referrals: userData.referrals_made.map((r: { id: string; referred_at: Date; reward_status: string; reward_expires_at: Date | null; referee: { full_name: string | null; email: string } }) => ({
           id: r.id,
           referredAt: r.referred_at,

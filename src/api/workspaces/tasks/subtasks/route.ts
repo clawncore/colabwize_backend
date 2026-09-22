@@ -14,7 +14,7 @@ router.get("/", authenticateExpressRequest, async (req: any, res) => {
     const subtasks = await SubtaskService.getSubtasks(taskId);
     res.json({ subtasks });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -28,7 +28,7 @@ router.post("/", authenticateExpressRequest, checkWorkspaceRole("editor"), async
     const subtask = await SubtaskService.createSubtask(taskId, title);
     res.status(201).json({ subtask });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -45,7 +45,7 @@ router.patch("/:subtaskId", authenticateExpressRequest, checkWorkspaceRole("edit
     });
     res.json({ subtask });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -56,7 +56,7 @@ router.delete("/:subtaskId", authenticateExpressRequest, checkWorkspaceRole("edi
     await SubtaskService.deleteSubtask(subtaskId);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 

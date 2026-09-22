@@ -127,7 +127,7 @@ router.get(
       });
       return res
         .status(500)
-        .json({ error: "Failed to export project: " + error.message });
+        .json({ error: "Failed to export project. Please try again." });
     }
   },
 );
@@ -187,7 +187,7 @@ router.post(
         error: error.message,
         userId: req.user?.id,
       });
-      return res.status(500).json({ success: false, message: error.message });
+      return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
   },
 );
@@ -251,7 +251,7 @@ router.post(
       });
       return res
         .status(500)
-        .json({ success: false, message: error.message });
+        .json({ success: false, message: "Operation failed. Please try again." });
     }
   },
 );
@@ -310,7 +310,7 @@ router.post(
         error: error.message,
         userId: req.user?.id,
       });
-      return res.status(500).json({ success: false, message: error.message });
+      return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
   },
 );
@@ -359,7 +359,7 @@ router.post(
         error: error.message,
         userId: req.user?.id,
       });
-      return res.status(500).json({ success: false, message: error.message });
+      return res.status(500).json({ success: false, message: "Operation failed. Please try again." });
     }
   },
 );

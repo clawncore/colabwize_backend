@@ -386,7 +386,7 @@ router.get("/realtime/production", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Monitoring render production realtime error:", error);
-    res.json({ success: true, data: { source: "render", status: "error", message: error.message } });
+    res.json({ success: true, data: { source: "render", status: "error", message: "Service unavailable" } });
   }
 });
 
@@ -421,7 +421,7 @@ router.get("/history/production", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Monitoring render production history error:", error);
-    res.json({ success: true, data: { source: "render", status: "error", message: error.message } });
+    res.json({ success: true, data: { source: "render", status: "error", message: "Service unavailable" } });
   }
 });
 
@@ -509,7 +509,7 @@ router.get("/database", async (req, res) => {
     res.json({ success: true, data });
   } catch (error: any) {
     logger.error("Monitoring database error:", error);
-    res.json({ success: true, data: { source: "supabase-postgresql", status: "unhealthy", message: error.message } });
+    res.json({ success: true, data: { source: "supabase-postgresql", status: "unhealthy", message: "Database unavailable" } });
   }
 });
 
@@ -549,7 +549,7 @@ router.get("/supabase-health", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Monitoring supabase-health error:", error);
-    res.json({ success: true, data: { source: "supabase-management-api", status: "error", message: error.message } });
+    res.json({ success: true, data: { source: "supabase-management-api", status: "error", message: "API unavailable" } });
   }
 });
 

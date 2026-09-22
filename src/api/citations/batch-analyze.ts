@@ -131,7 +131,7 @@ Rules:
 
             return res.status(500).json({
                 success: false,
-                error: error.message || "Batch analysis failed",
+                error: "Batch analysis failed",
             });
         }
     }

@@ -236,6 +236,22 @@ export class EntitlementService {
             ent = await prisma.userEntitlement.findUnique({ where: { user_id: userId } });
         }
 
+        // Self-Repair: Check if referral entitlement has expired since cache was built.
+        // The cached UserEntitlement may still report Plus if the referral reward
+        // period expired but the LS billing period hasn't. We must detect this.
+        // The authoritative check: if the cached plan is "plus" but the live
+        // subscription's entitlement_expires_at has passed, force a rebuild.
+        if (ent && ent.plan === "plus") {
+            const sub = await prisma.subscription.findUnique({
+                where: { user_id: userId },
+            });
+            if (sub && sub.entitlement_expires_at && new Date() > new Date(sub.entitlement_expires_at)) {
+                logger.info("Referral entitlement expired, rebuilding", { userId, expiresAt: sub.entitlement_expires_at });
+                await this.rebuildEntitlements(userId);
+                ent = await prisma.userEntitlement.findUnique({ where: { user_id: userId } });
+            }
+        }
+
         // Generic Self-Repair: Validate that specific critical limits match the configuration.
         // This avoids hardcoding checks like "if student pro and limit < 50".
         if (ent) {

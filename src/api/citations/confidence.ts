@@ -68,20 +68,20 @@ router.get(
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
           success: false,
-          message: e.message || "Plan limit reached",
+          message: "Plan limit reached",
           code: e.code,
         
         ...e.data,
     });
       }
       logger.error("Error getting citation confidence", {
-        error: e.message,
+        error: "Failed to analyze citation confidence",
         stack: e.stack,
       });
 
       return res.status(500).json({
         success: false,
-        error: e.message || "Failed to analyze citation confidence",
+        error: "Failed to analyze citation confidence",
       });
     }
   },
@@ -151,20 +151,20 @@ router.get(
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
           success: false,
-          message: e.message || "Plan limit reached",
+          message: "Plan limit reached",
           code: e.code,
         
         ...e.data,
     });
       }
       logger.error("Error getting citation recency", {
-        error: e.message,
+        error: "Failed to analyze citation confidence",
         stack: e.stack,
       });
 
       return res.status(500).json({
         success: false,
-        error: e.message || "Failed to analyze citation recency",
+        error: "Failed to analyze citation recency",
       });
     }
   },

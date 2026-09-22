@@ -72,7 +72,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        error: error.message || "Failed to record activity",
+        error: "Failed to record activity",
       });
     }
   }
@@ -121,7 +121,7 @@ router.get(
 
       return res.status(500).json({
         success: false,
-        error: error.message || "Failed to get authorship statistics",
+        error: "Failed to get authorship statistics",
       });
     }
   }
@@ -180,7 +180,7 @@ router.get(
 
       return res.status(500).json({
         success: false,
-        error: error.message || "Failed to get quick statistics",
+        error: "Failed to get quick statistics",
       });
     }
   }
@@ -232,7 +232,7 @@ router.post(
 
       return res.status(500).json({
         success: false,
-        error: error.message || "Failed to generate certificate",
+        error: "Failed to generate certificate",
       });
     }
   }
@@ -285,7 +285,7 @@ router.get(
 
       return res.status(500).json({
         success: false,
-        error: error.message || "Failed to get detailed activity tracking",
+        error: "Failed to get detailed activity tracking",
       });
     }
   }

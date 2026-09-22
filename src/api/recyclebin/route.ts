@@ -36,7 +36,7 @@ router.get("/", async (req: any, res: any) => {
     logger.error("Error fetching recycled items:", error);
     return res.status(500).json({
       success: false,
-      message: error.message || "Internal server error",
+      message: "Internal server error",
     });
   }
 });
@@ -76,7 +76,7 @@ router.put("/restore", async (req: any, res: any) => {
     logger.error("Error restoring item:", error);
     return res.status(500).json({
       success: false,
-      message: error.message || "Internal server error",
+      message: "Internal server error",
     });
   }
 });
@@ -116,7 +116,7 @@ router.delete("/", async (req: any, res: any) => {
     logger.error("Error permanently deleting item:", error);
     return res.status(500).json({
       success: false,
-      message: error.message || "Internal server error",
+      message: "Internal server error",
     });
   }
 });
@@ -147,7 +147,7 @@ router.get("/stats", async (req: any, res: any) => {
     logger.error("Error fetching recycle bin stats:", error);
     return res.status(500).json({
       success: false,
-      message: error.message || "Internal server error",
+      message: "Internal server error",
     });
   }
 });
@@ -194,7 +194,7 @@ router.put("/settings", async (req: any, res: any) => {
     logger.error("Error updating recycle bin settings:", error);
     return res.status(500).json({
       success: false,
-      message: error.message || "Internal server error",
+      message: "Internal server error",
     });
   }
 });
@@ -237,7 +237,7 @@ router.delete("/empty", async (req: any, res: any) => {
     logger.error("Error emptying trash:", error);
     return res.status(500).json({
       success: false,
-      message: error.message || "Internal server error",
+      message: "Internal server error",
     });
   }
 });
@@ -270,7 +270,7 @@ router.get("/settings", async (req: any, res: any) => {
     logger.error("Error fetching recycle bin settings:", error);
     return res.status(500).json({
       success: false,
-      message: error.message || "Internal server error",
+      message: "Internal server error",
     });
   }
 });

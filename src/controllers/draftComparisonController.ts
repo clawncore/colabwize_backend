@@ -81,9 +81,9 @@ export class DraftComparisonController {
       return res.json(result);
     } catch (error: any) {
       logger.error("Error in compareDrafts controller", {
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error)
       });
-      return res.status(500).json({ error: error.message });
+      return res.status(500).json({ error: "Failed to compare drafts. Please try again." });
     }
   }
 }

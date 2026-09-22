@@ -74,7 +74,7 @@ router.post("/audit", async (req: Request, res: Response) => {
                 const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
                 return res.status(status).json({
                     success: false,
-                    message: e.message || "Plan limit reached.",
+                    message: "Plan limit reached",
                     code: e.code,
                     ...e.data,
                 });
@@ -242,7 +242,7 @@ router.post("/audit/unified", async (req: Request, res: Response) => {
                 const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
                 return res.status(status).json({
                     success: false,
-                    message: e.message || "Plan limit reached.",
+                    message: "Plan limit reached",
                     code: e.code,
                 
         ...e.data,

@@ -15,7 +15,7 @@ router.get("/sessions", async (req, res) => {
     return res.json({ success: true, sessions });
   } catch (error: any) {
     console.error("Error fetching sessions:", error);
-    return res.status(500).json({ error: error.message || "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -32,7 +32,7 @@ router.delete("/sessions/:sessionId", async (req, res) => {
     return res.json(result);
   } catch (error: any) {
     console.error("Error signing out session:", error);
-    return res.status(500).json({ error: error.message || "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -48,7 +48,7 @@ router.delete("/sessions", async (req, res) => {
     return res.json(result);
   } catch (error: any) {
     console.error("Error signing out all other sessions:", error);
-    return res.status(500).json({ error: error.message || "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -67,7 +67,7 @@ router.get("/login-history", async (req, res) => {
     return res.json({ success: true, loginHistory: history });
   } catch (error: any) {
     console.error("Error fetching login history:", error);
-    return res.status(500).json({ error: error.message || "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -83,7 +83,7 @@ router.get("/privacy", async (req, res) => {
     return res.json({ success: true, privacySettings: settings });
   } catch (error: any) {
     console.error("Error fetching privacy settings:", error);
-    return res.status(500).json({ error: error.message || "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -116,7 +116,7 @@ router.put("/privacy", async (req, res) => {
     return res.json({ success: true, privacySettings: settings });
   } catch (error: any) {
     console.error("Error updating privacy settings:", error);
-    return res.status(500).json({ error: error.message || "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -132,7 +132,7 @@ router.get("/settings", async (req, res) => {
     return res.json({ success: true, settings });
   } catch (error: any) {
     console.error("Error fetching security settings:", error);
-    return res.status(500).json({ error: error.message || "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

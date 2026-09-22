@@ -2061,6 +2061,8 @@ model Referral {
   referee_reward_granted      Boolean   @default(false)
   referee_entitlement_expires DateTime?
   expiration_reminder_sent    Boolean   @default(false)
+  referrer_email_sent         Boolean   @default(false)  // idempotency: reward email to referrer
+  referee_email_sent          Boolean   @default(false)  // idempotency: reward email to referee
 
   referrer          User     @relation("ReferrerRelation", fields: [referrer_id], references: [id], onDelete: Cascade)
   referee           User     @relation("RefereeRelation", fields: [referee_id], references: [id], onDelete: Cascade)

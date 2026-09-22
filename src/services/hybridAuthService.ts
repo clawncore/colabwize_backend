@@ -405,7 +405,7 @@ export class HybridAuthService {
           return noReward;
         }
 
-        // 5. Create the referral record (pending until rewards are applied)
+        // 5. Create the referral record (reward is granted atomically)
         await tx.referral.create({
           data: {
             referrer_id: referrer.id,
@@ -414,6 +414,8 @@ export class HybridAuthService {
             reward_expires_at: expiresAt,
             referee_reward_granted: false, // set true below if referee was upgraded
             referee_entitlement_expires: null,
+            referrer_email_sent: false,    // idempotency flags for email retries
+            referee_email_sent: false,
           },
         });
 
@@ -535,9 +537,22 @@ export class HybridAuthService {
           HybridAuthService.REWARD_DAYS,
           rewardExpiresAt,
         );
-      } catch (emailError: any) {
-        logger.warn("Failed to send referral reward email (non-blocking)", {
+        // Mark referrer email as sent (idempotent — prevents duplicate sends on retry)
+        await prisma.referral.updateMany({
+          where: { referee_id: refereeId },
+          data: { referrer_email_sent: true },
+        });
+        logger.info("REFERRAL_EMAIL_SENT", {
+          type: "referrer",
           referrerId: txResult.referrerId,
+          refereeId,
+          referralCode,
+        });
+      } catch (emailError: any) {
+        logger.warn("REFERRAL_EMAIL_FAILED", {
+          type: "referrer",
+          referrerId: txResult.referrerId,
+          refereeId,
           error: emailError.message,
         });
       }
@@ -551,9 +566,22 @@ export class HybridAuthService {
             HybridAuthService.REWARD_DAYS,
             rewardExpiresAt,
           );
-        } catch (emailError: any) {
-          logger.warn("Failed to send referee reward email (non-blocking)", {
+          // Mark referee email as sent (idempotent)
+          await prisma.referral.updateMany({
+            where: { referee_id: refereeId },
+            data: { referee_email_sent: true },
+          });
+          logger.info("REFERRAL_EMAIL_SENT", {
+            type: "referee",
             refereeId,
+            referrerId: txResult.referrerId,
+            referralCode,
+          });
+        } catch (emailError: any) {
+          logger.warn("REFERRAL_EMAIL_FAILED", {
+            type: "referee",
+            refereeId,
+            referrerId: txResult.referrerId,
             error: emailError.message,
           });
         }
@@ -776,7 +804,21 @@ export class HybridAuthService {
         });
 
       if (supabaseError) {
-        throw new Error(`Supabase creation failed: ${supabaseError.message}`);
+        // Normalize known Supabase errors into safe application errors
+        // Avoid leaking internal provider error details to the client
+        const supabaseErrMsg = supabaseError.message?.toLowerCase() || "";
+        if (supabaseErrMsg.includes("already") || supabaseErrMsg.includes("duplicate")) {
+          const err = new Error("User with this email already exists");
+          (err as any).code = "ACCOUNT_EXISTS";
+          (err as any).supabaseOriginal = supabaseError.message; // for internal logging
+          throw err;
+        }
+        // Log the raw error internally for debugging
+        logger.error("Supabase user creation failed", { error: supabaseError.message });
+        const err = new Error("Account creation failed");
+        (err as any).code = "SIGNUP_FAILED";
+        (err as any).supabaseOriginal = supabaseError.message; // for internal logging
+        throw err;
       }
 
       if (!supabaseUser.user) {

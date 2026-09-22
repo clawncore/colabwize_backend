@@ -84,7 +84,7 @@ router.post(
       logger.error("Naturalize endpoint failed", { error: error.message });
       return res.status(500).json({
         success: false,
-        message: error.message || "Naturalization failed",
+        message: "Naturalization failed",
       });
     }
   },
@@ -105,7 +105,7 @@ router.post(
       return res.json({ success: true, data: { stats, maxIterations: MAX_ITERATIONS } });
     } catch (error: any) {
       logger.error("Analyze endpoint failed", { error: error.message });
-      return res.status(500).json({ success: false, message: error.message });
+      return res.status(500).json({ success: false, message: "Analysis failed. Please try again." });
     }
   },
 );
@@ -137,7 +137,7 @@ router.post(
       return res.json({ success: true, data: report });
     } catch (error: any) {
       logger.error("Validate endpoint failed", { error: error.message });
-      return res.status(500).json({ success: false, message: error.message });
+      return res.status(500).json({ success: false, message: "Validation failed. Please try again." });
     }
   },
 );

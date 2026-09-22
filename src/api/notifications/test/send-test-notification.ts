@@ -45,7 +45,7 @@ export async function POST(req: Request, res: Response) {
     console.error("Send test notification failed", { error: error.message });
     return res.status(500).json({
       success: false,
-      message: error.message || "Internal server error",
+      message: "Internal server error",
     });
   }
 }

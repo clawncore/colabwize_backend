@@ -11,7 +11,7 @@ router.get("/:id/labels", async (req: any, res) => {
     const labels = await LabelService.getWorkspaceLabels(id);
     res.json({ labels });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -25,7 +25,7 @@ router.post("/:id/labels", checkWorkspaceRole("editor"), async (req: any, res) =
     const label = await LabelService.createLabel(id, name, color);
     res.status(201).json({ label });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -38,7 +38,7 @@ router.patch("/labels/:labelId", checkWorkspaceRole("editor"), async (req: any, 
     const label = await LabelService.updateLabel(labelId, { name, color });
     res.json({ label });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -49,7 +49,7 @@ router.delete("/labels/:labelId", checkWorkspaceRole("editor"), async (req: any,
     await LabelService.deleteLabel(labelId);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -60,7 +60,7 @@ router.post("/tasks/:taskId/labels/:labelId", checkWorkspaceRole("editor"), asyn
     const task = await LabelService.addLabelToTask(taskId, labelId);
     res.json({ task });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -71,7 +71,7 @@ router.delete("/tasks/:taskId/labels/:labelId", checkWorkspaceRole("editor"), as
     const task = await LabelService.removeLabelFromTask(taskId, labelId);
     res.json({ task });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 

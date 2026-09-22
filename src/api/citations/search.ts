@@ -88,7 +88,7 @@ async function handleSearch(req: Request, res: Response) {
         const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
         return res.status(status).json({
           success: false,
-          message: e.message || "Monthly search limit reached",
+          message: "Monthly search limit reached",
           code: e.code,
           requiresUpgrade: true,
           ...e.data,
@@ -152,7 +152,7 @@ router.post("/legitimize", async (req: Request, res: Response) => {
       const status = e.code === "INSUFFICIENT_CREDITS" ? 402 : 403;
       return res.status(status).json({
         success: false,
-        message: e.message || "Monthly search limit reached",
+        message: "Monthly search limit reached",
         code: e.code,
         requiresUpgrade: true,
         ...e.data,

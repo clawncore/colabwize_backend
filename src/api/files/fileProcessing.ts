@@ -104,7 +104,7 @@ router.post(
 
       res.status(500).json({
         success: false,
-        error: error.message || "Internal server error",
+        error: "Internal server error",
       });
     }
   }

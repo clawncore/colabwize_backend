@@ -30,7 +30,7 @@ router.post("/scan", async (req: Request, res: Response) => {
         logger.error("AI Detection API Error", { error: error.message });
         res.status(500).json({
             success: false,
-            message: error.message || "Failed to scan for AI content",
+            message: "Failed to scan for AI content. Please try again.",
         });
     }
 });

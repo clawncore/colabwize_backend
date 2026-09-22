@@ -58,7 +58,6 @@ export async function authenticateHybridRequest(
     res.status(500).json({
       success: false,
       message: "Internal authentication error",
-      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 }

@@ -32,7 +32,7 @@ router.get("/templates/all", async (req: any, res) => {
     return res.json({ success: true, templates });
   } catch (error: any) {
     console.error("Error fetching templates:", error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: "Operation failed. Please try again." });
   }
 });
 
@@ -60,7 +60,7 @@ router.post(
       return res.status(201).json({ success: true, template });
     } catch (error: any) {
       console.error("Error saving as template:", error);
-      return res.status(500).json({ error: error.message });
+      return res.status(500).json({ error: "Operation failed. Please try again." });
     }
   },
 );
@@ -88,7 +88,7 @@ router.post(
       return res.status(201).json({ success: true, task });
     } catch (error: any) {
       console.error("Error creating from template:", error);
-      return res.status(500).json({ error: error.message });
+      return res.status(500).json({ error: "Operation failed. Please try again." });
     }
   },
 );
@@ -111,7 +111,7 @@ router.get("/", async (req: any, res) => {
     res.status(200).json({ tasks });
   } catch (error: any) {
     console.error("Error in Workspace Task GET:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -129,7 +129,7 @@ router.get("/comments", async (req: any, res) => {
     res.status(200).json({ comments });
   } catch (error: any) {
     console.error("Error in Task Comment GET:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -147,7 +147,7 @@ router.get("/time/active", async (req: any, res) => {
     res.status(200).json({ activeTimer });
   } catch (error: any) {
     console.error("Error fetching active timer:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -165,7 +165,7 @@ router.post(
       res.status(201).json({ task: clonedTask });
     } catch (error: any) {
       console.error("Error cloning task:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -183,7 +183,7 @@ router.get("/:taskId", async (req: any, res) => {
     res.status(200).json({ task });
   } catch (error: any) {
     console.error("Error fetching task:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -202,7 +202,7 @@ router.post("/", checkWorkspaceRole("editor"), async (req: any, res) => {
     res.status(201).json({ task });
   } catch (error: any) {
     console.error("Error in Workspace Task POST:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -221,7 +221,7 @@ router.patch("/", checkWorkspaceRole("editor"), async (req: any, res) => {
     res.status(200).json({ task });
   } catch (error: any) {
     console.error("Error in Workspace Task PATCH:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -247,7 +247,7 @@ router.patch(
       res.status(200).json({ task });
     } catch (error: any) {
       console.error("Error updating task custom fields:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -266,7 +266,7 @@ router.delete("/", checkWorkspaceRole("editor"), async (req: any, res) => {
     res.status(200).json({ success: true });
   } catch (error: any) {
     console.error("Error in Workspace Task DELETE:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -288,7 +288,7 @@ router.patch("/bulk", checkWorkspaceRole("editor"), async (req: any, res) => {
     res.status(200).json({ tasks });
   } catch (error: any) {
     console.error("Error in Workspace Task Bulk PATCH:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -304,7 +304,7 @@ router.delete("/bulk", checkWorkspaceRole("editor"), async (req: any, res) => {
     res.status(200).json({ success: true });
   } catch (error: any) {
     console.error("Error in Workspace Task Bulk DELETE:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -337,7 +337,7 @@ router.post(
       res.status(201).json({ comment });
     } catch (error: any) {
       console.error("Error in Task Comment POST:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -359,7 +359,7 @@ router.delete(
       res.status(200).json({ success: true });
     } catch (error: any) {
       console.error("Error in Task Comment DELETE:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -457,7 +457,7 @@ router.post(
       res.status(201).json({ attachment });
     } catch (error: any) {
       console.error("Error in Task Attachment POST:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -479,7 +479,7 @@ router.delete(
       res.status(200).json({ success: true });
     } catch (error: any) {
       console.error("Error in Task Attachment DELETE:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -533,7 +533,7 @@ router.get("/attachments/:id/stream", async (req: any, res) => {
     res.send(data);
   } catch (error: any) {
     console.error("Error in Task Attachment Stream GET:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -563,7 +563,7 @@ router.get("/attachments/:id/download", async (req: any, res) => {
     res.send(data);
   } catch (error: any) {
     console.error("Error in Task Attachment Download GET:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -577,7 +577,7 @@ router.get("/attachments/:id/annotations", async (req: any, res) => {
       return res.status(404).json({ error: "Attachment not found" });
     res.json({ annotations: (attachment as any).annotations || [] });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -596,7 +596,7 @@ router.put("/attachments/:id/annotations", async (req: any, res) => {
     });
     res.json({ annotations: (updated as any).annotations });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -636,7 +636,7 @@ router.get("/:taskId/upcoming-instances", async (req: any, res) => {
     res.status(200).json({ occurrences });
   } catch (error: any) {
     console.error("Error fetching upcoming instances:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -672,7 +672,7 @@ router.post("/:taskId/skip-occurrence", async (req: any, res) => {
     res.status(201).json({ success: true, instance: skippedInstance });
   } catch (error: any) {
     console.error("Error skipping occurrence:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -699,7 +699,7 @@ router.post("/:taskId/generate-instances", async (req: any, res) => {
       .json({ success: true, instancesCreated: instances.length, instances });
   } catch (error: any) {
     console.error("Error generating instances:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -717,7 +717,7 @@ router.get("/by-project/:projectId", async (req: any, res) => {
     res.status(200).json({ tasks });
   } catch (error: any) {
     console.error("Error fetching tasks by project:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -735,7 +735,7 @@ router.get("/project-stats/:projectId", async (req: any, res) => {
     res.status(200).json(stats);
   } catch (error: any) {
     console.error("Error fetching project task stats:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -767,7 +767,7 @@ router.post(
       res.status(200).json(entry);
     } catch (error: any) {
       console.error("Error starting timer:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -785,7 +785,7 @@ router.post(
       res.status(200).json(entry);
     } catch (error: any) {
       console.error("Error stopping timer:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -814,7 +814,7 @@ router.post(
       res.status(200).json(entry);
     } catch (error: any) {
       console.error("Error logging time:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -829,7 +829,7 @@ router.get("/:taskId/time", async (req: any, res) => {
     res.status(200).json({ entries });
   } catch (error: any) {
     console.error("Error fetching time entries:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -843,7 +843,7 @@ router.get("/:taskId/time/total", async (req: any, res) => {
     res.status(200).json(totals);
   } catch (error: any) {
     console.error("Error calculating total time:", error);
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -865,7 +865,7 @@ router.delete(
       res.status(200).json({ success: true });
     } catch (error: any) {
       console.error("Error deleting time entry:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -898,7 +898,7 @@ router.patch(
       res.status(200).json(entry);
     } catch (error: any) {
       console.error("Error updating time entry:", error);
-      res.status(500).json({ error: error.message || "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
