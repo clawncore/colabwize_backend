@@ -1405,20 +1405,29 @@ export async function getReferralData(request: Request) {
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
-    // Active = granted AND not expired
+    // Active = granted AND not expired (reward_expires_at in the future)
+    // "expired" status means the reward period has passed — not active.
     const activeRewards = userData.referrals_made.filter(
       (r: { reward_status: string; reward_expires_at: Date | null }) =>
         r.reward_status === "granted" && (!r.reward_expires_at || r.reward_expires_at > now)
     ).length;
 
-    // totalDaysEverEarned = actual granted reward days (not totalReferrals * 5)
+    // totalDaysEverEarned = days from all rewards that were ever granted,
+    // INCLUDING those that have since expired (status transitioned to "expired").
+    // The daily cron updates expired rows from "granted" → "expired", so we
+    // count both statuses.
     const totalDaysEverEarned = userData.referrals_made.filter(
-      (r: { reward_status: string }) => r.reward_status === "granted"
+      (r: { reward_status: string }) =>
+        r.reward_status === "granted" || r.reward_status === "expired"
     ).length * 5;
 
+    // Monthly limit counts only rewarded referrals in the current UTC month.
+    // "granted" + current month (expired in same month is unlikely but handled
+    // for completeness).
     const rewardedThisMonth = userData.referrals_made.filter(
       (r: { reward_status: string; referred_at: Date }) =>
-        r.reward_status === "granted" && new Date(r.referred_at) >= monthStart
+        (r.reward_status === "granted" || r.reward_status === "expired") &&
+        new Date(r.referred_at) >= monthStart
     ).length;
 
     const REWARD_LIMIT = 1;

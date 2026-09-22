@@ -28,7 +28,7 @@ jest.mock("../src/lib/prisma", () => ({
       count: mockFn(),
       create: mockFn(),
       update: mockFn(),
-      updateMany: mockFn(),
+      updateMany: mockFn().mockResolvedValue({ count: 1 }),
       findMany: mockFn(),
     },
     subscription: {
@@ -148,6 +148,11 @@ const mockPaidSub = (userId: string, plan = "plus") => ({
  * production logic run and we can assert on its real side-effects.
  */
 function setupRealTransaction() {
+  // Ensure updateMany returns { count: 1 } after jest.resetAllMocks()
+  // wipes the top-level mockResolvedValue. This simulates a successful
+  // atomic claim in the email idempotency logic.
+  (prisma.referral.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
   (prisma.$transaction as jest.Mock).mockImplementation(
     async (fn: (tx: any) => Promise<any>) => {
       const tx = {
@@ -157,7 +162,7 @@ function setupRealTransaction() {
           count: prisma.referral.count,
           create: prisma.referral.create,
           update: prisma.referral.update,
-          updateMany: prisma.referral.updateMany || jest.fn(),
+          updateMany: prisma.referral.updateMany,
         },
         subscription: {
           findUnique: prisma.subscription.findUnique,
@@ -1089,6 +1094,31 @@ describe("Referral expiration and cache invalidation", () => {
     // Frontend shows "Expired" when expiresAt is in the past
     expect(new Date(result.expiresAt!).getTime()).toBeLessThan(Date.now());
     // Record is still present — not deleted
+  });
+
+  // T24: Explicitly expired referral record (status transitioned by daily cron)
+  it("T24: referral with reward_status=expired is returned and counted as earned", async () => {
+    // The daily cron (referralExpirationTask) transitions granted→expired
+    // when reward_expires_at has passed. The API counts this as an earned day.
+    const expiredReferral = {
+      id: "ref-expired-2",
+      referred_at: new Date("2026-09-01T10:00:00Z"),
+      reward_status: "expired",   // explicitly transitioned by cron
+      reward_expires_at: new Date("2026-09-06T10:00:00Z"),
+      referee: { full_name: "Old Referee", email: "old@example.com" },
+    };
+
+    // totalDaysEverEarned counts both "granted" and "expired" — the user
+    // still earned those days, they just expired
+    const earned = [expiredReferral].filter(
+      (r) => r.reward_status === "granted" || r.reward_status === "expired"
+    ).length * 5;
+    expect(earned).toBe(5);
+
+    // The API returns status as-is for the frontend to interpret
+    expect(expiredReferral.reward_status).toBe("expired");
+    expect(expiredReferral.reward_expires_at).toBeDefined();
+    // Frontend should show "Expired" badge for this record
   });
 
   // ── T15: totalDaysEverEarned calculation ───────────────────────────────

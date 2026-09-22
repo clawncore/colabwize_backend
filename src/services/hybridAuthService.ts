@@ -531,23 +531,39 @@ export class HybridAuthService {
       );
 
       try {
-        await EmailService.sendReferralRewardEmail(
-          txResult.referrerEmail ?? "",
-          txResult.referrerFullName ?? "",
-          HybridAuthService.REWARD_DAYS,
-          rewardExpiresAt,
-        );
-        // Mark referrer email as sent (idempotent — prevents duplicate sends on retry)
-        await prisma.referral.updateMany({
-          where: { referee_id: refereeId },
+        // Atomically claim the email-send: only update referrer_email_sent
+        // from false→true if it's currently false. This prevents a race
+        // where two concurrent retry processes both send the email.
+        // updateMany with the where clause acts as a compare-and-swap.
+        const claimed = await prisma.referral.updateMany({
+          where: {
+            referee_id: refereeId,
+            referrer_email_sent: false,
+          },
           data: { referrer_email_sent: true },
         });
-        logger.info("REFERRAL_EMAIL_SENT", {
-          type: "referrer",
-          referrerId: txResult.referrerId,
-          refereeId,
-          referralCode,
-        });
+
+        if (claimed.count > 0) {
+          await EmailService.sendReferralRewardEmail(
+            txResult.referrerEmail ?? "",
+            txResult.referrerFullName ?? "",
+            HybridAuthService.REWARD_DAYS,
+            rewardExpiresAt,
+          );
+          logger.info("REFERRAL_EMAIL_SENT", {
+            type: "referrer",
+            referrerId: txResult.referrerId,
+            refereeId,
+            referralCode,
+          });
+        } else {
+          logger.info("REFERRAL_EMAIL_ALREADY_SENT", {
+            type: "referrer",
+            referrerId: txResult.referrerId,
+            refereeId,
+            referralCode,
+          });
+        }
       } catch (emailError: any) {
         logger.warn("REFERRAL_EMAIL_FAILED", {
           type: "referrer",
@@ -555,28 +571,49 @@ export class HybridAuthService {
           refereeId,
           error: emailError.message,
         });
+        // Best-effort: reset the flag so a retry can attempt to send
+        // (EmailService.sendReferralRewardEmail is idempotent on its own
+        // by recipient+template, but the flag is our guard at the DB level)
+        await prisma.referral.updateMany({
+          where: { referee_id: refereeId },
+          data: { referrer_email_sent: false },
+        }).catch(() => {});
       }
 
       if (txResult.refereeRewardGranted) {
         try {
-          await EmailService.sendRefereeRewardEmail(
-            txResult.refereeEmail ?? "",
-            txResult.refereeFullName ?? "",
-            txResult.referrerFullName ?? "",
-            HybridAuthService.REWARD_DAYS,
-            rewardExpiresAt,
-          );
-          // Mark referee email as sent (idempotent)
-          await prisma.referral.updateMany({
-            where: { referee_id: refereeId },
+          // Atomically claim the email-send to prevent double-delivery
+          // under concurrent retries (compare-and-swap via updateMany WHERE)
+          const claimed = await prisma.referral.updateMany({
+            where: {
+              referee_id: refereeId,
+              referee_email_sent: false,
+            },
             data: { referee_email_sent: true },
           });
-          logger.info("REFERRAL_EMAIL_SENT", {
-            type: "referee",
-            refereeId,
-            referrerId: txResult.referrerId,
-            referralCode,
-          });
+
+          if (claimed.count > 0) {
+            await EmailService.sendRefereeRewardEmail(
+              txResult.refereeEmail ?? "",
+              txResult.refereeFullName ?? "",
+              txResult.referrerFullName ?? "",
+              HybridAuthService.REWARD_DAYS,
+              rewardExpiresAt,
+            );
+            logger.info("REFERRAL_EMAIL_SENT", {
+              type: "referee",
+              refereeId,
+              referrerId: txResult.referrerId,
+              referralCode,
+            });
+          } else {
+            logger.info("REFERRAL_EMAIL_ALREADY_SENT", {
+              type: "referee",
+              refereeId,
+              referrerId: txResult.referrerId,
+              referralCode,
+            });
+          }
         } catch (emailError: any) {
           logger.warn("REFERRAL_EMAIL_FAILED", {
             type: "referee",
@@ -584,6 +621,11 @@ export class HybridAuthService {
             referrerId: txResult.referrerId,
             error: emailError.message,
           });
+          // Best-effort: reset the flag so a retry can attempt to send
+          await prisma.referral.updateMany({
+            where: { referee_id: refereeId },
+            data: { referee_email_sent: false },
+          }).catch(() => {});
         }
       }
 
