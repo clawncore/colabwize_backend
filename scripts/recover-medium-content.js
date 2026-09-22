@@ -53,7 +53,7 @@ function slugFromFilename(filename) {
 }
 
 function extractHeroImage(html) {
-  const bodyMatch = html.match(/<section[^>]*data-field="body"[^>]*class="e-content"[^>]*>([\s\S]*)<\/section>\s*<\/footer>/i);
+  const bodyMatch = html.match(/<section[^>]*data-field="body"[^>]*class="e-content"[^>]*>([\s\S]*)>\s*<\/section>\s*<\/section>\s*<footer>/i);
   const searchHtml = bodyMatch ? bodyMatch[1] : html;
   const m = searchHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
   return m ? m[1] : null;

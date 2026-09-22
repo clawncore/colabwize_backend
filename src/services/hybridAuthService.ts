@@ -979,6 +979,197 @@ export class HybridAuthService {
   }
 
   /**
+   * Request a password reset — generates a token and sends email via Resend
+   */
+  static async requestPasswordReset(
+    email: string,
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const user = await prisma.user.findUnique({ where: { email } });
+
+      // Always return success to prevent email enumeration
+      // (even if user doesn't exist, we don't tell the caller)
+      if (!user) {
+        logger.info("Password reset requested for non-existent email", {
+          email,
+        });
+        return {
+          success: true,
+          message: "If an account exists, a password reset email has been sent.",
+        };
+      }
+
+      // Generate a secure token
+      const token = crypto.randomUUID();
+
+      // Token expires in 1 hour
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+      // Store the reset token in the database
+      await prisma.passwordResetToken.create({
+        data: {
+          user_id: user.id,
+          email: user.email,
+          token,
+          expires_at: expiresAt,
+        },
+      });
+
+      // Build the reset link
+      const frontendUrl = await SecretsService.getFrontendUrl();
+      const resetLink = `${frontendUrl}/reset-password?oobCode=${token}&email=${encodeURIComponent(user.email)}`;
+
+      // Send the password reset email via Resend
+      await EmailService.sendPasswordResetEmail(
+        user.email,
+        resetLink,
+        user.full_name || "",
+      );
+
+      logger.info("Password reset email sent", {
+        email: user.email,
+        userId: user.id,
+      });
+
+      return {
+        success: true,
+        message: "If an account exists, a password reset email has been sent.",
+      };
+    } catch (error: any) {
+      logger.error("Password reset request failed", {
+        error: error.message,
+        email,
+      });
+      // Still return success to avoid leaking account existence
+      return {
+        success: true,
+        message: "If an account exists, a password reset email has been sent.",
+      };
+    }
+  }
+
+  /**
+   * Verify a password reset token is valid
+   */
+  static async verifyResetToken(
+    token: string,
+  ): Promise<{ valid: boolean; email?: string; userId?: string; message: string }> {
+    try {
+      const resetToken = await prisma.passwordResetToken.findUnique({
+        where: { token },
+      });
+
+      if (!resetToken) {
+        return {
+          valid: false,
+          message: "Reset token not found or invalid.",
+        };
+      }
+
+      if (resetToken.used) {
+        return {
+          valid: false,
+          message: "This reset link has already been used.",
+        };
+      }
+
+      if (resetToken.expires_at < new Date()) {
+        return {
+          valid: false,
+          message: "This reset link has expired. Please request a new one.",
+        };
+      }
+
+      return {
+        valid: true,
+        email: resetToken.email,
+        userId: resetToken.user_id,
+        message: "Token is valid.",
+      };
+    } catch (error: any) {
+      logger.error("Token verification failed", {
+        error: error.message,
+        token: token.substring(0, 8) + "...",
+      });
+      return {
+        valid: false,
+        message: "Token verification failed.",
+      };
+    }
+  }
+
+  /**
+   * Confirm password reset — verifies token and updates password in Supabase
+   */
+  static async confirmPasswordReset(
+    token: string,
+    newPassword: string,
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      // 1. Verify the token
+      const verification = await this.verifyResetToken(token);
+      if (!verification.valid) {
+        return {
+          success: false,
+          message: verification.message,
+        };
+      }
+
+      const supabaseAdmin = await getSupabaseAdminClient();
+      if (!supabaseAdmin) {
+        throw new Error("Supabase admin client not available");
+      }
+
+      // 2. Update the password in Supabase Auth
+      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+        verification.userId!,
+        { password: newPassword },
+      );
+
+      if (updateError) {
+        logger.error("Supabase password update failed", {
+          error: updateError.message,
+          userId: verification.userId,
+        });
+        throw new Error(updateError.message);
+      }
+
+      // 3. Mark the token as used so it can't be reused
+      await prisma.passwordResetToken.update({
+        where: { token },
+        data: { used: true },
+      });
+
+      // 4. Log the password change for security audit
+      await SecurityLogService.logEvent({
+        user_id: verification.userId!,
+        event_type: "password_change",
+        description: "Password changed via reset link",
+        status: "success",
+        metadata: { method: "reset_link" },
+      });
+
+      logger.info("Password reset confirmed", {
+        userId: verification.userId,
+      });
+
+      return {
+        success: true,
+        message: "Password updated successfully.",
+      };
+    } catch (error: any) {
+      logger.error("Password reset confirmation failed", {
+        error: error.message,
+        token: token.substring(0, 8) + "...",
+      });
+      return {
+        success: false,
+        message: "Failed to update password. Please try again.",
+      };
+    }
+  }
+
+  /**
    * Update User Profile
    */
   static async updateUserProfile(

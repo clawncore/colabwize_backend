@@ -1,10 +1,25 @@
 import express from "express";
+import { z } from "zod";
 import { HybridAuthService } from "../../services/hybridAuthService";
 import { authenticateHybridRequest } from "../../middleware/hybridAuthMiddleware";
 import { TwoFactorService } from "../../services/TwoFactorService";
 import { prisma } from "../../lib/prisma";
 
 const router = express.Router();
+
+// Zod schemas for validation
+const resetPasswordSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+});
+
+const confirmResetPasswordSchema = z.object({
+  token: z.string().min(1, "Reset token is required"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/\d/, "Password must contain at least one number"),
+});
 
 /**
  * POST /api/auth/hybrid/signup
@@ -309,6 +324,99 @@ router.post("/verify-otp", async (req, res) => {
   }
 });
 
+
+/**
+ * POST /api/auth/hybrid/reset-password
+ * Request a password reset — generates token and sends email via Resend
+ */
+router.post("/reset-password", async (req, res) => {
+  try {
+    const parseResult = resetPasswordSchema.safeParse(req.body);
+
+    if (!parseResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: parseResult.error.issues[0]?.message || "Invalid email",
+      });
+    }
+
+    const { email } = parseResult.data;
+
+    const result = await HybridAuthService.requestPasswordReset(email);
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error("Reset password error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to process password reset request",
+    });
+  }
+});
+
+/**
+ * GET /api/auth/hybrid/reset-password/verify
+ * Verify a password reset token
+ */
+router.get("/reset-password/verify", async (req, res) => {
+  try {
+    const { token } = req.query;
+
+    if (!token || typeof token !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "Token is required",
+      });
+    }
+
+    const result = await HybridAuthService.verifyResetToken(token);
+
+    return res.status(200).json({
+      success: result.valid,
+      email: result.email,
+      message: result.message,
+    });
+  } catch (error: any) {
+    console.error("Token verification error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Token verification failed",
+    });
+  }
+});
+
+/**
+ * POST /api/auth/hybrid/reset-password/confirm
+ * Verify token and update password
+ */
+router.post("/reset-password/confirm", async (req, res) => {
+  try {
+    const parseResult = confirmResetPasswordSchema.safeParse(req.body);
+
+    if (!parseResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: parseResult.error.issues[0]?.message || "Invalid request data",
+      });
+    }
+
+    const { token, password } = parseResult.data;
+
+    const result = await HybridAuthService.confirmPasswordReset(token, password);
+
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(401).json(result);
+    }
+  } catch (error: any) {
+    console.error("Password reset confirm error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to reset password",
+    });
+  }
+});
 
 import { verifyRecaptcha } from "../../utils/recaptcha";
 

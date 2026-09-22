@@ -29,17 +29,21 @@ router.post(
   "/plagiarism-check",
   plagiarismLimiter,
   async (req: Request, res: Response) => {
-    try {
-      const { content } = req.body;
+    const startTime = Date.now();
 
-      if (!content || typeof content !== "string" || content.trim().length === 0) {
+    try {
+      // Accept both "text" (what the frontend sends) and "content" (legacy)
+      const { text, content } = req.body as { text?: string; content?: string };
+      const inputText = text ?? content;
+
+      if (!inputText || typeof inputText !== "string" || inputText.trim().length === 0) {
         return res.status(400).json({
           success: false,
           message: "Content is required and must be a non-empty string.",
         });
       }
 
-      const words = content.split(/\s+/);
+      const words = inputText.split(/\s+/);
       const wordCount = words.length;
 
       if (wordCount > MAX_WORDS) {
@@ -49,11 +53,13 @@ router.post(
         });
       }
 
-      const { matches, summary } = await CopyscapeService.scanText(content);
+      const { matches, summary } = await CopyscapeService.scanText(inputText);
+      const processingTime = Date.now() - startTime;
 
       // Map to the format the frontend PlagiarismChecker expects
       const similarityScore = summary.allPercentMatched || 0;
       const originalityScore = Math.max(0, 100 - similarityScore);
+      const matchedWords = matches.reduce((sum, m) => sum + (m.matchedWords || 0), 0);
 
       return res.json({
         success: true,
@@ -61,7 +67,9 @@ router.post(
           originalityScore,
           similarityScore,
           totalWords: wordCount,
+          matchedWords,
           matches,
+          processingTime,
         },
       });
     } catch (error: any) {

@@ -58,6 +58,7 @@ model User {
   files                 File[]
   originality_scans     OriginalityScan[]
   otp_verifications     OTPVerification[]
+  password_reset_tokens   PasswordResetToken[]
   payment_history       PaymentHistory[]
   payment_methods       PaymentMethod[]
   projects              Project[]
@@ -2030,6 +2031,22 @@ model EmailLog {
   @@index([status])
   @@index([sent_at])
   @@map("email_logs")
+}
+
+model PasswordResetToken {
+  id         String   @id @default(uuid())
+  user_id    String
+  email      String
+  token      String   @unique
+  expires_at DateTime
+  used       Boolean  @default(false)
+  created_at DateTime @default(now())
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([email])
+  @@index([token])
+  @@map("password_reset_tokens")
 }
 
 model Referral {

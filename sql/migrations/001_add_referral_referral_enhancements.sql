@@ -9,6 +9,7 @@
 --
 -- Idempotent: safe to re-run.
 
+
 -- Refer-a-friend enhancements on the referrals table.
 ALTER TABLE referrals ADD COLUMN IF NOT EXISTS referee_reward_granted BOOLEAN DEFAULT false;
 ALTER TABLE referrals ADD COLUMN IF NOT EXISTS referee_entitlement_expires TIMESTAMPTZ;

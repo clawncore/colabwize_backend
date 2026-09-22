@@ -113,6 +113,7 @@ export async function sendPasswordResetEmail(
     content,
     ctaText: "Reset Password",
     ctaUrl: resetLink,
+    recipientEmail: to,
   });
 
   const { success } = await sendEmail({
