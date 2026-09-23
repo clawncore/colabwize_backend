@@ -1122,16 +1122,16 @@ describe("Referral expiration and cache invalidation", () => {
   });
 
   // ── T15: totalDaysEverEarned calculation ───────────────────────────────
-  it("T15: totalDaysEverEarned only counts granted rewards", async () => {
+  it("T15: totalDaysEverEarned counts granted + expired rewards", async () => {
     // Mock referrals with mixed statuses
     const mockReferrals = [
       { reward_status: "granted", referred_at: new Date("2026-09-20T10:00:00Z") },  // +5 days
       { reward_status: "pending", referred_at: new Date("2026-09-21T10:00:00Z") },   // 0 days
       { reward_status: "granted", referred_at: new Date("2026-08-20T10:00:00Z") },  // +5 days
-      { reward_status: "expired", referred_at: new Date("2026-08-15T10:00:00Z") },  // 0 days
+      { reward_status: "expired", referred_at: new Date("2026-08-15T10:00:00Z") },  // +5 days (earned, then expired)
     ];
 
-    // Replicate the calculation from route.ts
+    // Replicate the calculation from route.ts — counts both granted and expired
     const now = new Date();
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
@@ -1140,15 +1140,16 @@ describe("Referral expiration and cache invalidation", () => {
     ).length;
 
     const totalDaysEverEarned = mockReferrals.filter(
-      (r) => r.reward_status === "granted"
+      (r) => r.reward_status === "granted" || r.reward_status === "expired"
     ).length * 5;
 
     const rewardedThisMonth = mockReferrals.filter(
-      (r) => r.reward_status === "granted" && new Date(r.referred_at) >= monthStart
+      (r) => (r.reward_status === "granted" || r.reward_status === "expired") &&
+        new Date(r.referred_at) >= monthStart
     ).length;
 
-    // totalDaysEverEarned should be 2 * 5 = 10, NOT 4 * 5 = 20
-    expect(totalDaysEverEarned).toBe(10);
+    // totalDaysEverEarned should be 3 * 5 = 15 (2 granted + 1 expired)
+    expect(totalDaysEverEarned).toBe(15);
     expect(totalDaysEverEarned).not.toBe(mockReferrals.length * 5);
   });
 });
