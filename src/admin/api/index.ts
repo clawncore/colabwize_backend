@@ -1335,6 +1335,467 @@ router.get("/blogs", async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/admin/emailoctopus/status
+ * @desc    Check EmailOctopus provider configuration status
+ * @access  Admin Only
+ */
+router.get("/emailoctopus/status", async (req, res) => {
+  try {
+    const { isEmailOctopusConfigured } = await import("../../services/marketing/audienceService.js");
+    const { getEmailOctopusListId, getEmailOctopusApiKey } = await import("../../services/marketing/emailOctopusClient.js");
+
+    const configured = isEmailOctopusConfigured();
+    const listId = getEmailOctopusListId();
+    const apiKey = getEmailOctopusApiKey();
+
+    res.json({
+      success: true,
+      data: {
+        configured,
+        listId: configured ? listId : null,
+        hasApiKey: !!apiKey,
+        provider: "emailoctopus",
+        note: configured
+          ? "EmailOctopus is active for marketing campaigns"
+          : "EmailOctopus is not configured — marketing sends will be disabled",
+      },
+    });
+  } catch (error: any) {
+    logger.error("EmailOctopus Status Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/emailoctopus/campaigns
+ * @desc    List campaigns from EmailOctopus
+ * @access  Admin Only
+ */
+router.get("/emailoctopus/campaigns", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    const { listCampaigns } = await import("../../services/marketing/campaignService.js");
+    const result = await listCampaigns(limit, offset);
+
+    if (result.success) {
+      const data = result.data as any;
+      const campaigns = (data?.data || data?.campaigns || []).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        subject_line: c.subject_line || c.subject,
+        from_name: c.from_name,
+        reply_to: c.reply_to,
+        status: c.status,
+        created_at: c.created_at,
+        sent_at: c.sent_at,
+        preview_url: c.preview_url || c.web_url,
+        web_url: c.web_url,
+      }));
+
+      const total = parseInt(data?.total || data?.count || campaigns.length);
+
+      await createAuditLog({
+        action: "EO_CAMPAIGNS_LISTED",
+        adminEmail: getAdminEmail(req),
+        entityType: "Campaign",
+        metadata: { count: campaigns.length },
+        ...extractAuditContext(req),
+      });
+
+      res.json({ success: true, campaigns, total, hasMore: offset + limit < total });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error?.message || "Failed to fetch campaigns from EmailOctopus",
+      });
+    }
+  } catch (error: any) {
+    logger.error("EmailOctopus Campaigns Fetch Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/emailoctopus/campaigns/:id
+ * @desc    Get a specific campaign's details and stats
+ * @access  Admin Only
+ */
+router.get("/emailoctopus/campaigns/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { getCampaign, getCampaignStats } = await import("../../services/marketing/campaignService.js");
+
+    const [campaignResult, statsResult] = await Promise.all([
+      getCampaign(id),
+      getCampaignStats(id),
+    ]);
+
+    if (!campaignResult.success) {
+      return res.status(404).json({
+        success: false,
+        error: campaignResult.error?.message || "Campaign not found",
+      });
+    }
+
+    const campaign = campaignResult.data as any;
+    const stats = statsResult.success ? (statsResult.data as any) : null;
+
+    await createAuditLog({
+      action: "EO_CAMPAIGN_VIEWED",
+      adminEmail: getAdminEmail(req),
+      entityType: "Campaign",
+      entityId: id,
+      metadata: { name: campaign.name },
+      ...extractAuditContext(req),
+    });
+
+    res.json({
+      success: true,
+      campaign: {
+        id: campaign.id,
+        name: campaign.name,
+        subject_line: campaign.subject_line || campaign.subject,
+        from_name: campaign.from_name,
+        reply_to: campaign.reply_to,
+        status: campaign.status,
+        created_at: campaign.created_at,
+        sent_at: campaign.sent_at,
+        preview_url: campaign.preview_url || campaign.web_url,
+        web_url: campaign.web_url,
+        content_html: campaign.content_html,
+        content_text: campaign.content_text,
+      },
+      stats: stats
+        ? {
+            dispatched: stats.dispatched,
+            delivered: stats.delivered,
+            opened: stats.opened,
+            clicked: stats.clicked,
+            bounced: stats.bounced,
+            complaint: stats.complaint,
+            undeliverable: stats.undeliverable,
+            unique_views: stats.unique_views,
+            unique_clicks: stats.unique_clicks,
+          }
+        : null,
+    });
+  } catch (error: any) {
+    logger.error("EmailOctopus Campaign Detail Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   POST /api/admin/emailoctopus/campaigns
+ * @desc    Create a new draft campaign in EmailOctopus
+ * @access  Admin Only
+ */
+router.post("/emailoctopus/campaigns", async (req, res) => {
+  try {
+    const { subject, html, text } = req.body;
+
+    if (!subject || !html) {
+      return res.status(400).json({ success: false, error: "Subject and HTML content are required" });
+    }
+
+    const { createCampaign } = await import("../../services/marketing/campaignService.js");
+    const result = await createCampaign(subject, html, text);
+
+    if (result.success) {
+      const data = result.data as any;
+
+      await createAuditLog({
+        action: "EO_CAMPAIGN_CREATED",
+        adminEmail: getAdminEmail(req),
+        entityType: "Campaign",
+        entityId: data?.id,
+        metadata: { subject },
+        ...extractAuditContext(req),
+      });
+
+      res.json({
+        success: true,
+        campaignId: data?.id,
+        message: "Draft campaign created successfully",
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error?.message || "Failed to create campaign",
+      });
+    }
+  } catch (error: any) {
+    logger.error("EmailOctopus Campaign Create Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   POST /api/admin/emailoctopus/campaigns/:id/send
+ * @desc    Send a draft campaign immediately
+ * @access  Admin Only
+ */
+router.post("/emailoctopus/campaigns/:id/send", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sendCampaign } = await import("../../services/marketing/campaignService.js");
+
+    const result = await sendCampaign(id);
+
+    if (result.success) {
+      await createAuditLog({
+        action: "EO_CAMPAIGN_SENT",
+        adminEmail: getAdminEmail(req),
+        entityType: "Campaign",
+        entityId: id,
+        ...extractAuditContext(req),
+      });
+
+      res.json({
+        success: true,
+        message: "Campaign sent successfully",
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error?.message || "Failed to send campaign",
+      });
+    }
+  } catch (error: any) {
+    logger.error("EmailOctopus Campaign Send Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   DELETE /api/admin/emailoctopus/campaigns/:id
+ * @desc    Delete a draft campaign (drafts only)
+ * @access  Admin Only
+ */
+router.delete("/emailoctopus/campaigns/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { deleteCampaign } = await import("../../services/marketing/campaignService.js");
+
+    const result = await deleteCampaign(id);
+
+    if (result.success) {
+      await createAuditLog({
+        action: "EO_CAMPAIGN_DELETED",
+        adminEmail: getAdminEmail(req),
+        entityType: "Campaign",
+        entityId: id,
+        ...extractAuditContext(req),
+      });
+
+      res.json({ success: true, message: "Campaign deleted" });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: result.error?.message || "Failed to delete campaign",
+      });
+    }
+  } catch (error: any) {
+    logger.error("EmailOctopus Campaign Delete Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   POST /api/admin/emailoctopus/campaigns/send
+ * @desc    Create and send a campaign in one operation
+ * @access  Admin Only
+ */
+router.post("/emailoctopus/campaigns/send", async (req, res) => {
+  try {
+    const { subject, html, text } = req.body;
+
+    if (!subject || !html) {
+      return res.status(400).json({ success: false, error: "Subject and HTML content are required" });
+    }
+
+    const { createAndSendCampaign } = await import("../../services/marketing/campaignService.js");
+    const result = await createAndSendCampaign(subject, html, text);
+
+    if (result.success) {
+      const data = result.data as any;
+      const campaignId = data?.id || data?.campaign_id;
+
+      await createAuditLog({
+        action: "EO_CAMPAIGN_CREATED_AND_SENT",
+        adminEmail: getAdminEmail(req),
+        entityType: "Campaign",
+        entityId: campaignId,
+        metadata: { subject },
+        ...extractAuditContext(req),
+      });
+
+      res.json({
+        success: true,
+        campaignId,
+        message: "Campaign created and sent successfully",
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error?.message || "Failed to create and send campaign",
+      });
+    }
+  } catch (error: any) {
+    logger.error("EmailOctopus Campaign Create+Send Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/emailoctopus/subscribers
+ * @desc    List EmailOctopus subscribers (marketing list contacts)
+ * @access  Admin Only
+ */
+router.get("/emailoctopus/subscribers", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 100;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    const { emailOctopusRequest, getEmailOctopusListId } = await import("../../services/marketing/emailOctopusClient.js");
+
+    const listId = getEmailOctopusListId();
+    if (!listId) {
+      return res.status(400).json({
+        success: false,
+        error: "EmailOctopus list ID not configured",
+      });
+    }
+
+    const result = await emailOctopusRequest("get", `/lists/${listId}/contacts?limit=${limit}&offset=${offset}`);
+
+    if (result.success) {
+      const data = result.data as any;
+      const contacts = (data?.data || data?.contacts || []).map((c: any) => ({
+        id: c.id,
+        email_address: c.email_address || c.email,
+        status: c.status,
+        created_at: c.created_at,
+        last_updated: c.last_updated_at || c.updated_at,
+        merge_fields: c.merge_fields || c.fields,
+      }));
+
+      const total = parseInt(data?.total || data?.count || contacts.length);
+
+      res.json({
+        success: true,
+        subscribers: contacts,
+        total,
+        hasMore: offset + limit < total,
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error?.message || "Failed to fetch subscribers from EmailOctopus",
+      });
+    }
+  } catch (error: any) {
+    logger.error("EmailOctopus Subscribers Fetch Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   POST /api/admin/emailoctopus/subscribers/sync
+ * @desc    Sync all local users to EmailOctopus list
+ * @access  Admin Only
+ */
+router.post("/emailoctopus/subscribers/sync", async (req, res) => {
+  try {
+    const { syncAllSubscribers } = await import("../../services/marketing/audienceService.js");
+    const result = await syncAllSubscribers();
+
+    await createAuditLog({
+      action: "EO_SUBSCRIBERS_SYNCED",
+      adminEmail: getAdminEmail(req),
+      entityType: "Subscriber",
+      metadata: { added: result.added, updated: result.updated, failed: result.failed },
+      ...extractAuditContext(req),
+    });
+
+    res.json({
+      success: true,
+      message: "Subscriber sync completed",
+      result,
+    });
+  } catch (error: any) {
+    logger.error("EmailOctopus Subscribers Sync Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   GET /api/admin/emailoctopus/webhook-url
+ * @desc    Get the webhook URL for EmailOctopus to call
+ * @access  Admin Only
+ */
+router.get("/emailoctopus/webhook-url", async (req, res) => {
+  try {
+    const { isEmailOctopusConfigured } = await import("../../services/marketing/audienceService.js");
+    const baseUrl = process.env.ADMIN_API_BASE_URL || process.env.BACKEND_URL || "https://api.colabwize.com";
+    const webhookUrl = `${baseUrl}/api/admin/emailoctopus/webhook`;
+    const configured = isEmailOctopusConfigured();
+
+    await createAuditLog({
+      action: "EO_WEBHOOK_URL_FETCHED",
+      adminEmail: getAdminEmail(req),
+      entityType: "Webhook",
+      metadata: { webhookUrl },
+      ...extractAuditContext(req),
+    });
+
+    res.json({
+      success: true,
+      data: {
+        webhookUrl,
+        configured,
+        events: [
+          { event: "campaign.sent", description: "Campaign has been sent" },
+          { event: "campaign.delivered", description: "Campaign has been delivered" },
+          { event: "campaign.bounced", description: "Campaign bounced" },
+          { event: "subscriber.subscribed", description: "Subscriber joined" },
+          { event: "subscriber.unsubscribed", description: "Subscriber left" },
+        ],
+      },
+    });
+  } catch (error: any) {
+    logger.error("EmailOctopus Webhook URL Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * @route   POST /api/admin/emailoctopus/webhook
+ * @desc    Receive EmailOctopus webhook events (no auth required — verified via signature)
+ * @access  Public (with signature verification)
+ */
+router.post("/emailoctopus/webhook", async (req, res) => {
+  try {
+    const { processEmailOctopusWebhook } = await import("../../services/marketing/webhookService.js");
+    const result = await processEmailOctopusWebhook(
+      req.headers as Record<string, string>,
+      typeof req.body === "string" ? req.body : JSON.stringify(req.body),
+    );
+
+    if (result.success) {
+      res.status(200).json({ success: true, message: "Webhook processed" });
+    } else {
+      res.status(401).json({ success: false, error: result.error || "Webhook signature verification failed" });
+    }
+  } catch (error: any) {
+    logger.error("EmailOctopus Webhook Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
+
 // Build a URL-safe slug from a title, then ensure it is unique against
 // existing blog posts (slug is a UNIQUE column).
 const makeUniqueSlug = async (title: string, excludeId?: string): Promise<string> => {
