@@ -66,7 +66,7 @@ router.get("/email-stats", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability email-stats error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -123,7 +123,7 @@ router.get("/auth-stats", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability auth-stats error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -185,7 +185,7 @@ router.get("/user-platform", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability user-platform error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -237,7 +237,7 @@ router.get("/research-platform", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability research-platform error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -299,7 +299,7 @@ router.get("/ai-platform", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability ai-platform error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -331,7 +331,7 @@ router.get("/background-services", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability background-services error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -375,7 +375,7 @@ router.get("/database-detail", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability database-detail error:", error);
-    res.status(500).json({ success: false, error: error.message, status: "unhealthy" });
+    res.status(500).json({ success: false, error: "Internal server error", status: "unhealthy" });
   }
 });
 
@@ -416,7 +416,7 @@ router.get("/integration-health", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability integration-health error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -487,7 +487,7 @@ router.get("/platform-health", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability platform-health error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -528,7 +528,7 @@ router.get("/alerts", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability alerts error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -564,7 +564,7 @@ router.get("/payment-monitoring", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Observability payment-monitoring error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 

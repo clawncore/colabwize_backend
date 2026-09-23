@@ -65,7 +65,7 @@ router.get("/", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Error fetching contact requests:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -86,7 +86,7 @@ router.get("/:ticketNumber", async (req: Request, res: Response) => {
 
     res.json({ success: true, data: request });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -112,7 +112,7 @@ router.patch("/:ticketNumber/status", async (req: Request, res: Response) => {
 
     res.json({ success: true, data: updated });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -127,7 +127,7 @@ router.delete("/:ticketNumber", async (req: Request, res: Response) => {
 
     res.json({ success: true, message: "Ticket deleted" });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 

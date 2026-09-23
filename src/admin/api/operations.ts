@@ -37,7 +37,7 @@ router.get("/maintenance", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Operations maintenance fetch error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -80,7 +80,7 @@ router.put("/maintenance", async (req, res) => {
     res.json({ success: true, data: { ...value, updatedBy: adminEmail, updatedAt: new Date().toISOString() } });
   } catch (error: any) {
     logger.error("Operations maintenance update error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -136,7 +136,7 @@ router.get("/environments", async (req, res) => {
     res.json({ success: true, data: { processEnv, configOverrides } });
   } catch (error: any) {
     logger.error("Operations environments error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -179,7 +179,7 @@ router.get("/backups", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Operations backups fetch error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -213,7 +213,7 @@ router.post("/backups", async (req, res) => {
     res.json({ success: true, data: record });
   } catch (error: any) {
     logger.error("Operations backup create error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -269,7 +269,7 @@ router.get("/diagnostics", async (req, res) => {
     res.json({ success: true, data: { timestamp: new Date().toISOString(), checks } });
   } catch (error: any) {
     logger.error("Operations diagnostics error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -291,7 +291,7 @@ router.delete("/cache/flush", async (req, res) => {
     res.json({ success: true, message: "Cache flush completed (no cache layer to invalidate)" });
   } catch (error: any) {
     logger.error("Operations cache flush error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -356,7 +356,7 @@ router.get("/logs", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Operations logs error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -397,7 +397,7 @@ router.get("/notifications", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Operations notifications error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -581,7 +581,7 @@ router.get("/diagnostics", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Diagnostics error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 

@@ -89,7 +89,7 @@ router.get("/", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("System health error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 

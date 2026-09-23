@@ -28,7 +28,7 @@ router.post("/google-analytics/test", async (req, res) => {
     await gaService.getTrafficOverview(); // simple call to verify connectivity
     res.json({ success: true, message: "Connection successful" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -38,45 +38,45 @@ router.post("/google-analytics/sync", async (req, res) => {
     await gaService.getTrafficOverview();
     res.json({ success: true, message: "Sync complete" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
 router.get("/google-analytics/overview", async (req, res) => {
   try { res.json({ success: true, data: await gaService.getTrafficOverview() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/google-analytics/traffic", async (req, res) => {
   try { res.json({ success: true, data: await gaService.getTrafficOverview() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/google-analytics/daily", async (req, res) => {
   try {
     const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
     res.json({ success: true, data: await gaService.getDailyTraffic(days) }); 
-  } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/google-analytics/geography", async (req, res) => {
   try { res.json({ success: true, data: await gaService.getGeography() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/google-analytics/pages", async (req, res) => {
   try { res.json({ success: true, data: await gaService.getPages() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/google-analytics/devices", async (req, res) => {
   try { res.json({ success: true, data: await gaService.getDevices() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/google-analytics/events", async (req, res) => {
   try { res.json({ success: true, data: await gaService.getEvents() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 
@@ -97,7 +97,7 @@ router.post("/lemon/test", async (req, res) => {
     await lemonSqueezyService.getOrders();
     res.json({ success: true, message: "Connection successful" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -107,38 +107,38 @@ router.post("/lemon/sync", async (req, res) => {
     await lemonSqueezyService.getOrders();
     res.json({ success: true, message: "Sync complete" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
 router.get("/lemon/orders", async (req, res) => {
   try { res.json({ success: true, data: await lemonSqueezyService.getOrders() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/lemon/customers", async (req, res) => {
   try { res.json({ success: true, data: await lemonSqueezyService.getCustomers() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/lemon/subscriptions", async (req, res) => {
   try { res.json({ success: true, data: await lemonSqueezyService.getSubscriptions() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/lemon/products", async (req, res) => {
   try { res.json({ success: true, data: await lemonSqueezyService.getProducts() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/lemon/licenses", async (req, res) => {
   try { res.json({ success: true, data: await lemonSqueezyService.getLicenses() }); } 
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 router.get("/lemon/revenue", async (req, res) => {
   try { res.json({ success: true, data: await lemonSqueezyService.getRevenueMetrics() }); }
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err: any) { res.status(500).json({ success: false, error: "Internal server error" }); }
 });
 
 
@@ -207,7 +207,7 @@ router.post("/openai/test", async (req, res) => {
     }
     res.json({ success: true, message: "OpenAI connection successful" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -216,7 +216,7 @@ router.post("/openai/sync", async (req, res) => {
     syncService.invalidateCache();
     res.json({ success: true, message: "OpenAI cache cleared" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -257,7 +257,7 @@ router.post("/anthropic/test", async (req, res) => {
     }
     res.json({ success: true, message: "Anthropic connection successful" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -266,7 +266,7 @@ router.post("/anthropic/sync", async (req, res) => {
     syncService.invalidateCache();
     res.json({ success: true, message: "Anthropic cache cleared" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -302,7 +302,7 @@ router.post("/smtp/test", async (req, res) => {
     if (!reachable) return res.status(502).json({ success: false, error: `Cannot reach ${host}:${port}` });
     res.json({ success: true, message: `SMTP reachable at ${host}:${port}` });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -311,7 +311,7 @@ router.post("/smtp/sync", async (req, res) => {
     syncService.invalidateCache();
     res.json({ success: true, message: "SMTP cache cleared" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -342,7 +342,7 @@ router.post("/github/test", async (req, res) => {
     const text = await r.text();
     res.json({ success: true, message: `GitHub reachable: "${text.slice(0, 80)}"` });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -351,7 +351,7 @@ router.post("/github/sync", async (req, res) => {
     syncService.invalidateCache();
     res.json({ success: true, message: "GitHub cache cleared" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -387,7 +387,7 @@ router.post("/cloudinary/test", async (req, res) => {
     }
     res.json({ success: true, message: `Cloudinary reachable: ${cloudName}` });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -396,7 +396,7 @@ router.post("/cloudinary/sync", async (req, res) => {
     syncService.invalidateCache();
     res.json({ success: true, message: "Cloudinary cache cleared" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -431,7 +431,7 @@ router.post("/supabase/test", async (req, res) => {
     }
     res.json({ success: true, message: `Supabase reachable: ${url}` });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -440,7 +440,7 @@ router.post("/supabase/sync", async (req, res) => {
     syncService.invalidateCache();
     res.json({ success: true, message: "Supabase cache cleared" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -465,7 +465,7 @@ router.post("/google-search-console/test", async (req, res) => {
     }
     res.json({ success: true, message: "Google Search Console credentials present" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -474,7 +474,7 @@ router.post("/google-search-console/sync", async (req, res) => {
     syncService.invalidateCache();
     res.json({ success: true, message: "GSC cache cleared" });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 

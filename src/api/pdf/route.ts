@@ -163,7 +163,7 @@ export async function UPLOAD_PDF(req: Request, res: Response) {
     });
   } catch (error: any) {
     console.error("Upload error:", error);
-    sendErrorResponse(res, 500, error.message);
+    sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 }
 
@@ -239,7 +239,7 @@ ${context}`;
     });
   } catch (error: any) {
     console.error("Chat error:", error);
-    sendErrorResponse(res, 500, error.message);
+    sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 }
 
@@ -260,7 +260,7 @@ export async function GET_PDFS(req: Request, res: Response) {
     sendJsonResponse(res, 200, pdfs);
   } catch (error: any) {
     console.error("Get PDFs error:", error);
-    sendErrorResponse(res, 500, error.message);
+    sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 }
 
@@ -285,7 +285,7 @@ export async function GET_PDF(req: Request, res: Response) {
     sendJsonResponse(res, 200, pdf);
   } catch (error: any) {
     console.error("Get PDF error:", error);
-    sendErrorResponse(res, 500, error.message);
+    sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 }
 
@@ -334,7 +334,7 @@ export async function GET_PDF_DOWNLOAD(req: Request, res: Response) {
     res.send(buffer);
   } catch (error: any) {
     console.error("Download PDF error:", error);
-    sendErrorResponse(res, 500, error.message);
+    sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 }
 
@@ -369,6 +369,6 @@ export async function GET_PDF_RELATED(req: Request, res: Response) {
     sendJsonResponse(res, 200, papers);
   } catch (error: any) {
     console.error("Get Related Papers error:", error);
-    sendErrorResponse(res, 500, error.message);
+    sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 }

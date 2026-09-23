@@ -8,7 +8,7 @@ function asyncHandler(fn: (req: Request, res: Response) => Promise<any>) {
   return (req: Request, res: Response) => {
     fn(req, res).catch((err: any) => {
       console.error('[LTIRoute] Handler error:', err);
-      res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+      res.status(500).json({ success: false, error: 'Internal server error' });
     });
   };
 }
@@ -26,7 +26,7 @@ router.post('/launch', asyncHandler(async (req, res) => {
   try {
     payload = jwt.verify(id_token, 'dummy') as any;
   } catch (e: any) {
-    return res.status(401).json({ success: false, error: 'Invalid JWT: ' + e.message });
+    return res.status(401).json({ success: false, error: 'Invalid authentication token' });
   }
 
   if (payload.aud !== client_id) {

@@ -96,7 +96,7 @@ router.get("/system-health-detail", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Monitoring system-health-detail error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -129,7 +129,7 @@ router.get("/queue-status", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Monitoring queue-status error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -158,7 +158,7 @@ router.get("/workers", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Monitoring workers error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -189,7 +189,7 @@ router.get("/scheduled-jobs", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Monitoring scheduled-jobs error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -216,7 +216,7 @@ router.get("/cache-health", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Monitoring cache-health error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -255,7 +255,7 @@ router.get("/external-services", async (req, res) => {
     res.json({ success: true, data: { services } });
   } catch (error: any) {
     logger.error("Monitoring external-services error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -607,7 +607,7 @@ router.get("/api-health", async (req, res) => {
     res.json({ success: true, data: { metrics: metricsSummary } });
   } catch (error: any) {
     logger.error("Monitoring api-health error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 

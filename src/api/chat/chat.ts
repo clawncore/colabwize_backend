@@ -62,7 +62,7 @@ router.post("/", async (req: Request, res: Response) => {
     console.error("Chat API Error:", error);
     // If headers already sent (streaming started), we can't send JSON error
     if (!res.headersSent) {
-      sendErrorResponse(res, 500, error.message);
+      sendErrorResponse(res, 500, "Processing failed. Please try again.");
     }
   }
 });
@@ -88,7 +88,7 @@ router.post("/session", async (req: Request, res: Response) => {
     );
     return sendJsonResponse(res, 200, session);
   } catch (error: any) {
-    return sendErrorResponse(res, 500, error.message);
+    return sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 });
 
@@ -112,7 +112,7 @@ router.get("/sessions", async (req: Request, res: Response) => {
     });
     return sendJsonResponse(res, 200, sessions);
   } catch (error: any) {
-    return sendErrorResponse(res, 500, error.message);
+    return sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 });
 
@@ -137,7 +137,7 @@ router.patch("/session/:sessionId", async (req: Request, res: Response) => {
     );
     return sendJsonResponse(res, 200, updatedSession);
   } catch (error: any) {
-    return sendErrorResponse(res, 500, error.message);
+    return sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 });
 
@@ -157,7 +157,7 @@ router.delete("/session/:sessionId", async (req: Request, res: Response) => {
     await AIChatService.deleteSession(sessionId as string, userId);
     return sendJsonResponse(res, 200, { success: true });
   } catch (error: any) {
-    return sendErrorResponse(res, 500, error.message);
+    return sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 });
 
@@ -180,7 +180,7 @@ router.get("/session/:sessionId", async (req: Request, res: Response) => {
     );
     return sendJsonResponse(res, 200, history);
   } catch (error: any) {
-    return sendErrorResponse(res, 500, error.message);
+    return sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 });
 
@@ -196,7 +196,7 @@ router.post("/explain-flag", async (req: Request, res: Response) => {
     return sendJsonResponse(res, 200, explanation);
   } catch (error: any) {
     console.error("Explain Flag API Error:", error);
-    return sendErrorResponse(res, 500, error.message);
+    return sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 });
 
@@ -212,7 +212,7 @@ router.post("/explain-citation", async (req: Request, res: Response) => {
     return sendJsonResponse(res, 200, explanation);
   } catch (error: any) {
     console.error("Explain Citation API Error:", error);
-    return sendErrorResponse(res, 500, error.message);
+    return sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 });
 
@@ -225,7 +225,7 @@ router.post("/explain-policy", async (req: Request, res: Response) => {
     return sendJsonResponse(res, 200, explanation);
   } catch (error: any) {
     console.error("Explain Policy API Error:", error);
-    return sendErrorResponse(res, 500, error.message);
+    return sendErrorResponse(res, 500, "Processing failed. Please try again.");
   }
 });
 

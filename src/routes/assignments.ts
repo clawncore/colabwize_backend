@@ -9,7 +9,7 @@ function asyncHandler(fn: (req: Request, res: Response) => Promise<any>) {
   return (req: Request, res: Response) => {
     fn(req, res).catch((err: any) => {
       console.error('[AssignmentRoute] Handler error:', err);
-      res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+      res.status(500).json({ success: false, error: 'Internal server error' });
     });
   };
 }

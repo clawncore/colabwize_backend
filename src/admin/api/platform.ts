@@ -103,7 +103,7 @@ router.get("/feature-flags", async (req, res) => {
     res.json({ success: true, data: flags });
   } catch (error: any) {
     logger.error("Feature flags fetch error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -133,7 +133,7 @@ router.post("/feature-flags", async (req, res) => {
     res.json({ success: true, flag });
   } catch (error: any) {
     logger.error("Feature flag create error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -164,7 +164,7 @@ router.put("/feature-flags/:key", async (req, res) => {
     res.json({ success: true, flag });
   } catch (error: any) {
     logger.error("Feature flag update error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -182,7 +182,7 @@ router.delete("/feature-flags/:key", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Feature flag delete error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -220,7 +220,7 @@ router.get("/config", async (req, res) => {
     res.json({ success: true, data });
   } catch (error: any) {
     logger.error("Admin config fetch error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -264,7 +264,7 @@ router.put("/config", async (req, res) => {
     res.json({ success: true, updatedKeys });
   } catch (error: any) {
     logger.error("Admin config update error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -282,7 +282,7 @@ router.get("/feature-flags/evaluate", async (req, res) => {
     res.json({ success: true, data: result });
   } catch (error: any) {
     logger.error("Feature flag evaluate error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -295,7 +295,7 @@ router.get("/api-keys", async (req, res) => {
     res.json({ success: true, data: keys });
   } catch (error: any) {
     logger.error("API key vault fetch error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -332,7 +332,7 @@ router.put("/api-keys/:service", async (req, res) => {
     res.json({ success: true, data: key });
   } catch (error: any) {
     logger.error("API key vault update error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -376,7 +376,7 @@ router.post("/config", async (req, res) => {
     res.json({ success: true, key: body.key });
   } catch (error: any) {
     logger.error("Admin config post error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -389,7 +389,7 @@ router.get("/system-config", async (req, res) => {
     res.json({ success: true, data: entries });
   } catch (error: any) {
     logger.error("System config fetch error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -402,7 +402,7 @@ router.get("/ai-models", async (req, res) => {
     res.json({ success: true, data: models });
   } catch (error: any) {
     logger.error("AI models fetch error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -431,7 +431,7 @@ router.post("/ai-models", async (req, res) => {
     res.json({ success: true, model });
   } catch (error: any) {
     logger.error("AI model create error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -461,7 +461,7 @@ router.put("/ai-models/:id", async (req, res) => {
     res.json({ success: true, model });
   } catch (error: any) {
     logger.error("AI model update error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -478,7 +478,7 @@ router.get("/ai-keys", async (req, res) => {
     res.json({ success: true, data: keys });
   } catch (error: any) {
     logger.error("AI keys check error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -588,7 +588,7 @@ router.post("/ai-models/test", async (req, res) => {
     res.json({ success: true, data: testResult });
   } catch (error: any) {
     logger.error("AI model test error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -606,7 +606,7 @@ router.delete("/ai-models/:id", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("AI model delete error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -619,7 +619,7 @@ router.get("/cms-pages", async (req, res) => {
     res.json({ success: true, data: pages });
   } catch (error: any) {
     logger.error("CMS pages fetch error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -652,7 +652,7 @@ router.post("/webhooks", async (req, res) => {
     res.json({ success: true, data: webhook });
   } catch (error: any) {
     logger.error("Webhook create error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -691,7 +691,7 @@ router.get("/webhooks", async (req, res) => {
     res.json({ success: true, data: webhooks });
   } catch (error: any) {
     logger.error("Webhooks fetch error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -721,7 +721,7 @@ router.put("/webhooks/:id", async (req, res) => {
     res.json({ success: true, webhook });
   } catch (error: any) {
     logger.error("Webhook update error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -739,7 +739,7 @@ router.delete("/webhooks/:id", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Webhook delete error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -814,7 +814,7 @@ router.post("/webhooks/:id/test", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Webhook test error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -846,7 +846,7 @@ router.post("/cms-pages", async (req, res) => {
     res.json({ success: true, data: page });
   } catch (error: any) {
     logger.error("CMS page create error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -866,7 +866,7 @@ router.put("/cms-pages/:id", async (req, res) => {
     res.json({ success: true, data: page });
   } catch (error: any) {
     logger.error("CMS page update error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -884,7 +884,7 @@ router.delete("/cms-pages/:id", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("CMS page delete error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 

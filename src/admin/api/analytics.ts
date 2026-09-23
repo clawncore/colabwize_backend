@@ -78,7 +78,7 @@ router.get("/platform", async (req, res) => {
     res.json({ success: true, data: overview });
   } catch (error: any) {
     logger.error("Analytics platform error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -133,7 +133,7 @@ router.get("/user-growth", async (req, res) => {
     res.json({ success: true, data: { data } });
   } catch (error: any) {
     logger.error("Analytics user-growth error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -200,7 +200,7 @@ router.get("/daily", async (req, res) => {
     res.json({ success: true, data: { data } });
   } catch (error: any) {
     logger.error("Analytics daily error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -273,7 +273,7 @@ router.get("/funnel", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Analytics funnel error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -396,7 +396,7 @@ router.get("/journey", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Analytics journey error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -470,7 +470,7 @@ router.get("/conversions", async (req, res) => {
     res.json({ success: true, data: { data, sources: { ga4: gaConversions.length > 0, platform: true } } });
   } catch (error: any) {
     logger.error("Analytics conversions error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -584,7 +584,7 @@ router.get("/events", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Analytics events error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -663,7 +663,7 @@ router.get("/api", async (req, res) => {
     res.json({ success: true, data: { data, summary: { totalRequests, errorRate: routeErrorRate } } });
   } catch (error: any) {
     logger.error("Analytics api error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -699,7 +699,7 @@ router.get("/errors", async (req, res) => {
     res.json({ success: true, data: { data } });
   } catch (error: any) {
     logger.error("Analytics errors error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -742,7 +742,7 @@ router.get("/usage", async (req, res) => {
     res.json({ success: true, data: { data } });
   } catch (error: any) {
     logger.error("Analytics usage error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -882,7 +882,7 @@ router.get("/resources", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Analytics resources error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -974,7 +974,7 @@ router.get("/operations", async (req, res) => {
     res.json({ success: true, data: { data } });
   } catch (error: any) {
     logger.error("Analytics operations error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -1053,7 +1053,7 @@ router.get("/blogs/analytics", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Analytics blogs error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -1169,7 +1169,7 @@ router.get("/tools", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Analytics free tools error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 

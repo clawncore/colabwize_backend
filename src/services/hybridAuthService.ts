@@ -1304,7 +1304,7 @@ export class HybridAuthService {
       return { success: true };
     } catch (error: any) {
       logger.error("Update profile failed", { error: error.message });
-      return { success: false, error: error.message };
+      return { success: false, error: "Operation failed" };
     }
   }
 

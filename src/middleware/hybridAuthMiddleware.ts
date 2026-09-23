@@ -45,14 +45,14 @@ export async function authenticateHybridRequest(
       return;
     } catch (error) {
       logger.error("Supabase authentication failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: "Authentication failed",
       });
       // authenticateExpressRequest already sent an error response; don't send another
       return;
     }
   } catch (error) {
     logger.error("Authentication error", {
-      error: error instanceof Error ? error.message : String(error),
+      error: "Authentication failed",
       stack: error instanceof Error ? error.stack : undefined,
     });
     res.status(500).json({

@@ -1243,7 +1243,7 @@ router.get("/users", async (req, res) => {
   } catch (error: any) {
     console.error("ADMIN USER FETCH ERROR:", error);
     logger.error("Admin User Fetch Error:", error);
-    res.status(500).json({ success: false, error: error.message || "Internal server error" });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 

@@ -38,7 +38,7 @@ router.get("/sessions", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Remote sessions error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -65,7 +65,7 @@ router.post("/force-logout", async (req, res) => {
     res.json({ success: true, sessionsRevoked: result.count });
   } catch (error: any) {
     logger.error("Force logout error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -124,7 +124,7 @@ router.post("/announcement", async (req, res) => {
     res.json({ success: true, data: { recipients: userIds.length } });
   } catch (error: any) {
     logger.error("Announcement error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 

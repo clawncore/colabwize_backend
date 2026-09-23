@@ -111,7 +111,7 @@ router.get("/events", async (req, res) => {
     res.json({ success: true, data: { events: enriched, total, limit, offset } });
   } catch (error: any) {
     logger.error("Security events error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -170,7 +170,7 @@ router.get("/login-audit", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Login audit error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -204,7 +204,7 @@ router.get("/active-sessions", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Active sessions error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -231,7 +231,7 @@ router.post("/revoke-session", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Revoke session error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -247,7 +247,7 @@ router.get("/ip-allowlist", async (req, res) => {
     res.json({ success: true, data: { entries, total } });
   } catch (error: any) {
     logger.error("IP allowlist error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -286,7 +286,7 @@ router.post("/ip-allowlist", async (req, res) => {
     res.json({ success: true, entry });
   } catch (error: any) {
     logger.error("IP allowlist create error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -319,7 +319,7 @@ router.put("/ip-allowlist/:id", async (req, res) => {
     res.json({ success: true, entry });
   } catch (error: any) {
     logger.error("IP allowlist update error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -343,7 +343,7 @@ router.delete("/ip-allowlist/:id", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("IP allowlist delete error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -387,7 +387,7 @@ router.get("/account-locks", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Account locks error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -419,7 +419,7 @@ router.post("/lock-account", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Lock account error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -445,7 +445,7 @@ router.post("/unlock-account", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Unlock account error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -471,7 +471,7 @@ router.get("/2fa-status", async (req, res) => {
     res.json({ success: true, data: { users, total } });
   } catch (error: any) {
     logger.error("2FA status error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -500,7 +500,7 @@ router.post("/force-2fa", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Force 2FA error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -546,7 +546,7 @@ router.get("/api-keys", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("API keys error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -587,7 +587,7 @@ router.post("/api-keys", async (req, res) => {
     res.json({ success: true, data: { rawKey } });
   } catch (error: any) {
     logger.error("API key create error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -614,7 +614,7 @@ router.post("/api-keys/:id/revoke", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("API key revoke error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -646,7 +646,7 @@ router.get("/secret-rotation", async (req, res) => {
     res.json({ success: true, data: rows });
   } catch (error: any) {
     logger.error("Secret rotation error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -673,7 +673,7 @@ router.patch("/secret-rotation/:key", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Secret rotate error:", error);
-    res.status(400).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: "Bad request" });
   }
 });
 
@@ -719,7 +719,7 @@ router.get("/config", async (req, res) => {
     res.json({ success: true, data: config });
   } catch (error: any) {
     logger.error("Security config get error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -750,7 +750,7 @@ router.put("/config", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error("Security config set error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -997,7 +997,7 @@ router.get("/vulnerability-scan", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Vulnerability scan error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
@@ -1097,7 +1097,7 @@ router.get("/audit-log-explorer", async (req, res) => {
     });
   } catch (error: any) {
     logger.error("Audit log explorer error:", error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
