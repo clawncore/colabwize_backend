@@ -72,6 +72,7 @@ model User {
   user_metrics          UserMetrics?
   user_sessions         UserSession[]
   policy_accepted_at    DateTime?
+  unsubscribed_from_marketing Boolean         @default(false)
   auto_use_credits      Boolean              @default(true)
   survey                UserSurvey?
   credit_balance        CreditBalance?
@@ -2021,6 +2022,7 @@ model EmailLog {
   recipient    String
   sender       String
   subject      String
+  provider     String?  @default("resend") // "resend", "emailoctopus"
   status       String   @default("sent") // "sent", "failed", "pending"
   sent_at      DateTime @default(now())
   error        String?  @db.Text

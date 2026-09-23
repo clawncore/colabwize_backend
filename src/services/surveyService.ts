@@ -92,7 +92,7 @@ export class SurveyService {
     // Get user details for context
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { email: true, plan: true }, // Assuming 'plan' exists on user
+      select: { email: true },
     });
 
     const embed = {

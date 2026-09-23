@@ -134,6 +134,12 @@ router.post("/", async (req, res) => {
         data: { unsubscribed_from_marketing: true }
       });
       logger.info(`User unsubscribed from marketing: ${email}`);
+
+      // Also sync unsubscribe to EmailOctopus if configured (non-blocking)
+      const { markSubscriberAsUnsubscribed } = await import("../services/marketing/audienceService.js");
+      markSubscriberAsUnsubscribed(email).catch((err: any) => {
+        logger.warn(`Failed to sync unsubscribe to EmailOctopus for ${email}:`, { error: err.message });
+      });
     }
 
     res.send(PAGE_SHELL(`
@@ -183,6 +189,12 @@ router.post("/confirm", async (req, res) => {
         data: { unsubscribed_from_marketing: true }
       });
       logger.info(`[Unsubscribe] User opted out: ${email}`);
+
+      // Also sync unsubscribe to EmailOctopus if configured (non-blocking)
+      const { markSubscriberAsUnsubscribed } = await import("../services/marketing/audienceService.js");
+      markSubscriberAsUnsubscribed(email).catch((err: any) => {
+        logger.warn(`[Unsubscribe] Failed to sync to EmailOctopus for ${email}:`, { error: err.message });
+      });
     }
 
     // 2. Forward feedback to Support Pipeline (support@colabwize.com)

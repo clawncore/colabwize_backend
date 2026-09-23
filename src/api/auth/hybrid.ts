@@ -124,7 +124,7 @@ router.post("/check-email", async (req, res) => {
  */
 router.post("/oauth-signup", async (req, res) => {
   try {
-    const { id, email, fullName, provider } = req.body;
+    const { id, email, fullName, provider, affiliate_ref } = req.body;
 
     if (!id || !email) {
       return res.status(400).json({
@@ -138,6 +138,7 @@ router.post("/oauth-signup", async (req, res) => {
       email,
       fullName,
       provider,
+      affiliate_ref,
     });
 
     return res.status(200).json(result);

@@ -34,6 +34,7 @@ export class HybridAuthService {
     email: string;
     fullName?: string;
     provider?: string;
+    affiliate_ref?: string;
   }): Promise<{ success: boolean; message: string; user?: any }> {
     try {
       // Check if user exists
@@ -94,14 +95,26 @@ export class HybridAuthService {
       // Admin promotion is now controlled exclusively through the admin_users table.
         // Legacy hardcoded email whitelisting removed as privilege escalation fix.
 
-      // Create default free subscription
-      await prisma.subscription.create({
-        data: {
-          user_id: data.id,
-          plan: "free",
-          status: "active",
-        },
-      });
+      // Process referral BEFORE creating the free subscription so the
+      // free sub doesn't clobber a Plus reward (mirrors signUp logic).
+      let referralResult = { rewardGranted: false, refereeRewardGranted: false };
+      if (data.affiliate_ref) {
+        referralResult = await this.processReferralReward(
+          data.id,
+          data.affiliate_ref,
+        );
+      }
+
+      // Create default free subscription ONLY if not upgraded via referral
+      if (!referralResult.rewardGranted) {
+        await prisma.subscription.create({
+          data: {
+            user_id: data.id,
+            plan: "free",
+            status: "active",
+          },
+        });
+      }
 
       // Send welcome email immediately for OAuth users (since they are already verified)
       try {

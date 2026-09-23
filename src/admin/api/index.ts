@@ -383,7 +383,7 @@ Message: ${contactRequest.message}${attachmentInfo}
  */
 router.post("/email/broadcast", async (req, res) => {
   try {
-    const { userIds, senderAlias, subject, message } = req.body;
+    const { userIds, senderAlias, subject, message, senderName, senderTitle } = req.body;
 
     if (!Array.isArray(userIds) || userIds.length === 0 || !senderAlias || !subject || !message) {
       return res.status(400).json({ error: "Invalid or missing required fields" });
@@ -393,6 +393,12 @@ router.post("/email/broadcast", async (req, res) => {
       return res.status(400).json({ error: "Invalid sender alias" });
     }
 
+    // Determine provider routing: MARKETING alias → EmailOctopus, all others → Resend
+    const isMarketing = senderAlias === "MARKETING";
+    const providerInfo = isMarketing
+      ? { provider: "emailoctopus", note: "Marketing emails are routed to EmailOctopus" }
+      : { provider: "resend", note: "Transactional emails are routed to Resend" };
+
     // Fire and forget: Process broadcast in background. Pass the resolved
     // "from" address so every log row records which mailbox sent it.
     const fromAddress = SENDER_IDENTITIES[senderAlias as EmailSender];
@@ -401,6 +407,8 @@ router.post("/email/broadcast", async (req, res) => {
       senderAlias: senderAlias as EmailSender,
       subject,
       message,
+      senderName,
+      senderTitle,
       fromAddress,
     }).catch(err => logger.error("Background Broadcast Error:", err));
 
@@ -408,13 +416,15 @@ router.post("/email/broadcast", async (req, res) => {
       action: "EMAIL_BROADCAST",
       adminEmail: getAdminEmail(req),
       entityType: "EmailLog",
-      metadata: { recipientCount: userIds.length, senderAlias, subject },
+      metadata: { recipientCount: userIds.length, senderAlias, subject, provider: providerInfo.provider },
       ...extractAuditContext(req),
     });
 
     res.status(202).json({
       success: true,
-      message: `Broadcast of ${userIds.length} emails has been initiated in the background.`
+      provider: providerInfo.provider,
+      message: `Broadcast of ${userIds.length} emails has been initiated in the background via ${providerInfo.provider}.`,
+      note: providerInfo.note,
     });
   } catch (error: any) {
     logger.error("Admin Broadcast Error:", error);

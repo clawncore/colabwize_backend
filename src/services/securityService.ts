@@ -262,6 +262,16 @@ export class SecurityService {
       const browserInfo = detectBrowser(userAgent);
       const deviceInfo = detectDeviceType(userAgent);
 
+      // Send security alerts BEFORE recording login history.
+      // isNewDevice() checks loginHistory for recent same-device logins —
+      // if we record the login first, isNewDevice always returns false
+      // and the new-device login alert is never sent.
+      if (status === "success") {
+        await SecurityService.sendSecurityAlerts(userId, "login", ipAddress, userAgent, location || "Unknown");
+      } else if (status === "failed") {
+        await SecurityService.sendSecurityAlerts(userId, "login_failed", ipAddress, userAgent, location || "Unknown");
+      }
+
       await prisma.loginHistory.create({
         data: {
           user_id: userId,
@@ -289,12 +299,6 @@ export class SecurityService {
           status,
         },
       });
-
-      if (status === "success") {
-        await SecurityService.sendSecurityAlerts(userId, "login", ipAddress, userAgent, location || "Unknown");
-      } else if (status === "failed") {
-        await SecurityService.sendSecurityAlerts(userId, "login_failed", ipAddress, userAgent, location || "Unknown");
-      }
     } catch (error) {
       logger.error("Error recording login attempt:", error);
     }

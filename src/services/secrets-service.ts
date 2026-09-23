@@ -363,6 +363,29 @@ export class SecretsService {
   static async getGoogleSearchEngineId(): Promise<string | null> {
     return this.getSecret("GOOGLE_SEARCH_ENGINE_ID");
   }
+
+  // Get EmailOctopus configuration for marketing email provider
+  static async getEmailOctopusApiKey(): Promise<string | null> {
+    const apiKey = await this.getSecret("EMAILOCTOPUS_API_KEY");
+    if (!apiKey) {
+      logger.warn(
+        "EMAILOCTOPUS_API_KEY is not configured — marketing broadcast via EmailOctopus is disabled. " +
+        "Transactional and auth emails continue unaffected via Resend.",
+      );
+    }
+    return apiKey;
+  }
+
+  static async getEmailOctopusListId(): Promise<string | null> {
+    const listId = await this.getSecret("EMAILOCTOPUS_LIST_ID");
+    if (!listId) {
+      logger.warn(
+        "EMAILOCTOPUS_LIST_ID is not configured — EmailOctopus audience management is disabled. " +
+        "Transactional and auth emails continue unaffected via Resend.",
+      );
+    }
+    return listId;
+  }
 }
 
 export default SecretsService;
