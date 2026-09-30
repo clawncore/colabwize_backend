@@ -407,7 +407,11 @@ app.use("/api/authorship", authMiddleware, authorshipRouter);
 app.use("/api/ai-detection", authMiddleware, aiDetectionRouter);
 
 // Comprehensive Citation Audit Engine API
-app.use("/api/audit", authMiddleware, auditRouter);
+// NOTE: mounted WITHOUT the global header-auth middleware on purpose —
+// GET /progress is an EventSource stream (browsers can't set Authorization
+// headers there) and authenticates via ?token=. Each audit route applies
+// its own auth (see src/audit/index.ts).
+app.use("/api/audit", auditRouter);
 
 // Apply auth middleware to notification routes
 app.use("/api/notifications", authMiddleware);

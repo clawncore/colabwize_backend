@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import { startAudit, getJobState } from "./pipeline";
 import { createClient } from "@supabase/supabase-js";
 import { BillingGateway, BillingError } from "../billing/BillingGateway";
+import { authenticateExpressRequest } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -9,9 +10,13 @@ const router = express.Router();
  * POST /api/audit/start
  * Kicks off a background citation audit job.
  * Returns { auditId } immediately.
- * Auth is handled by the global authenticateExpressRequest middleware.
+ * NOTE: this router is mounted WITHOUT the global header-auth middleware
+ * (see main-server.ts) because GET /progress is an EventSource stream and
+ * browsers cannot set Authorization headers on EventSource. Each route
+ * below authenticates itself: /start and /job via header auth, /progress
+ * via ?token= verification.
  */
-router.post("/start", async (req, res) => {
+router.post("/start", authenticateExpressRequest, async (req, res) => {
     try {
         const userId = (req as unknown as { user?: { id?: string } }).user?.id || "";
         const { documentId, projectId, docState, style } = req.body as {
@@ -138,8 +143,9 @@ router.get("/progress/:auditId", async (req, res) => {
  * Returns the current in-memory job state when present, otherwise falls back to
  * the persisted AuditJob / AuditReport rows. This lets clients recover completed
  * audit results after a restart without requiring Redis or SSE resurrection.
+ * Header auth (EventSource is not involved here).
  */
-router.get("/job/:auditId", async (req: Request, res: Response) => {
+router.get("/job/:auditId", authenticateExpressRequest, async (req: Request, res: Response) => {
     try {
         const { auditId } = req.params as { auditId: string };
         const cached = getJobState(auditId);
