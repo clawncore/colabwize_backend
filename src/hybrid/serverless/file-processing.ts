@@ -113,7 +113,16 @@ async function handleDirectExport(fileData: any, userId: string, format: "pdf" |
     if (!user) throw new Error("User not found");
 
     if (format === "pdf") {
-      const isPaid = user.subscription?.status === "active" && user.subscription?.plan !== "free";
+      // Expiry-aware: a stale plus/active row with past entitlement_expires_at
+      // (expired referral grant) must not count as paid.
+      const sub = user.subscription as any;
+      const entitlementLive =
+        sub?.entitlement_expires_at == null ||
+        new Date() < new Date(sub.entitlement_expires_at);
+      const isPaid =
+        sub?.status === "active" &&
+        sub?.plan !== "free" &&
+        entitlementLive;
       if (!isPaid) {
         // Flat 1 credit charge for free users, unlimited if paid. Uses the
         // ledger-based reserve path so the spend is idempotent and rolls back

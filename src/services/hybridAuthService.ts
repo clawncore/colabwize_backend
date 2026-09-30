@@ -316,6 +316,23 @@ export class HybridAuthService {
   private static readonly REWARD_LIMIT_PER_MONTH = 1;
 
   /**
+   * Whether a subscription row counts as free-tier for reward eligibility.
+   * A row stuck at plan='plus'/status='active' with a past
+   * entitlement_expires_at (expired referral grant or missed LS webhook)
+   * must be treated as free, otherwise the user can never earn another
+   * referral reward. Mirrors SubscriptionService.getActivePlan.
+   */
+  private static isFreeTier(sub: any): boolean {
+    if (!sub || sub.plan === "free") return true;
+    if (
+      sub.entitlement_expires_at &&
+      new Date() > new Date(sub.entitlement_expires_at as any)
+    )
+      return true;
+    return false;
+  }
+
+  /**
    * Compute the UTC calendar-month start for "now".
    * Mirrors the pattern in EntitlementService.rebuildEntitlements so the
    * monthly boundary is identical across the codebase.
@@ -435,11 +452,13 @@ export class HybridAuthService {
         let refereeRewardGranted = false;
 
         // 6. Grant referee reward (if on free tier — mirrors referrer logic)
+        // Expiry-aware: an expired referral grant leaves plan='plus' on the
+        // row, so check effective tier, not the raw column.
         const refereeSub = await tx.subscription.findUnique({
           where: { user_id: refereeId },
         });
 
-        if (!refereeSub || refereeSub.plan === "free") {
+        if (HybridAuthService.isFreeTier(refereeSub)) {
           if (!refereeSub) {
             await tx.subscription.create({
               data: {
@@ -469,12 +488,12 @@ export class HybridAuthService {
           });
         }
 
-        // 7. Grant referrer reward (if on free tier)
+        // 7. Grant referrer reward (if on free tier — expiry-aware, see above)
         const referrerSub = await tx.subscription.findUnique({
           where: { user_id: referrer.id },
         });
 
-        if (!referrerSub || referrerSub.plan === "free") {
+        if (HybridAuthService.isFreeTier(referrerSub)) {
           if (!referrerSub) {
             await tx.subscription.create({
               data: {
