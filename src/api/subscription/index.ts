@@ -376,8 +376,16 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
     const currentSubscription = await SubscriptionService.getUserSubscription(
       user.id,
     );
+    // A subscription only blocks a new checkout while its entitlement is live.
+    // Rows stuck at status='active' with a past entitlement_expires_at (e.g.
+    // missed subscription_expired webhook) must NOT block re-purchase.
+    const entitlementLive =
+      currentSubscription?.entitlement_expires_at == null ||
+      new Date() <
+        new Date(currentSubscription.entitlement_expires_at as any);
     if (
       currentSubscription &&
+      entitlementLive &&
       ["active", "trialing", "past_due", "on_trial"].includes(
         currentSubscription.status,
       ) &&
@@ -387,7 +395,7 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
       // Allow ONLY if it's a credit purchase (PAYG / Credits)
       // If plan is 'credits_XX' or 'payg' it is allowed as an add-on.
       // But if plan is 'plus', 'premium'
-      if (!plan.startsWith("credits_") && plan !== "payg") {
+      if (!(plan?.startsWith("credits_") ?? false) && plan !== "payg") {
         return res.status(409).json({
           success: false,
           message:
@@ -399,7 +407,8 @@ router.post("/checkout", authenticateHybridRequest, async (req, res) => {
 
     // 2. POLICY ACCEPTANCE CHECK (Legal Requirement)
     // Only require policy acceptance for subscription plans, not for one-time credit purchases
-    const isSubscriptionPlan = !plan.startsWith("credits_") && plan !== "payg";
+    const isSubscriptionPlan =
+      !(plan?.startsWith("credits_") ?? false) && plan !== "payg";
 
     if (isSubscriptionPlan && policyAccepted !== true) {
       return res.status(400).json({
