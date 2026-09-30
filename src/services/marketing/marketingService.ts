@@ -56,20 +56,17 @@ export async function sendMarketingEmail(
   }
 
   try {
-    // EmailOctopus: POST /campaigns — create a campaign for a single recipient
+    // EmailOctopus v2: POST /campaigns — create a campaign for a single recipient
     // We use the "regular" campaign type with a single recipient for per-user sends
     // For true broadcast sends, use createCampaign() with segment_id
     const result = await emailOctopusRequest("post", "/campaigns", {
       name: subject,
-      subject_line: subject,
+      subject: subject,
       from_name: "ColabWize Marketing",
       reply_to: "marketing@colabwize.com",
-      content_html: html,
-      content_text: text,
-      sent_to: "subscribers",
-      parameters: {
-        send_to: "subscribers",
-      },
+      html_content: html,
+      plain_text_content: text,
+      to: "all", // Send to all subscribers in the list
     });
 
     if (result.success) {
@@ -127,15 +124,15 @@ export async function createAndSendBroadcast(
   }
 
   try {
-    // Step 1: Create the campaign
+    // Step 1: Create the campaign (EmailOctopus v2)
     const createResult = await emailOctopusRequest("post", "/campaigns", {
       name: subject,
-      subject_line: subject,
+      subject: subject,
       from_name: "ColabWize Marketing",
       reply_to: "marketing@colabwize.com",
-      content_html: html,
-      content_text: text || undefined,
-      sent_to: "subscribers",
+      html_content: html,
+      plain_text_content: text || undefined,
+      to: "all",
     });
 
     if (!createResult.success) {
@@ -156,7 +153,7 @@ export async function createAndSendBroadcast(
 
     logger.info(`Created EmailOctopus campaign: ${campaignId}`);
 
-    // Step 2: Trigger sending
+    // Step 2: Trigger sending (EmailOctopus v2 uses /send endpoint)
     const sendResult = await emailOctopusRequest(
       "post",
       `/campaigns/${campaignId}/send`,

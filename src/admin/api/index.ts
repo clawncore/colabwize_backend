@@ -9,6 +9,7 @@ import { prisma } from "../../lib/prisma";
 import logger from "../../monitoring/logger";
 import { processBroadcast } from "../services/broadcastService";
 import { createAuditLog, extractAuditContext, getAdminEmail } from "../services/auditLogService";
+import { sendMarketingEmail } from "../../services/marketing/marketingService";
 import { OpenAIService } from "../../services/openaiService";
 import { TeamChatService } from "../../services/teamChatService";
 import integrationsRouter from "./integrations";
@@ -74,6 +75,29 @@ router.post("/email/send", async (req, res) => {
 
     if (!Object.keys(SENDER_IDENTITIES).includes(senderAlias)) {
       return res.status(400).json({ error: "Invalid sender alias" });
+    }
+
+    const isMarketing = senderAlias === "MARKETING";
+
+    if (isMarketing) {
+      const marketingHtml = wrapInPremiumLayout(message, "MARKETING");
+      const marketingText = message.replace(/<[^>]+>/g, '');
+
+      // Route marketing emails through EmailOctopus
+      const marketingResult = await sendMarketingEmail(to, subject, marketingHtml, marketingText);
+
+      if (marketingResult.success) {
+        await createAuditLog({
+          action: "EMAIL_SENT",
+          adminEmail: getAdminEmail(req),
+          entityType: "MarketingEmail",
+          metadata: { to, senderAlias, subject, provider: "emailoctopus", messageId: marketingResult.messageId },
+          ...extractAuditContext(req),
+        });
+        return res.json({ success: true, message: "Marketing email sent via EmailOctopus", id: marketingResult.messageId });
+      }
+
+      return res.status(500).json({ success: false, error: marketingResult.error || "Failed to send marketing email via EmailOctopus" });
     }
 
     // Wrap in premium layout (banner, styling, signature) so email clients

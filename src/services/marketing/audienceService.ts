@@ -57,14 +57,14 @@ export async function upsertSubscriber(
     : await getLocalMarketingStatus(email);
 
   try {
-    // EmailOctopus: POST /lists/{listId}/contacts
+    // EmailOctopus v2: POST /lists/{listId}/contacts
     const payload: any = {
-      email_address: email,
+      email: email,
       status: localStatus === "unsubscribed" ? "unsubscribed" : "subscribed",
     };
 
     if (fullName) {
-      payload.merge_fields = {
+      payload.fields = {
         NAME: fullName,
       };
     }
@@ -244,13 +244,11 @@ export async function markSubscriberAsUnsubscribed(
     };
   }
 
-  // Use the batch unsubscribe endpoint or the individual update endpoint
+  // EmailOctopus v2: POST /lists/{listId}/contacts/{email}/unsubscribe
   const result = await emailOctopusRequest(
     "post",
-    `/lists/${listId}/contacts/unsubscribe`,
-    {
-      email_address: email,
-    },
+    `/lists/${listId}/contacts/${encodeURIComponent(email)}/unsubscribe`,
+    {},
   );
 
   if (result.success) {

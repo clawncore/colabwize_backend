@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from "axios";
 import logger from "../../monitoring/logger";
 import { SecretsService } from "../secrets-service";
 
-const EMAILOCTOPUS_API_BASE = "https://api.emailoctopus.com/1.5";
+const EMAILOCTOPUS_API_BASE = "https://api.emailoctopus.com/v2";
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
