@@ -80,7 +80,7 @@ export class PandocExportService {
             const contentType = res.headers.get("content-type") || "";
             const mt = contentType.match(/image\/(jpeg|jpg|png|gif|webp|svg\+xml|svg|bmp)/i);
             if (mt) {
-              ext = mt[1].toLowerCase().replace("jpeg", "jpg").replace("svg+xml", "svg").replace("svg", "png");
+              ext = mt[1].toLowerCase().replace("jpeg", "jpg").replace("svg+xml", "svg");
             }
             const ab = await res.arrayBuffer();
             if (ab.byteLength === 0 || ab.byteLength > this.MAX_IMAGE_BYTES) {
@@ -90,10 +90,10 @@ export class PandocExportService {
           } finally {
             clearTimeout(timeout);
           }
-        } else if (/^data:image\/(png|jpe?g|gif|webp|bmp);base64,/i.test(src)) {
-          const dm = src.match(/^data:image\/(png|jpe?g|gif|webp|bmp);base64,(.*)$/is);
+        } else if (/^data:image\/(png|jpe?g|gif|webp|bmp|svg\+xml|svg);base64,/i.test(src)) {
+          const dm = src.match(/^data:image\/(png|jpe?g|gif|webp|bmp|svg\+xml|svg);base64,(.*)$/is);
           if (!dm) continue;
-          ext = dm[1].toLowerCase().replace("jpeg", "jpg");
+          ext = dm[1].toLowerCase().replace("jpeg", "jpg").replace("svg+xml", "svg");
           buffer = Buffer.from(dm[2], "base64");
           if (buffer.length === 0 || buffer.length > this.MAX_IMAGE_BYTES) {
             logger.warn("[Pandoc] Skipping oversized embedded image", { bytes: buffer.length });
@@ -139,8 +139,22 @@ export class PandocExportService {
 
       logger.info(`[Pandoc] Exporting via HTML direct path to ${options.format}`);
 
-      // Localize images so linked/embedded pictures survive conversion
-      // (Pandoc's PDF engine cannot fetch remote URLs).
+      // PDF goes through headless Chromium (high fidelity: real CSS tables,
+      // images, page headers). Pandoc has no PDF engine installed on Render,
+      // and its LaTeX engine cannot fetch remote image URLs anyway.
+      if (options.format === "pdf") {
+        try {
+          return await this.renderPdfViaPuppeteer(htmlContent, tempDir);
+        } catch (pdfError: any) {
+          // Fall back to Pandoc rather than failing the export outright
+          // (e.g. local dev without a Chromium binary).
+          logger.warn("[Pandoc] Puppeteer PDF failed, falling back to Pandoc", {
+            error: pdfError?.message,
+          });
+        }
+      }
+
+      // Localize images so linked/embedded pictures survive conversion.
       const localizedHtml = await this.localizeImages(htmlContent, tempDir);
       const wrappedHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${localizedHtml}</body></html>`;
       const htmlPath = path.join(tempDir, "input.html");
@@ -167,15 +181,35 @@ export class PandocExportService {
   }
 
   /**
-   * High-fidelity PDF rendering using Puppeteer (Deprecated in favor of Pandoc)
-   * Keeping as private method for now in case of quick rollback needs
+   * High-fidelity PDF rendering using Puppeteer (headless Chromium).
+   * Images are embedded as data URLs (no network dependency at render
+   * time) and print CSS keeps tables/images intact across pages.
    */
-  private static async renderPdfViaPuppeteer(htmlContent: string): Promise<{ buffer: Buffer }> {
-    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>${htmlContent}</body></html>`;
+  private static async renderPdfViaPuppeteer(
+    htmlContent: string,
+    tempDir: string,
+  ): Promise<{ buffer: Buffer; fileSize: number }> {
+    const localizedHtml = await this.localizeImages(htmlContent, tempDir);
+    const withDataUrls = await this.embedLocalImagesAsDataUrls(
+      localizedHtml,
+      tempDir,
+    );
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      body { font-family: Georgia, 'Times New Roman', serif; font-size: 12pt; line-height: 1.6; color: #111; }
+      img { max-width: 100%; height: auto; }
+      table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+      thead { display: table-header-group; }
+      tr { break-inside: avoid; }
+      th, td { border: 1px solid #999; padding: 6px 10px; text-align: left; }
+      th { background: #f2f2f2; }
+      pre, blockquote { break-inside: avoid; }
+      a { color: #1a56db; }
+    </style></head><body>${withDataUrls}</body></html>`;
+
     const puppeteer = await import("puppeteer");
     const { ExportService } = await import("./exportService.js");
     const browser = await (ExportService as any).launchBrowser(puppeteer.default);
-    
+
     try {
       const page = await browser.newPage();
       await page.emulateMediaType("print");
@@ -183,11 +217,62 @@ export class PandocExportService {
       const buffer = await page.pdf({
         format: "A4",
         printBackground: true,
-        margin: { top: "1in", bottom: "1in", left: "1in", right: "1in" }
+        margin: { top: "1in", bottom: "1in", left: "1in", right: "1in" },
       });
-      return { buffer: Buffer.from(buffer) };
+      const out = Buffer.from(buffer);
+      return { buffer: out, fileSize: out.length };
     } finally {
       await browser.close();
     }
+  }
+
+  /**
+   * Rewrite localized ./img-N.ext sources to data URLs so Chromium renders
+   * them with zero filesystem/network dependence.
+   */
+  private static async embedLocalImagesAsDataUrls(
+    html: string,
+    tempDir: string,
+  ): Promise<string> {
+    const imgTagRegex = /<img\b[^>]*\bsrc\s*=\s*(["'])(.*?)\1[^>]*>/gi;
+    const urlToDataUrl = new Map<string, string>();
+    const mimeByExt: Record<string, string> = {
+      png: "image/png",
+      jpg: "image/jpeg",
+      gif: "image/gif",
+      webp: "image/webp",
+      bmp: "image/bmp",
+      svg: "image/svg+xml",
+    };
+
+    let m: RegExpExecArray | null;
+    const pending: string[] = [];
+    while ((m = imgTagRegex.exec(html)) !== null) {
+      const src = m[2];
+      if (/^\.\/img-\d+\.\w+$|^img-\d+\.\w+$/.test(src) && !pending.includes(src)) {
+        pending.push(src);
+      }
+    }
+
+    for (const src of pending) {
+      try {
+        const filename = src.replace(/^\.\//, "");
+        const data = await fs.readFile(path.join(tempDir, filename));
+        const ext = (filename.split(".").pop() || "png").toLowerCase();
+        urlToDataUrl.set(
+          src,
+          `data:${mimeByExt[ext] || "image/png"};base64,${data.toString("base64")}`,
+        );
+      } catch {
+        // Keep the local src; Chromium resolves it relative to nothing,
+        // so it will be blank — same as before, no worse.
+      }
+    }
+
+    if (urlToDataUrl.size === 0) return html;
+    return html.replace(imgTagRegex, (full, _q, src: string) => {
+      const dataUrl = urlToDataUrl.get(src);
+      return dataUrl ? full.replace(src, dataUrl) : full;
+    });
   }
 }
