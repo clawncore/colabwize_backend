@@ -1,17 +1,109 @@
-interface GeoResult {
-  city: string;
-  region: string;
-  country: string;
-  lat: number;
-  lon: number;
+/**
+ * IP geolocation for login history, active sessions, and security emails.
+ *
+ * Provider notes (verified by live probe):
+ *  - ipapi.co   : HTTPS, good data, but the free tier rate-limits aggressively
+ *                 and answers 429 once you exceed it. Treated as "try next".
+ *  - ip-api.com : the free endpoint is HTTP-ONLY. Calling it over HTTPS returns
+ *                 403 Forbidden with an empty body, so we must use http://.
+ *
+ * Field names differ between the two providers and are easy to mix up:
+ *  - ipapi.co   -> { city, region, country_name }
+ *  - ip-api.com -> { city, regionName, country }
+ *
+ * Because both providers are free-tier and rate-limited, results are cached
+ * per-IP for CACHE_TTL_MS so repeat logins do not burn the quota.
+ */
+
+import logger from "../monitoring/logger";
+
+/** Shape returned by ipapi.co. */
+interface IpApiCoResponse {
+  city?: string;
+  region?: string;
+  country_name?: string;
+  error?: boolean;
+  reason?: string;
 }
 
-interface IpApiResponse {
-  city: string;
-  region: string;
-  country_name: string;
-  lat: number;
-  lon: number;
+/** Shape returned by ip-api.com (note: regionName / country, not region / country_name). */
+interface IpApiComResponse {
+  status?: string;
+  city?: string;
+  regionName?: string;
+  country?: string;
+  message?: string;
+}
+
+const REQUEST_TIMEOUT_MS = 5000;
+
+/** Cache successful lookups for 24h. Failures are cached far more briefly. */
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const FAILURE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface CacheEntry {
+  location: string;
+  expiresAt: number;
+}
+
+const locationCache = new Map<string, CacheEntry>();
+
+/** Keeps the cache from growing without bound on long-lived processes. */
+const MAX_CACHE_ENTRIES = 5000;
+
+function readCache(ip: string): string | null {
+  const entry = locationCache.get(ip);
+  if (!entry) return null;
+
+  if (entry.expiresAt <= Date.now()) {
+    locationCache.delete(ip);
+    return null;
+  }
+
+  // Refresh LRU position.
+  locationCache.delete(ip);
+  locationCache.set(ip, entry);
+  return entry.location;
+}
+
+function writeCache(ip: string, location: string, ttl: number): void {
+  if (locationCache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = locationCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      locationCache.delete(oldestKey);
+    }
+  }
+  locationCache.set(ip, { location, expiresAt: Date.now() + ttl });
+}
+
+export function clearLocationCache(): void {
+  locationCache.clear();
+  ipApiCoDisabledUntil = 0;
+}
+
+/**
+ * Circuit breaker for ipapi.co.
+ *
+ * ipapi.co's free tier answers 429 for the whole server IP once the daily
+ * quota is spent, and the limit is not per-request-retryable. Without this,
+ * every login would burn a doomed HTTPS request before reaching the working
+ * fallback. Once we see a 429 we stop calling it for CIRCUIT_BREAKER_MS.
+ */
+const CIRCUIT_BREAKER_MS = 10 * 60 * 1000;
+let ipApiCoDisabledUntil = 0;
+
+function isIpApiCoDisabled(): boolean {
+  return Date.now() < ipApiCoDisabledUntil;
+}
+
+function tripIpApiCoBreaker(): void {
+  if (ipApiCoDisabledUntil === 0) {
+    logger.warn(
+      "ipapi.co rate limited: bypassing provider for the next " +
+        `${CIRCUIT_BREAKER_MS / 1000}s and using ip-api.com`,
+    );
+  }
+  ipApiCoDisabledUntil = Date.now() + CIRCUIT_BREAKER_MS;
 }
 
 export async function getPublicIp(): Promise<string | null> {
@@ -31,10 +123,30 @@ export async function getPublicIp(): Promise<string | null> {
 }
 
 function isLocalhost(ip: string): boolean {
-  return !ip || ip === "127.0.0.1" || ip === "::1" || ip === "unknown" || ip === "localhost" ||
-    ip.startsWith("10.") ||
-    ip.startsWith("192.168.") ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
+  if (!ip) return true;
+
+  const normalized = ip.trim().toLowerCase();
+  if (!normalized) return true;
+  if (normalized === "unknown" || normalized === "localhost") return true;
+
+  // IPv4-mapped IPv6 loopback / private ranges, e.g. "::ffff:127.0.0.1".
+  const mapped = normalized.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  const candidate = mapped ? mapped[1] : normalized;
+
+  if (candidate === "::1" || candidate === "127.0.0.1") return true;
+  if (candidate === "::") return true;
+
+  // RFC1918 private ranges.
+  if (candidate.startsWith("10.")) return true;
+  if (candidate.startsWith("192.168.")) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(candidate)) return true;
+  // Carrier-grade NAT.
+  if (candidate.startsWith("100.64.")) return true;
+
+  // Link-local and unique-local IPv6.
+  if (/^fe[89ab]/.test(candidate)) return true;
+
+  return false;
 }
 
 export async function getLocationFromIp(ip: string): Promise<string> {
@@ -42,19 +154,37 @@ export async function getLocationFromIp(ip: string): Promise<string> {
     return getLocationFromExternalService();
   }
 
-  const result = await fetchLocationFromIpApiCo(ip);
-  if (result) return result;
+  const cached = readCache(ip);
+  if (cached) return cached;
 
+  // Primary provider (HTTPS). ipapi.co uses country_name.
+  const primary = await fetchLocationFromIpApiCo(ip);
+  if (primary) {
+    writeCache(ip, primary, CACHE_TTL_MS);
+    return primary;
+  }
+
+  // Fallback provider. ip-api.com is HTTP-only and uses country / regionName.
   const fallback = await fetchLocationFromIpApiCom(ip);
-  if (fallback) return fallback;
+  if (fallback) {
+    writeCache(ip, fallback, CACHE_TTL_MS);
+    return fallback;
+  }
 
+  // Both providers failed. Cache briefly so we don't hammer them on every
+  // request while they are rate limiting us.
+  writeCache(ip, "Unknown", FAILURE_CACHE_TTL_MS);
   return "Unknown";
 }
 
 async function fetchLocationFromIpApiCo(ip: string): Promise<string | null> {
+  // Skip entirely while the circuit is open rather than burning a request
+  // that we already know will be answered with 429.
+  if (isIpApiCoDisabled()) return null;
+
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     const url = ip ? `https://ipapi.co/${ip}/json/` : "https://ipapi.co/json/";
     const response = await fetch(url, {
@@ -64,17 +194,38 @@ async function fetchLocationFromIpApiCo(ip: string): Promise<string | null> {
 
     clearTimeout(timeout);
 
-    if (!response.ok) return null;
+    if (response.status === 429) {
+      // Free-tier quota exhausted for this server. Open the breaker and let
+      // the caller fall through to ip-api.com.
+      tripIpApiCoBreaker();
+      logger.warn("ipapi.co rate limited", { ip, status: response.status });
+      return null;
+    }
 
-    const data: IpApiResponse = await response.json();
+    if (!response.ok) {
+      logger.warn("ipapi.co lookup failed", { ip, status: response.status });
+      return null;
+    }
 
-    if (data.country_name) {
-      const parts = [data.city, data.region, data.country_name].filter(Boolean);
+    const data: IpApiCoResponse = await response.json();
+
+    if (data.error) {
+      logger.warn("ipapi.co returned an error", { ip, reason: data.reason });
+      return null;
+    }
+
+    const country = data.country_name;
+    if (country) {
+      const parts = [data.city, data.region, country].filter(Boolean);
       return parts.join(", ");
     }
 
     return null;
-  } catch {
+  } catch (error) {
+    logger.warn("ipapi.co lookup threw", {
+      ip,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }
@@ -82,11 +233,14 @@ async function fetchLocationFromIpApiCo(ip: string): Promise<string | null> {
 async function fetchLocationFromIpApiCom(ip?: string): Promise<string | null> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    let url = "https://ip-api.com/json/?fields=city,regionName,countryName,lat,lon";
+    // NOTE: the free ip-api.com endpoint does not support HTTPS. Requesting
+    // https:// returns 403 Forbidden. Keep this on http://.
+    const fields = "city,regionName,country,lat,lon";
+    let url = `http://ip-api.com/json/?fields=${fields}`;
     if (ip && !isLocalhost(ip)) {
-      url = `https://ip-api.com/json/${ip}?fields=city,regionName,countryName,lat,lon`;
+      url = `http://ip-api.com/json/${ip}?fields=${fields}`;
     }
 
     const response = await fetch(url, {
@@ -96,35 +250,70 @@ async function fetchLocationFromIpApiCom(ip?: string): Promise<string | null> {
 
     clearTimeout(timeout);
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      logger.warn("ip-api.com lookup failed", {
+        ip: ip ?? null,
+        status: response.status,
+        rateLimited: response.status === 429,
+      });
+      return null;
+    }
 
-    const data: GeoResult = await response.json();
+    const data: IpApiComResponse = await response.json();
 
-    if (data.country) {
-      const parts = [data.city, data.region, data.country].filter(Boolean);
+    if (data.status === "fail") {
+      logger.warn("ip-api.com returned a failure", { ip, message: data.message });
+      return null;
+    }
+
+    // ip-api.com returns `country` and `regionName`.
+    const country = data.country;
+    if (country) {
+      const parts = [data.city, data.regionName, country].filter(Boolean);
       return parts.join(", ");
     }
 
     return null;
-  } catch {
+  } catch (error) {
+    logger.warn("ip-api.com lookup threw", {
+      ip: ip ?? null,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }
 
+/** Cache key for "wherever this server egresses from". */
+const SELF_LOOKUP_KEY = "__self__";
+
 async function getLocationFromExternalService(): Promise<string> {
+  // This path resolves the server's own egress IP, so the answer barely ever
+  // changes. Cache it like any other lookup to avoid burning quota per login.
+  const cached = readCache(SELF_LOOKUP_KEY);
+  if (cached) return cached;
+
+  let result: string | null = null;
+
   try {
-    const result = await fetchLocationFromIpApiCo("");
-    if (result) return result;
+    result = await fetchLocationFromIpApiCo("");
+    if (result) {
+      writeCache(SELF_LOOKUP_KEY, result, CACHE_TTL_MS);
+      return result;
+    }
   } catch {
     // Fall through
   }
 
   try {
-    const result = await fetchLocationFromIpApiCom();
-    if (result) return result;
+    result = await fetchLocationFromIpApiCom();
+    if (result) {
+      writeCache(SELF_LOOKUP_KEY, result, CACHE_TTL_MS);
+      return result;
+    }
   } catch {
     // Fall through
   }
 
+  writeCache(SELF_LOOKUP_KEY, "Unknown", FAILURE_CACHE_TTL_MS);
   return "Unknown";
 }

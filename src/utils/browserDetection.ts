@@ -156,17 +156,88 @@ export function getDeviceLabel(userAgent: string): string {
 
 export function formatIpAddress(xForwardedFor: string | null, directIp: string): string {
   if (xForwardedFor) {
+    // A proxy chain appends hops, so the client is the FIRST entry.
     const firstIp = xForwardedFor.split(",")[0]?.trim();
-    if (firstIp && isValidIp(firstIp)) {
-      return firstIp;
+    const normalized = normalizeIp(firstIp);
+    if (normalized) {
+      return normalized;
     }
   }
-  return directIp;
+  const normalizedDirect = normalizeIp(directIp);
+  return normalizedDirect ?? directIp ?? "";
 }
 
-function isValidIp(ip: string): boolean {
-  const ipv4Pattern =
-    /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)(?:\.|$)){4}$/;
-  const ipv6Pattern = /^[0-9a-fA-F:]+$/;
-  return ipv4Pattern.test(ip) || ipv6Pattern.test(ip);
+/**
+ * True when the address is a loopback address in either IPv4 or IPv6 form.
+ * Used to decide whether we must resolve this server's public IP instead.
+ */
+export function isLoopbackAddress(ip: string): boolean {
+  if (!ip) return true;
+  const candidate = normalizeIp(ip);
+  if (!candidate) return true;
+  if (candidate === "127.0.0.1" || candidate === "::1") return true;
+  if (candidate.startsWith("127.")) return true;
+  // IPv4-mapped loopback already normalized above, but keep the check explicit.
+  return /^::(?:ffff:)?127\./i.test(ip);
+}
+
+/**
+ * Normalizes an address for storage and geolocation lookups.
+ *
+ * Node reports IPv4 peers in IPv4-mapped IPv6 form ("::ffff:203.0.113.45").
+ * Those addresses contain dots, so a plain IPv6 character-class test rejects
+ * them and we end up storing an empty IP. Strip the mapping prefix so
+ * geolocation providers receive a plain IPv4 address.
+ *
+ * Returns null when the input is not a usable IP.
+ */
+function normalizeIp(ip: string | null | undefined): string | null {
+  if (!ip) return null;
+  const trimmed = ip.trim();
+  if (!trimmed) return null;
+
+  // Strip brackets from "[::1]:3000" style entries.
+  let candidate = trimmed;
+  const bracketMatch = candidate.match(/^\[(.+)\](?::\d+)?$/);
+  if (bracketMatch) {
+    candidate = bracketMatch[1];
+  }
+
+  // IPv4-mapped IPv6 (::ffff:1.2.3.4) and IPv4-compatible (::1.2.3.4).
+  const mapped = candidate.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  if (mapped) {
+    return isValidIpv4(mapped[1]) ? mapped[1] : null;
+  }
+
+  if (isValidIpv4(candidate)) {
+    return candidate;
+  }
+
+  if (isValidIpv6(candidate)) {
+    return candidate;
+  }
+
+  return null;
+}
+
+function isValidIpv4(ip: string): boolean {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((part) => {
+    if (!/^\d{1,3}$/.test(part)) return false;
+    if (part.length > 1 && part.startsWith("0")) return false;
+    const value = Number(part);
+    return value >= 0 && value <= 255;
+  });
+}
+
+function isValidIpv6(ip: string): boolean {
+  // Must contain at least one colon and only hex digits/colons.
+  if (!ip.includes(":")) return false;
+  if (!/^[0-9a-fA-F:]+$/.test(ip)) return false;
+  // Reject the loose "::::" style matches the previous regex allowed.
+  if (/:{4,}/.test(ip)) return false;
+  if (ip.startsWith(":") && !ip.startsWith("::")) return false;
+  if (ip.endsWith(":") && !ip.endsWith("::")) return false;
+  return true;
 }

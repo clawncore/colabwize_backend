@@ -10,6 +10,7 @@ import {
   detectBrowser,
   detectDeviceType,
   formatIpAddress,
+  isLoopbackAddress,
 } from "../utils/browserDetection";
 import { getLocationFromIp, getPublicIp } from "../utils/ipGeolocation";
 
@@ -1342,10 +1343,15 @@ export class HybridAuthService {
   static async recordLogin(userId: string, ipAddress: string, userAgent: string) {
     try {
       let formattedIp = formatIpAddress(ipAddress, "");
-      if (formattedIp === "127.0.0.1" || formattedIp === "::1") {
+
+      // If the proxy headers gave us nothing usable (or we're running behind
+      // a local tunnel), fall back to this server's public IP so the security
+      // log and the alert email always carry a real address.
+      if (!formattedIp || isLoopbackAddress(formattedIp)) {
         const publicIp = await getPublicIp();
         if (publicIp) formattedIp = publicIp;
       }
+
       const location = await getLocationFromIp(formattedIp);
       const browserInfo = detectBrowser(userAgent);
       const deviceInfo = detectDeviceType(userAgent);
