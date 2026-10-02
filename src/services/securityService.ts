@@ -6,42 +6,90 @@ import { EmailService } from "./emailService";
 import { SecretsService } from "../services/secrets-service";
 
 export class SecurityService {
+  /**
+   * Resolves which of the given session rows belongs to the device making the
+   * current request, returning its index (or -1 if none can be identified).
+   *
+   * `is_current` alone is not usable for this: it records the most recent login,
+   * which may have happened on a different device, so relying on it can select
+   * the wrong row. The request IP is the better signal, but several sessions can
+   * legitimately share one IP (household or office NAT), so the user agent is
+   * required to disambiguate. `is_current` is consulted only as a last resort.
+   *
+   * Returning a single index guarantees a caller can never end up with two rows
+   * both flagged as the current device.
+   */
+  private static resolveOwnSessionIndex(sessions: any[], req: any): number {
+    const xForwardedFor = req?.headers?.["x-forwarded-for"] as string | undefined;
+    const directIp = req?.ip || req?.connection?.remoteAddress || "unknown";
+    const currentIp = formatIpAddress(xForwardedFor || null, directIp);
+    const requestUserAgent = (req?.headers?.["user-agent"] as string) || "";
+
+    if (!currentIp || currentIp === "Unknown") return -1;
+
+    const sameIp = sessions.filter(
+      (session) => !!session.ip_address && session.ip_address === currentIp,
+    );
+    if (sameIp.length === 0) return -1;
+
+    // Unambiguous when only one session shares this IP.
+    if (sameIp.length === 1) return sessions.indexOf(sameIp[0]);
+
+    // Several sessions share the IP - disambiguate on the user agent.
+    if (requestUserAgent) {
+      const byAgent = sameIp.filter(
+        (session) => !!session.device_info && session.device_info === requestUserAgent,
+      );
+      if (byAgent.length > 0) return sessions.indexOf(byAgent[0]);
+    }
+
+    // Same IP, no usable agent match - fall back to the most recent login.
+    return sessions.indexOf(
+      sameIp.find((session) => session.is_current === true) ?? sameIp[0],
+    );
+  }
+
+  /**
+   * Returns every session that has not been terminated.
+   *
+   * "Active" means `ended_at IS NULL` - the same definition already used by the
+   * admin force-logout endpoint (see src/admin/api/remote.ts). It is NOT
+   * `is_current`, which only ever flags the single most recent login and
+   * therefore could only ever return one row.
+   */
   static async getActiveSessions(userId: string, req: any) {
     try {
       const userSessions = await prisma.userSession.findMany({
         where: {
           user_id: userId,
-          is_current: true,
+          ended_at: null,
         },
-        orderBy: {
-          last_active: "desc",
-        },
+        orderBy: [
+          { is_current: "desc" },
+          { last_active: "desc" },
+        ],
       });
 
-      const xForwardedFor = req.headers["x-forwarded-for"] as string | undefined;
-      const directIp = req.ip || req.connection?.remoteAddress || "unknown";
-      const currentIp = formatIpAddress(xForwardedFor || null, directIp);
+      const currentIndex = SecurityService.resolveOwnSessionIndex(userSessions, req);
 
-      const sessions = await Promise.all(
-        userSessions.map(async (session: any) => {
-          const browserInfo = detectBrowser(session.device_info || "");
-          const deviceInfo = detectDeviceType(session.device_info || "");
+      const sessions = userSessions.map((session: any, index: number) => {
+        const browserInfo = detectBrowser(session.device_info || "");
+        const deviceInfo = detectDeviceType(session.device_info || "");
 
-          return {
-            id: session.id,
-            session_id: session.session_id,
-            device: deviceInfo.deviceType,
-            device_label: getDeviceLabel(session.device_info || ""),
-            browser: browserInfo.browser,
-            browser_version: browserInfo.version,
-            location: session.location || "Unknown",
-            ip_address: session.ip_address || currentIp,
-            lastActive: session.last_active || session.started_at,
-            current: true,
-            started_at: session.started_at,
-          };
-        }),
-      );
+        return {
+          id: session.id,
+          session_id: session.session_id,
+          device: deviceInfo.deviceType,
+          device_label: getDeviceLabel(session.device_info || ""),
+          browser: browserInfo.browser,
+          browser_version: browserInfo.version,
+          location: session.location || "Unknown",
+          ip_address: session.ip_address || "Unknown",
+          lastActive: session.last_active || session.started_at,
+          current: index === currentIndex,
+          started_at: session.started_at,
+        };
+      });
 
       return sessions;
     } catch (error) {
@@ -102,16 +150,18 @@ export class SecurityService {
         throw new Error("Session not found");
       }
 
-      if (session.is_current) {
-        throw new Error("Cannot sign out the current session");
+      if (session.ended_at) {
+        throw new Error("Session is already signed out");
       }
 
+      // Note: UserSession has no `expires_at` column - writing one makes Prisma
+      // reject the update at runtime. Termination is recorded via `ended_at`,
+      // consistent with the admin revoke-session endpoint.
       await prisma.userSession.update({
         where: { id: sessionId },
         data: {
           is_current: false,
           ended_at: new Date(),
-          expires_at: new Date(),
         },
       });
 
@@ -138,17 +188,42 @@ export class SecurityService {
     }
   }
 
-  static async signOutAllOtherSessions(userId: string) {
+  static async signOutAllOtherSessions(userId: string, req?: any) {
     try {
-      await prisma.userSession.updateMany({
+      // Terminate every live session except the one making this request.
+      //
+      // The previous filter (`is_current: false`) matched only sessions that had
+      // already been superseded, so the call was effectively a no-op. Active now
+      // means `ended_at IS NULL`, and the caller's own row is excluded by
+      // `session_id` so "sign out other devices" never signs the user out of
+      // the device they are currently using.
+      const liveSessions = await prisma.userSession.findMany({
+        where: { user_id: userId, ended_at: null },
+        orderBy: [
+          { is_current: "desc" },
+          { last_active: "desc" },
+        ],
+      });
+
+      const ownIndex = SecurityService.resolveOwnSessionIndex(liveSessions, req);
+      const ownSessionId =
+        ownIndex >= 0 ? (liveSessions[ownIndex] as any).session_id : undefined;
+
+      // If the caller's row cannot be identified, fall back to the stored
+      // current session so at least one session survives the operation.
+      const keepSessionId =
+        ownSessionId ??
+        (liveSessions.find((s: any) => s.is_current) as any)?.session_id;
+
+      const result = await prisma.userSession.updateMany({
         where: {
           user_id: userId,
-          is_current: false,
+          ended_at: null,
+          ...(keepSessionId ? { session_id: { not: keepSessionId } } : {}),
         },
         data: {
           is_current: false,
           ended_at: new Date(),
-          expires_at: new Date(),
         },
       });
 
@@ -163,7 +238,12 @@ export class SecurityService {
 
       await SecurityService.sendSecurityAlerts(userId, "session_terminated", "", "", "Unknown");
 
-      return { success: true, message: "All other sessions signed out successfully" };
+      return {
+        success: true,
+        message: `Signed out ${result.count} other ${
+          result.count === 1 ? "session" : "sessions"
+        } successfully`,
+      };
     } catch (error) {
       logger.error("Error signing out all other sessions:", error);
       throw new Error("Failed to sign out all other sessions");

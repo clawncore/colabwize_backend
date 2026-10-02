@@ -43,7 +43,7 @@ router.delete("/sessions", async (req, res) => {
       return res.status(401).json({ error: "Authentication required" });
     }
 
-    const result = await SecurityService.signOutAllOtherSessions(userId);
+    const result = await SecurityService.signOutAllOtherSessions(userId, req);
 
     return res.json(result);
   } catch (error: any) {
